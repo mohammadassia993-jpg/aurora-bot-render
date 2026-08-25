@@ -20,8 +20,8 @@ export function availableModels() {
   if (simulationEnabled()) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
     config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 1 },
-    config.geminiKey && { id: 'gemini-2.0-flash', label: 'Gemini Flash', priority: 2 },
-    config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-2.0-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
+    config.geminiKey && { id: 'gemini-3.6-flash', label: 'Gemini Flash', priority: 2 },
+    config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-3.6-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
     { id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 99 }
   ].filter(Boolean);
 }
@@ -32,6 +32,7 @@ export function selectModel() {
     const preferred = available.find(item => item.id === config.aiPrimaryModel);
     if (preferred) return preferred.id;
   }
+  if (config.geminiKey) { const gemini = available.find(m => m.id === 'gemini-3.6-flash'); if (gemini) return gemini.id; }
   const metrics = new Map(modelScores().map(row => [row.model, row]));
   return [...available].sort((left, right) => {
     const leftScore = metrics.get(left.id);
@@ -116,12 +117,12 @@ function smartFallback(agent, prompt) {
 
 export async function callModel(agent, prompt, taskId = null) {
   const started = Date.now();
-  const model = selectModel();
+  let model = selectModel();
   let output = '';
   let success = true;
   let errorType = '';
   try {
-    if (model === 'local-deterministic' || simulationEnabled()) {
+    if (simulationEnabled() || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey)) {
       if (prompt.includes('Return strict JSON')) {
         output = JSON.stringify({
           opportunities: [
@@ -146,9 +147,9 @@ export async function callModel(agent, prompt, taskId = null) {
       const data = await response.json();
       output = data.choices?.[0]?.message?.content || data.response || data.content || '';
       if (!output) throw Object.assign(new Error('GPT-OSS returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
-    } else if (model === 'gemini-2.0-flash') {
+    } else if (model === 'gemini-3.6-flash') {
       const response = await postJson(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${config.geminiKey}`,
         { contents: [{ parts: [{ text: `${soulPrompt()}\n\n${prompt}` }] }] }, {}, 'gemini'
       );
       if (!response.ok) throw Object.assign(new Error(`Gemini HTTP ${response.status}`), { code: 'AI_PROVIDER' });
