@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: aurora-silent-giants
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci --omit=dev || npm install --omit=dev
+    startCommand: bash deploy/render/start.sh
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8787
+      - key: PLATFORM_ROLE
+        value: render
+      - key: ALLOW_DATABASE_RESTORE_RESTART
+        value: "true"
+      - key: MAIL_DELIVERY_MODE
+        value: disabled
+      - key: AI_SIMULATION_MODE
+        value: "true"
+      - key: AUTO_RUN_CONNECTORS
+        value: "false"
+      - key: DATABASE_SYNC_TOKEN
+        sync: false
+      - key: TEAM_UI_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_ADMIN_CHAT_ID
+        sync: false

@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070b16">
+  <title>Aurora AnyClaw — Silent Giants</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+      background: #070b16;
+      color: #e8eef9;
+      --panel: rgba(13,20,36,.92);
+      --line: #223047;
+      --muted: #93a3b8;
+      --blue: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    button, input, select, textarea { font: inherit; }
+    header {
+      position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px;
+      padding: 14px max(18px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line);
+      background: rgba(7,11,22,.94); backdrop-filter: blur(18px);
+    }
+    .brand-mark {
+      width: 44px; height: 44px; flex: 0; display: grid; place-items: center; border-radius: 15px;
+      background: conic-gradient(from 140deg, #60a5fa, #a78bfa, #34d399, #60a5fa);
+      color: #04101f; font-weight: 900;
+    }
+    .brand h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    .brand p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+    nav { margin-inline-start: auto; display: flex; gap: 6px; align-items: center; }
+    .navbtn {
+      position: relative; border: 1px solid transparent; background: transparent; color: var(--muted);
+      padding: 9px 13px; border-radius: 11px; cursor: pointer;
+    }
+    .navbtn:hover { color: white; background: #101827; }
+    .navbtn.active { color: white; background: #1c2d4f; border-color: #33507f; }
+    .badge {
+      display: none; position: absolute; top: 4px; inset-inline-end: 4px; min-width: 17px; height: 17px;
+      border-radius: 99px; background: #ef4444; color: white; font-size: 10px; line-height: 17px;
+    }
+    main { width: min(1360px, calc(100% - 28px)); margin: 22px auto; }
+    .view { display: none; } .view.visible { display: block; animation: fade .24s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(5px); } }
+    .card, .panel {
+      background: var(--panel); border: 1px solid #20304a; border-radius: 20px;
+      box-shadow: 0 20px 50px #00000055;
+    }
+    .card { padding: 18px; margin-bottom: 16px; }
+    .card h2 { margin: 0 0 14px; font-size: 17px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .col-3 { grid-column: span 3; } .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; } .col-8 { grid-column: span 8; } .col-12 { grid-column: span 12; }
+    .metric-card { display: grid; gap: 6px; }
+    .metric { font-size: clamp(23px, 4vw, 32px); font-weight: 800; }
+    .muted { color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .team-layout { display: grid; grid-template-columns: 310px minmax(0,1fr); gap: 16px; align-items: start; }
+    .agent-list { display: grid; gap: 10px; }
+    .agent {
+      display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: center;
+      padding: 10px; border-radius: 15px; background: #0b1120; border: 1px solid #223047;
+    }
+    .agent img { width: 46px; height: 46px; border-radius: 14px; background: #172033; }
+    .agent strong { display: block; font-size: 14px; }
+    .status {
+      display: inline-block; margin-top: 3px; padding: 2px 7px; border-radius: 99px; font-size: 10px;
+    }
+    .active { background: #062f28; color: #4ade80; } .idle { background: #2b1906; color: #fbbf24; }
+    .chat-wrap { display: flex; flex-direction: column; height: min(72vh, 720px); overflow: hidden; }
+    .chat-head {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 14px 16px; border-bottom: 1px solid var(--line);
+    }
+    .chat {
+      flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+      scroll-behavior: smooth;
+    }
+    .msg { max-width: min(78%, 680px); padding: 11px 13px; border-radius: 17px; white-space: pre-wrap; word-break: break-word; }
+    .msg.leader { align-self: flex-start; background: linear-gradient(135deg,#2563eb,#1d4ed8); }
+    .msg.agent { align-self: flex-end; background: #152338; border: 1px solid #293c58; }
+    .msg-meta { display: flex; gap: 6px; justify-content: space-between; font-size: 10px; color: #b9c5d6; opacity: .75; }
+    .attachment { display: block; margin-top: 8px; color: #bfdbfe; font-size: 12px; }
+    .preview img, .preview video { display: block; max-width: 100%; max-height: 280px; margin-top: 8px; border-radius: 11px; }
+    .file-chip {
+      display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 7px 9px;
+      border: 1px solid #35507f; background: #102038; border-radius: 10px; font-size: 12px;
+    }
+    .composer { border-top: 1px solid var(--line); padding: 12px; }
+    textarea {
+      width: 100%; min-height: 78px; resize: vertical; border: 1px solid #30405a; outline: none;
+      background: #080e19; color: white; padding: 11px; border-radius: 13px;
+    }
+    textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #3b82f633; }
+    .composer-actions { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
+    select {
+      background: #0a1120; color: white; border: 1px solid #30405a; border-radius: 10px; padding: 9px;
+    }
+    .primary {
+      border: 0; border-radius: 11px; padding: 10px 16px; cursor: pointer; color: white; font-weight: 700;
+      background: linear-gradient(135deg,#2563eb,#7c3aed);
+    }
+    .primary:disabled { opacity: .55; cursor: not-allowed; }
+    .ghost {
+      background: transparent; border: 1px solid #33455f; color: #dbeafe; padding: 9px 12px;
+      border-radius: 10px; cursor: pointer;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: right; padding: 10px; border-bottom: 1px solid #182639; font-size: 13px; vertical-align: top; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .task-status, .source-pill {
+      display: inline-block; padding: 3px 7px; border-radius: 99px; font-size: 10px; background: #142138; color: #93c5fd;
+    }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .event { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid #16223a; }
+    .wallet { font-family: ui-monospace; font-size: 11px; word-break: break-all; }
+    .pill { display: inline-block; margin: 3px; padding: 4px 8px; border-radius: 99px; background: #132038; color: #93c5fd; font-size: 11px; }
+    .toast {
+      position: fixed; inset-inline: auto 18px; bottom: 18px; z-index: 60; display: none; max-width: min(420px, calc(100% - 36px));
+      background: #0f2c20; border: 1px solid #22c55e; color: #dcfce7; padding: 12px 15px; border-radius: 13px;
+    }
+    .toast.error { background: #37161a; border-color: #f87171; color: #fee2e2; }
+    .empty { padding: 26px; text-align: center; color: var(--muted); }
+    @media (max-width: 900px) {
+      .col-3, .col-4, .col-6, .col-8 { grid-column: span 12; }
+      .team-layout { grid-template-columns: 1fr; }
+      header { flex-wrap: wrap; } nav { width: 100%; margin: 0; overflow: auto; padding-top: 8px; }
+      .msg { max-width: 90%; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand-mark">A</div>
+  <div class="brand"><h1>Aurora AnyClaw</h1><p id="systemStatus">جارٍ التحقق من حالة النظام…</p></div>
+  <nav>
+    <button class="navbtn active" data-view="dashboard">الرئيسية</button>
+    <button class="navbtn" data-view="team">غرفة الفريق</button>
+    <button class="navbtn" data-view="tasks">المهام</button>
+    <button class="navbtn" data-view="notifications">الإشعارات<span id="notificationBadge" class="badge"></span></button>
+  </nav>
+</header>
+
+<main>
+  <section id="dashboard" class="view visible"><div id="dashboardBody"><div class="card empty">جارٍ تحميل لوحة التحكم…</div></div></section>
+
+  <section id="team" class="view">
+    <div class="team-layout">
+      <aside class="card"><h2>الوكلاء</h2><div id="agentCards" class="agent-list"><div class=muted>جارٍ التحميل…</div></div></aside>
+      <section class="panel chat-wrap">
+        <div class="chat-head"><div><strong>غرفة الفريق الجماعية</strong><p class=muted>رسائل ومرفقات الفريق — الحد الأقصى 25MB</p></div><button id=refreshChat class=ghost>تحديث</button></div>
+        <div id="chat" class="chat"><div class=empty>لا رسائل معروضة بعد.</div></div>
+        <form id=messageForm class=composer>
+          <textarea id=messageText placeholder="اكتب رسالة إلى أورورا أو إلى وكيل محدد…" required></textarea>
+          <div class="composer-actions">
+            <select id=recipient aria-label="المستلم"><option value="all">كل الوكلاء</option></select>
+            <input id=fileInput type=file hidden accept="image/*,video/*,.pdf,.zip,.txt,.md,.csv,.json">
+            <button type=button id=fileButton class=ghost>📎 إرفاق ملف</button>
+            <span id=fileName class=muted>لم يتم اختيار ملف</span>
+            <button class=primary style="margin-inline-start:auto">إرسال</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </section>
+
+  <section id="tasks" class="view">
+    <div class="card">
+      <h2>مهام المشاريع النشطة</h2>
+      <div class=toolbar>
+        <select id=taskSourceFilter><option value="">كل المسارات</option></select>
+        <select id=taskStatusFilter><option value="">كل الحالات</option></select>
+        <input id=taskSearch placeholder="بحث في المهام…" style="flex:1;min-width:180px;background:#0a1120;color:white;border:1px solid #30405a;border-radius:10px;padding:9px">
+      </div>
+      <div style="overflow:auto"><table><thead><tr><th>المهمة</th><th>المسار</th><th>المسؤول</th><th>الحالة</th><th>المكافأة</th><th>آخر تحديث</th></tr></thead><tbody id=taskRows></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="notifications" class="view">
+    <div class="card"><h2>الإشعارات الفورية</h2><button id=markRead class=ghost>تحديد الكل كمقروء</button><div id=notificationList style="margin-top:12px"></div></div>
+  </section>
+</main>
+<div id=toast class=toast></div>
+
+<script>
+const teamKey = new URLSearchParams(location.search).get('key') || localStorage.getItem('teamKey') || '__TEAM_KEY__';
+if (teamKey) localStorage.setItem('teamKey', teamKey);
+let agents = [], tasks = [], notifications = [], lastChatFingerprint = '';
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', 'x-team-key': teamKey, ...(options.headers || {}) } });
+  const contentType = response.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+  if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+  return payload;
+}
+
+function esc(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]); }
+function toast(message, isError = false) {
+  const element = document.getElementById('toast');
+  element.textContent = message; element.className = `toast${isError ? ' error' : ''}`; element.style.display = 'block';
+  setTimeout(() => { element.style.display = 'none'; }, isError ? 5200 : 3200);
+}
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  const units = ['B','KB','MB']; let value = bytes, unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+}
+function formatDate(value) { return value ? new Date(String(value).replace(' ', 'T') + (String(value).includes('Z') ? '' : 'Z')).toLocaleString('ar', { dateStyle: 'short', timeStyle: 'short' }) : ''; }
+function agentName(id) { return ({aurora:'أورورا',planner:'المخطط',executor:'المنفذ',reviewer:'المراجع',scout:'المستخبر',leader:'القائد'})[id] || id || 'غير محدد'; }
+function taskStatus(id) { return ({discovered:'مكتشفة',planned:'مخططة',drafted:'مسودة',needs_revision:'تحتاج مراجعة',ready_for_approval:'جاهزة للموافقة',submitted:'مرسلة',delivered:'مسلمة',paid:'مدفوعة'})[id] || id; }
+function attachmentUrl(path) { return `${path}?key=${encodeURIComponent(teamKey)}`; }
+
+document.querySelectorAll('.navbtn').forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
+function showView(view) {
+  document.querySelectorAll('.view').forEach(item => item.classList.toggle('visible', item.id === view));
+  document.querySelectorAll('.navbtn').forEach(item => item.classList.toggle('active', item.dataset.view === view));
+}
+
+function metric(label, value, note='') { return `<div class="card metric-card col-3"><span class=muted>${esc(label)}</span><span class=metric>${esc(value)}</span><span class=muted>${esc(note)}</span></div>`; }
+function agentCard(agent) {
+  const active = agent.status === 'active';
+  return `<article class=agent><img src="${esc(agent.icon)}" alt=""><div><strong>${esc(agent.name)}</strong><span class=muted>${esc(agent.role)}</span><br><span class="status ${active?'active':'idle'}">${active?'نشط الآن':'متاح'}</span></div></article>`;
+}
+
+async function loadHealthAndDashboard() {
+  try {
+    const [health, data] = await Promise.all([fetch('/health').then(item => item.json()), api('/api/dashboard')]);
+    const failed = Object.entries(health.health || {}).filter(([,ok]) => !ok).map(([name]) => name);
+    document.getElementById('systemStatus').textContent = health.ok ? `يعمل • ${data.system.platform} • ذاكرة ${data.system.memoryMb}MB` : `يحتاج مراجعة • ${failed.join(', ')}`;
+    const projects = data.projects.map(project => `<tr><td><b>${esc(project.source)}</b></td><td>${esc(agentName(project.owner))}</td><td>${project.completed}/${project.total}</td></tr>`).join('');
+    const events = data.events.map(event => `<div class=event><span><b>${esc(agentName(event.actor))}</b> • ${esc(event.action)}<br><small class=muted>${esc(event.detail).slice(0,180)}</small></span><small class=muted>${esc(formatDate(event.created_at))}</small></div>`).join('');
+    const wallets = data.wallets.filter(wallet => wallet.address).map(wallet => `<p><b>${esc(wallet.label)}</b><br><span class=wallet>${esc(wallet.address)}</span><br><small class=muted>استلام فقط</small></p>`).join('');
+    document.getElementById('dashboardBody').innerHTML = `
+      <div class=grid>
+        ${metric('الأرباح المؤكدة', `${data.finance.earned} USD`, 'مهام مسلمة أو مدفوعة')}
+        ${metric('قيمة خط العمل', `${data.finance.pipeline} USD`, 'فرق نشطة قيد التنفيذ')}
+        ${metric('مهام منجزة', data.finance.completedTasks, 'حسب السجل الفعلي')}
+        ${metric('مهام معلقة', data.finance.pendingTasks, 'بحاجة لتنفيذ أو مراجعة')}
+      </div>
+      <div class=grid><div class="card col-6"><h2>حالة الوكلاء الخمسة</h2><div class=agent-list>${data.agents.map(agentCard).join('')}</div></div>
+      <div class="card col-6"><h2>المشاريع والمسارات</h2><table><thead><tr><th>المسار</th><th>المسؤول</th><th>الإنجاز</th></tr></thead><tbody>${projects}</tbody></table></div></div>
+      <div class=grid><div class="card col-6"><h2>سجل الأحداث</h2>${events || '<span class=muted>لا أحداث بعد</span>'}</div>
+      <div class="card col-6"><h2>المحافظ الاستلامية</h2>${wallets}<p class=muted>لا سحب ولا مفاتيح خاصة. أي إرسال يتطلب موافقة بشرية.</p></div></div>
+      <div class="card"><h2>النماذج والأداء</h2>${data.availableModels.map(model => `<span class=pill>${esc(model.label)}</span>`).join('')}<div id=performanceCard></div></div>`;
+    renderPerformance(data.performance);
+  } catch (error) { toast(`تعذر تحميل اللوحة: ${error.message}`, true); }
+}
+
+function renderPerformance(performance) {
+  const target = document.getElementById('performanceCard');
+  if (!target || !performance) return;
+  target.innerHTML = `<p class=muted><b>العوائق:</b> ${performance.bottlenecks.map(esc).join(' • ')}</p><table><thead><tr><th>الوكيل</th><th>مؤشرات القياس</th></tr></thead><tbody>${performance.kpis.map(kpi => `<tr><td>${esc(kpi.role)}</td><td>${kpi.indicators.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table>`;
+}
+
+async function loadTeam(showErrors = true) {
+  try {
+    const [agentData, messageData] = await Promise.all([api('/api/team/agents'), api('/api/team/messages?limit=120')]);
+    agents = agentData.agents; tasks = tasks.length ? tasks : [];
+    const recipient = document.getElementById('recipient');
+    [...recipient.options].forEach(option => { if (option.value !== 'all') option.remove(); });
+    agents.filter(agent => agent.id !== 'leader').forEach(agent => recipient.add(new Option(agent.name, agent.id)));
+    document.getElementById('agentCards').innerHTML = agents.map(agentCard).join('');
+    renderMessages([...messageData.messages].reverse());
+  } catch (error) { if (showErrors) toast(`تعذر تحميل المحادثة: ${error.message}`, true); }
+}
+
+function renderMessages(messages) {
+  const fingerprint = messages.map(message => message.id).join(',');
+  const changed = fingerprint !== lastChatFingerprint; lastChatFingerprint = fingerprint;
+  const chat = document.getElementById('chat');
+  chat.innerHTML = messages.map(message => {
+    let media = '';
+    if (message.attachmentPath) {
+      const url = attachmentUrl(message.attachmentPath), name = esc(message.attachmentName || 'مرفق');
+      if (/^image\//.test(message.attachmentType)) media = `<div class=preview><img src="${url}" alt="${name}" loading=lazy></div><a class=attachment href="${url}" target=_blank>⬇️ ${name}</a>`;
+      else if (/^video\//.test(message.attachmentType)) media = `<div class=preview><video src="${url}" controls preload=metadata></video></div><a class=attachment href="${url}" target=_blank>⬇️ ${name}</a>`;
+      else media = `<a class=file-chip href="${url}" target=_blank>📄 ${name}${message.attachmentSize ? ` • ${formatBytes(message.attachmentSize)}` : ''}</a>`;
+    }
+    return `<article class="msg ${message.sender === 'leader' ? 'leader' : 'agent'}"><div class=msg-meta><span>${esc(agentName(message.sender))} → ${esc(message.recipient === 'all' ? 'الجميع' : agentName(message.recipient))}</span><time>${esc(formatDate(message.createdAt))}</time></div>${esc(message.body)}${media}</article>`;
+  }).join('') || '<div class=empty>ابدأ أول رسالة للفريق.</div>';
+  if (changed) chat.scrollTop = chat.scrollHeight;
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('تعذر قراءة الملف'));
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('fileButton').addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', event => {
+  const file = event.target.files[0];
+  document.getElementById('fileName').textContent = file ? `${file.name} • ${formatBytes(file.size)}` : 'لم يتم اختيار ملف';
+});
+document.getElementById('refreshChat').addEventListener('click', () => loadTeam(true));
+document.getElementById('messageForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = event.target.querySelector('.primary'), text = document.getElementById('messageText'), file = document.getElementById('fileInput').files[0];
+  if (!text.value.trim()) return toast('اكتب نص الرسالة أولًا', true);
+  button.disabled = true;
+  try {
+    const attachment = file && { name: file.name, type: file.type, base64: await fileToBase64(file) };
+    await api('/api/team/messages', { method:'POST', body: JSON.stringify({ sender:'leader', recipient:document.getElementById('recipient').value, body:text.value.trim(), attachment }) });
+    text.value = ''; document.getElementById('fileInput').value = ''; document.getElementById('fileName').textContent = 'لم يتم اختيار ملف';
+    toast('تم إرسال الرسالة'); await loadTeam(false); loadNotifications();
+  } catch (error) { toast(error.message, true); } finally { button.disabled = false; }
+});
+
+function renderTasks() {
+  const source = document.getElementById('taskSourceFilter').value, status = document.getElementById('taskStatusFilter').value, query = document.getElementById('taskSearch').value.trim();
+  const rows = tasks.filter(task => (!source || task.source === source) && (!status || task.status === status) && (!query || `${task.title} ${task.source} ${task.assignedAgent}`.includes(query)));
+  document.getElementById('taskRows').innerHTML = rows.map(task => `<tr><td><b>#${task.id}</b> ${esc(task.title)}</td><td><span class=source-pill>${esc(task.source)}</span></td><td>${esc(agentName(task.assignedAgent))}</td><td><span class=task-status>${esc(taskStatus(task.status))}</span></td><td>${task.reward ? `${task.reward} ${esc(task.currency || 'USD')}` : '—'}</td><td class=muted>${esc(formatDate(task.updatedAt))}</td></tr>`).join('') || '<tr><td colspan=6 class=empty>لا مهام مطابقة.</td></tr>';
+}
+
+async function loadTasks(showErrors = true) {
+  try {
+    const data = await api('/api/team/tasks'); tasks = data.tasks;
+    const sources = [...new Set(tasks.map(task => task.source))], statuses = [...new Set(tasks.map(task => task.status))];
+    fillFilter('taskSourceFilter', sources.map(value => [value, value]));
+    fillFilter('taskStatusFilter', statuses.map(value => [value, taskStatus(value)]));
+    renderTasks();
+  } catch (error) { if (showErrors) toast(`تعذر تحميل المهام: ${error.message}`, true); }
+}
+
+function fillFilter(id, values) {
+  const select = document.getElementById(id), first = select.options[0];
+  select.innerHTML = ''; select.append(first);
+  values.forEach(([value, label]) => select.append(new Option(label, value)));
+}
+
+['taskSourceFilter','taskStatusFilter'].forEach(id => document.getElementById(id).addEventListener('change', renderTasks));
+document.getElementById('taskSearch').addEventListener('input', renderTasks);
+
+async function loadNotifications() {
+  try {
+    const data = await api('/api/notifications'); notifications = data.notifications;
+    document.getElementById('notificationBadge').textContent = data.unread || '';
+    document.getElementById('notificationBadge').style.display = data.unread ? 'block' : 'none';
+    document.getElementById('notificationList').innerHTML = notifications.map(item => `<div class=event><span><b>${esc(item.title)}</b><br><small class=muted>${esc(item.body)}</small></span><small class=muted>${esc(formatDate(item.createdAt))}</small></div>`).join('') || '<div class=empty>لا إشعارات.</div>';
+  } catch (error) { toast(`تعذر تحميل الإشعارات: ${error.message}`, true); }
+}
+
+document.getElementById('markRead').addEventListener('click', async () => { await api('/api/notifications/read',{method:'POST'}); loadNotifications(); });
+
+async function refreshAll() { await Promise.allSettled([loadHealthAndDashboard(), loadTeam(false), loadTasks(false), loadNotifications()]); }
+refreshAll();
+const live = new EventSource(`/api/live?key=${encodeURIComponent(teamKey)}`);
+live.addEventListener('message', () => { loadTeam(false); });
+live.addEventListener('notification', () => { loadNotifications(); });
+live.addEventListener('tasks', event => {
+  const data = JSON.parse(event.data); tasks = data.tasks;
+  const sources = [...new Set(tasks.map(task => task.source))], statuses = [...new Set(tasks.map(task => task.status))];
+  fillFilter('taskSourceFilter', sources.map(value => [value, value]));
+  fillFilter('taskStatusFilter', statuses.map(value => [value, taskStatus(value)]));
+  renderTasks();
+});
+live.addEventListener('system', event => {
+  const data = JSON.parse(event.data);
+  agents = data.agents || agents;
+  const element = document.getElementById('agentCards');
+  if (element && document.getElementById('team').classList.contains('visible')) element.innerHTML = agents.map(agentCard).join('');
+  document.getElementById('systemStatus').textContent = `فوري • ذاكرة ${data.system.memoryMb}MB • مهام معلقة ${data.finance.pendingTasks}`;
+});
+setInterval(loadHealthAndDashboard, 30000);
+</script>
+</body>
+</html>

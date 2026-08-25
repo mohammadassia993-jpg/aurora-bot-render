@@ -1,0 +1,10 @@
+{
+  "id": "aurora-supervisor",
+  "name": "Aurora Supervisor",
+  "description": "Keeps the Aurora Silent Giants runtime alive under the OpenClaw Gateway.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
