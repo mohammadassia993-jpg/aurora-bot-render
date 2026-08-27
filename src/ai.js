@@ -123,7 +123,17 @@ export async function callModel(agent, prompt, taskId = null) {
   let errorType = '';
   try {
     if (simulationEnabled() || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey)) {
-      if (prompt.includes('Return strict JSON')) {
+      if (agent === 'daily-scout') {
+        output = JSON.stringify({
+          opportunities: [
+            { title: 'Web3 security review & audit summaries (per-project)', source: 'Bounty platforms', reward: 2500, fit_score: 82, risk: 'low', why: 'Reusable technical review workflow; paid per deliverable in USDT', criteria_met: ['income in range when active', 'USDT payout', 'zero startup cost', 'no bank', 'no meetings', 'zero wallet risk', 'team-integrated', 'no upfront payment'], simulated: true, simulated_note: 'Sample workflow; requires real platform keys for live discovery' },
+            { title: 'DePIN operations & community reporting retainer', source: 'DePIN ecosystems', reward: 3000, fit_score: 76, risk: 'low', why: 'Recurring reporting work for node networks; remote and async', criteria_met: ['income in range when active', 'USDT payout', 'zero startup cost', 'no bank', 'no meetings', 'zero wallet risk', 'team-integrated', 'no upfront payment'], simulated: true, simulated_note: 'Sample workflow; requires live network access' },
+            { title: 'Crypto content production pipeline (Arabic tech media)', source: 'Web3 media houses', reward: 2000, fit_score: 80, risk: 'low', why: 'High-volume Arabic Web3 content with clear per-piece rates', criteria_met: ['income in range when active', 'USDT payout', 'zero startup cost', 'no bank', 'no meetings', 'zero wallet risk', 'team-integrated', 'no upfront payment'], simulated: true, simulated_note: 'Sample workflow; requires outreach/keys' }
+          ],
+          blocked_ideas: ['airdrops', 'digital products resale', 'B2B services', 'paid testnets with upfront costs'],
+          recommendations: ['Secure live platform keys for real discovery', 'Keep deliverables ready in Arabic/English', 'Publish portfolio samples to improve proposal win-rate']
+        }, null, 2);
+      } else if (prompt.includes('Return strict JSON')) {
         output = JSON.stringify({
           opportunities: [
             { title: 'Arabic Web3 technical writing bounty', source: 'Superteam Earn', reward: 300, fit_score: 86, risk: 'low', why: 'Strong language and technical match' },

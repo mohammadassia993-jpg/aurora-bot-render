@@ -29,6 +29,22 @@ export function buildDailyDigest() {
     WHERE created_at >= datetime('now','-24 hours') GROUP BY agent ORDER BY agent
   `).all();
   const healthy = checks.filter(item => item.healthy === 1).length;
+  const streamStats = source => {
+    const rows = db.prepare(`
+      SELECT status, COUNT(*) AS count FROM tasks WHERE source = ? GROUP BY status
+    `).all(source);
+    const applied = db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE source = ? AND external_id LIKE 'ht-%'`).get(source).c;
+    const ready = db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE source = ? AND status = 'ready_for_approval'`).get(source).c;
+    const total = rows.reduce((sum, row) => sum + row.count, 0);
+    return `المقدمة ${applied} | الجاهزة ${ready} | الإجمالي ${total}`;
+  };
+  const recentResearch = db.prepare(`
+    SELECT cycle, opportunities_json FROM research_reports WHERE cycle LIKE 'daily:%'
+    ORDER BY rowid DESC LIMIT 1
+  `).get();
+  const researchCount = recentResearch
+    ? (JSON.parse(recentResearch.opportunities_json || '[]') || []).length
+    : 0;
   const lines = [
     '📋 التقرير اليومي الموحد لأورورا',
     `الحالة العامة: ${healthy === checks.length && checks.length > 0 ? 'مستقرة' : 'تحت المراجعة'}`,
@@ -36,7 +52,19 @@ export function buildDailyDigest() {
     '🩺 الخدمات:',
     ...checks.map(item => `- ${item.component}: ${item.healthy ? 'سليمة' : 'بحاجة إلى مراجعة'} — ${item.detail}`),
     '',
-    `🗂️ المهام: ${tasks.map(item => `${item.status}=${item.count}`).join('، ') || 'لا يوجد'}`,
+    '📊 تقرير مسار العمل الحر (Dework):',
+    `- ${streamStats('dework')}`,
+    '',
+    '📊 تقرير مسار Titan/DePIN:',
+    `- ${streamStats('titan')}`,
+    '',
+    '📊 تقرير مسار التوظيف:',
+    `- ${streamStats('jobs')}`,
+    '',
+    '🔎 تقرير نتائج البحث الجديد:',
+    `- فرص مؤهلة مكتشفة: ${researchCount}`,
+    recentResearch ? `- آخر دورة بحث: ${String(recentResearch.cycle).replace('daily:', '')}` : '- لم تُنفَّذ دورة بحث بعد',
+    '',
     `📬 طابور البريد: ${queue.map(item => `${item.status}=${item.count}`).join('، ') || 'فارغ'}`,
     `👥 نشاط الوكلاء خلال ٢٤ ساعة: ${agents.map(item => `${item.agent} (${item.lastRun})`).join('، ') || 'لا يوجد'}`,
     '',

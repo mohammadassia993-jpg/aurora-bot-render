@@ -5,9 +5,9 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import { db } from './db.js';
-import { activateTeam, planTask, executeTask, reviewTask, requestApproval } from './agents.js';
+import { activateTeam, planTask, executeTask, reviewTask, requestApproval, runHighThroughput } from './agents.js';
 import { runConnectors } from './connectors.js';
-import { runWeeklyResearch } from './research.js';
+import { runWeeklyResearch, runDailyResearch } from './research.js';
 import { runWatchdog } from './watchdog.js';
 import { dailyReport, handleTelegramUpdate, processTelegramOutbox, sendMessageDetailed, telegramMode } from './telegram.js';
 import { modelPerformance } from './ai.js';
@@ -387,6 +387,29 @@ export async function startServer() {
 
       if (url.pathname === '/research/weekly' && request.method === 'POST') {
         return json(response, 200, { report: await runWeeklyResearch() });
+      }
+
+      if (url.pathname === '/research/daily' && request.method === 'POST') {
+        return json(response, 200, { report: await runDailyResearch() });
+      }
+
+      if (url.pathname === '/productivity/run' && request.method === 'POST') {
+        const body = await readBody(request);
+        const count = Math.max(1, Math.min(50, Number(body.count || 10)));
+        return json(response, 200, { summary: await runHighThroughput(count) });
+      }
+
+      if (url.pathname === '/api/team/tasks/by-stream' && request.method === 'GET') {
+        const streams = ['dework', 'titan', 'jobs', 'opportunity'];
+        const result = {};
+        for (const stream of streams) {
+          result[stream] = db.prepare(`
+            SELECT id, source, title, status, reward, currency, assigned_agent AS assignedAgent,
+                   fit_score AS fitScore, updated_at AS updatedAt
+            FROM tasks WHERE source = ? ORDER BY updated_at DESC, id DESC LIMIT 100
+          `).all(stream);
+        }
+        return json(response, 200, { streams: result, generatedAt: new Date().toISOString() });
       }
 
       if (url.pathname === '/emergency' && request.method === 'POST') {

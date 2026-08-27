@@ -66,6 +66,19 @@ cronInterval(async () => {
 
 startWalletMonitors();
 startTunnelWatcher();
+if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
+  setInterval(async () => {
+    try {
+      const result = await import('./research.js').then(module => module.runDailyResearch());
+      info('daily_research', 'daily research cycle', result);
+    } catch (caught) {
+      error('daily_research', caught.message);
+    }
+  }, 24 * 60 * 60_000).unref();
+  import('./research.js').then(module => module.runDailyResearch())
+    .then(result => info('daily_research', 'initial daily research run', result))
+    .catch(caught => error('daily_research', caught.message));
+}
 if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
     try {
