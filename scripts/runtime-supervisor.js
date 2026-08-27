@@ -43,7 +43,7 @@ services.push(
   { name: 'platform', command: process.execPath, args: ['src/index.js'] },
   { name: 'watchdog', command: 'bash', args: ['deploy/aurora-watchdog.sh'] },
   { name: 'zeroclaw', command: '/root/zeroclaw/bin/zeroclaw', args: ['--config-dir', '/root/zeroclaw/config', 'daemon'] },
-  { name: 'render-keepalive', command: 'bash', args: ['deploy/render-keepalive.sh'] }
+  { name: 'backup-keepalive', command: 'bash', args: ['deploy/backup-keepalive.sh'] }
 );
 
 const children = new Map();

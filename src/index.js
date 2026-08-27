@@ -7,7 +7,7 @@ import { runWatchdog } from './watchdog.js';
 import { runConnectors } from './connectors.js';
 import { startWalletMonitors } from './wallets.js';
 import { startTunnelWatcher, writePublicLink } from './tunnel.js';
-import { startTelegram, dailyReport } from './telegram.js';
+import { startTelegram, dailyReport, sendMessageDetailed } from './telegram.js';
 import { publishDailyDigest } from './notifications.js';
 import { createBackupSnapshot, runMailQueue } from './backup.js';
 import { teamEvents } from './team.js';
@@ -54,6 +54,10 @@ cronInterval(async () => {
   try {
     const result = await import('./notifications.js').then(module => module.publishDailyDigest());
     info('report', 'daily digest cycle', result);
+    if (result.published) {
+      const delivered = await sendMessageDetailed(dailyReport());
+      info('report', 'daily report delivered to leader', { delivered });
+    }
     backupDatabase();
   } catch (caught) {
     error('report', caught.message);
