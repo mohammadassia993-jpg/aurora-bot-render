@@ -2,16 +2,17 @@
   "name": "aurora-bot",
   "version": "1.0.0",
   "description": "Silent Giants – Aurora Bot (local platform + cloud backup entry)",
-  "main": "src/index.js",
+  "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node index.js",
+    "platform": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
     "package": "bash scripts/package.sh"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "express": "^4.22.2",
     "socks-proxy-agent": "^10.1.0"
   },
   "engines": {
