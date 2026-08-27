@@ -1,15 +1,11 @@
 const express = require('express');
 const app = express();
+const PORT = process.env.PORT || 8080;
 
 app.get('/', (req, res) => {
-    res.send('✅ Bot is running successfully on Bonto!');
+    res.send('Aurora Bot is Running Successfully!');
 });
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', source: 'bonto' });
-});
-
-const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
