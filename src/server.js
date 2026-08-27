@@ -246,9 +246,10 @@ export async function startServer() {
       const publicShell = ['/', '/dashboard', '/app'].includes(url.pathname);
       const localReport = url.pathname === '/report' && isLoopback(request);
       const publicReadOnlyPath =
-        config.publicReadOnly &&
+        (url.pathname === '/content' || config.publicReadOnly) &&
         request.method === 'GET' &&
         (publicShell ||
+          url.pathname === '/content' ||
           url.pathname.startsWith('/icons/') ||
           url.pathname.startsWith('/uploads/') ||
           ['/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/notifications', '/api/live'].includes(url.pathname));
@@ -436,6 +437,10 @@ export async function startServer() {
 
       if (url.pathname === '/sync' && request.method === 'POST') {
         return json(response, 200, { connectors: await runConnectors() });
+      }
+
+      if (url.pathname === '/content' && request.method === 'GET') {
+        return serveFile(response, path.join(config.root, 'www', 'index.html'), 'text/html; charset=utf-8', 'public, max-age=300');
       }
 
       let match;
