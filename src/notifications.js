@@ -42,6 +42,11 @@ export function buildDailyDigest() {
     SELECT cycle, opportunities_json FROM research_reports WHERE cycle LIKE 'daily:%'
     ORDER BY rowid DESC LIMIT 1
   `).get();
+  const deliverables = db.prepare(`
+    SELECT category, COUNT(*) AS count FROM deliverables
+    WHERE status = 'ready' GROUP BY category ORDER BY category
+  `).all();
+  const deliverableTotal = deliverables.reduce((sum, row) => sum + row.count, 0);
   const researchCount = recentResearch
     ? (JSON.parse(recentResearch.opportunities_json || '[]') || []).length
     : 0;
@@ -64,6 +69,10 @@ export function buildDailyDigest() {
     '🔎 تقرير نتائج البحث الجديد:',
     `- فرص مؤهلة مكتشفة: ${researchCount}`,
     recentResearch ? `- آخر دورة بحث: ${String(recentResearch.cycle).replace('daily:', '')}` : '- لم تُنفَّذ دورة بحث بعد',
+    '',
+    '📦 المخرجات الجاهزة (بدون مفاتيح):',
+    ...(deliverables.length ? deliverables.map(item => `- ${item.category}: ${item.count}`) : ['- لا يوجد']),
+    `- الإجمالي: ${deliverableTotal} ملفاً جاهزاً للتسليم`,
     '',
     `📬 طابور البريد: ${queue.map(item => `${item.status}=${item.count}`).join('، ') || 'فارغ'}`,
     `👥 نشاط الوكلاء خلال ٢٤ ساعة: ${agents.map(item => `${item.agent} (${item.lastRun})`).join('، ') || 'لا يوجد'}`,

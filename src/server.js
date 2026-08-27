@@ -399,6 +399,14 @@ export async function startServer() {
         return json(response, 200, { summary: await runHighThroughput(count) });
       }
 
+      if (url.pathname === '/api/deliverables' && request.method === 'GET') {
+        const rows = db.prepare(`
+          SELECT id, category, title, file_path AS filePath, status, created_at AS createdAt
+          FROM deliverables ORDER BY id DESC LIMIT 100
+        `).all();
+        return json(response, 200, { deliverables: rows });
+      }
+
       if (url.pathname === '/api/team/tasks/by-stream' && request.method === 'GET') {
         const streams = ['dework', 'titan', 'jobs', 'opportunity'];
         const result = {};
