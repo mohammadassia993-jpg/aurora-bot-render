@@ -7,3 +7,6 @@ logs/
 *.db-shm
 *.db-wal
 .env.backup*
+*.pid
+*.lock
+service-pids.json

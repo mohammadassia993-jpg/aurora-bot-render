@@ -40,16 +40,27 @@ export async function checkGateway() {
 }
 
 export async function checkInternet() {
-  try {
-    const healthy = await fetchOk('https://cloudflare.com/cdn-cgi/trace', {}, 7000);
-    saveCheck('internet', healthy, healthy ? 'Cloudflare reachable' : 'Cloudflare error');
-    if (healthy) resolveLatestError('internet', 'Connectivity restored');
-    return healthy;
-  } catch (caught) {
-    saveCheck('internet', false, caught.message, 'Retry with exponential backoff');
-    recordError('internet', caught.name === 'AbortError' ? 'NETWORK_TIMEOUT' : (caught.code || 'NETWORK_DOWN'), caught.message, {}, 'Exponential retry');
-    return false;
+  const endpoints = ['https://cloudflare.com/cdn-cgi/trace', 'https://www.google.com/generate_204', 'https://1.1.1.1/'];
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (const endpoint of endpoints) {
+      try {
+        const healthy = await fetchOk(endpoint, {}, 8000);
+        if (healthy) {
+          saveCheck('internet', true, 'Connectivity restored');
+          resolveLatestError('internet', 'Connectivity restored');
+          return true;
+        }
+        lastError = new Error('endpoint returned error');
+      } catch (caught) {
+        lastError = caught;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
+  saveCheck('internet', false, lastError ? lastError.message : 'fetch failed', 'Retry with exponential backoff');
+  recordError('internet', lastError && lastError.name === 'AbortError' ? 'NETWORK_TIMEOUT' : (lastError?.code || 'NETWORK_DOWN'), lastError ? lastError.message : 'fetch failed', {}, 'Exponential retry');
+  return false;
 }
 
 export async function checkTelegram() {
