@@ -105,6 +105,21 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS store_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  price REAL NOT NULL DEFAULT 0,
+  customer_name TEXT DEFAULT '',
+  customer_chat_id TEXT DEFAULT '',
+  status TEXT DEFAULT 'awaiting_payment',
+  payment_note TEXT DEFAULT '',
+  txid TEXT DEFAULT '',
+  delivered_file TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS mail_queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   to_address TEXT NOT NULL,

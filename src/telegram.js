@@ -8,6 +8,7 @@ import { runConnectors } from './connectors.js';
 import { modelPerformance, selectModel, callModel } from './ai.js';
 import { telegramRequest } from './telegram-api.js';
 import { teamEvents } from './team.js';
+import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary } from './storefront.js';
 
 let offset = 0;
 let mode = 'disabled';
@@ -159,6 +160,17 @@ export async function contextualReply(text, sender = {}) {
   const priorContext = history.slice(0, -1).slice(-3)
     .map(row => `${row.sender}: ${row.body}`).join(' | ');
 
+  // Storefront payment receipt handling
+  const receiptReply = paymentReceiptReply(value, sender);
+  if (receiptReply) return receiptReply;
+
+  // Storefront order intent handling
+  const orderReply = orderPromptReply(value, sender);
+  if (orderReply) return orderReply;
+  if (/cat|catalogue|المنتجات|متجر|اسعار|الأسعار|كام سعر/i.test(lower) && !/socket|بيت/i.test(lower)) {
+    return ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n');
+  }
+
   // Always use the intelligent AI engine for ALL messages
   try {
     const prompt = [
@@ -244,7 +256,7 @@ async function handleCommand(message) {
   const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
   const replyChatId = effectiveChatId() || message.chat.id;
   if (command === '/start' || command === '/help') {
-    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — قرار الموافقة', '/delegation — حالة التفويض', '/delegate <وكيل> <مهمة> — تفويض مهمة', '/agents — قائمة الوكلاء', '/pending —巴巴بات بانتظار الموافقة'].join('\n'));
+    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — قرار الموافقة', '/delegation — حالة التفويض', '/delegate <وكيل> <مهمة> — تفويض مهمة', '/agents — قائمة الوكلاء', '/pending —巴巴بات بانتظار الموافقة', '/products — منتجات المتجر', '/orders — حالة الطلبات'].join('\n'));
   } else if (command === '/status') {
     enqueueReply(null, replyChatId, statusText());
   } else if (command === '/report') {
@@ -278,6 +290,10 @@ async function handleCommand(message) {
       const list = pending.map(a => `#${a.id} [${a.kind}] ${a.title || 'مهمة'}\n  أرسل: /approve ${a.id} yes أو no`).join('\n');
       enqueueReply(null, replyChatId, '巴巴بات بانتظار موافقة القائد:\n' + list);
     }
+  } else if (command === '/products' || command === '/store' || command === '/market') {
+    enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
+  } else if (command === '/orders' || command === '/sales') {
+    enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());
   } else if (command.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
