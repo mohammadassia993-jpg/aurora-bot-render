@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
+import { getDelegationStatus, delegateTask, requestApproval, decideApproval, getDelegationCommands, getAgentList, getPendingApprovals } from './delegation.js';
 import { db } from './db.js';
 import { info, warn } from './logger.js';
 import { runConnectors } from './connectors.js';
 import { modelPerformance, selectModel, callModel } from './ai.js';
-import { decideApproval } from './agents.js';
 import { telegramRequest } from './telegram-api.js';
 import { teamEvents } from './team.js';
 
@@ -244,7 +244,7 @@ async function handleCommand(message) {
   const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
   const replyChatId = effectiveChatId() || message.chat.id;
   if (command === '/start' || command === '/help') {
-    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — قرار الموافقة'].join('\n'));
+    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — قرار الموافقة', '/delegation — حالة التفويض', '/delegate <وكيل> <مهمة> — تفويض مهمة', '/agents — قائمة الوكلاء', '/pending —巴巴بات بانتظار الموافقة'].join('\n'));
   } else if (command === '/status') {
     enqueueReply(null, replyChatId, statusText());
   } else if (command === '/report') {
@@ -253,9 +253,45 @@ async function handleCommand(message) {
     const result = await runConnectors();
     enqueueReply(null, replyChatId, ['تم تحديث المسارات:', `دي ورك: ${result.dework ? 'تم' : 'متوقف'}`, `تيتان: ${result.titan ? 'تم' : 'متوقف'}`, `الوظائف: ${result.jobs ? 'تم' : 'متوقف'}`, `الفرص: ${result.opportunities ? 'تم' : 'متوقف'}`].join('\n'));
   } else if (command.startsWith('/approve ')) {
-    const [, approvalId, decision] = message.text.split(/\s+/);
-    decideApproval(Number(approvalId), decision === 'yes');
-    enqueueReply(null, replyChatId, `قرار الموافقة رقم ${approvalId}: ${decision === 'yes' ? 'مقبول' : 'مرفوض'}.`);
+    const parts = message.text.split(/\s+/);
+    const approvalId = Number(parts[1]);
+    const decision = parts[2];
+    if (!approvalId || !decision) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /approve <رقم> yes|no');
+    } else {
+      const result = decideApproval(approvalId, decision === 'yes');
+      if (result.error) {
+        enqueueReply(null, replyChatId, '❌ ' + result.error);
+      } else {
+        enqueueReply(null, replyChatId, `قرار الموافقة رقم ${approvalId}: ${decision === 'yes' ? '✅ مقبول' : '❌ مرفوض'}.`);
+      }
+    }
+  } else if (command === '/delegation' || command === '/team') {
+    enqueueReply(null, replyChatId, getDelegationStatus());
+  } else if (command === '/agents') {
+    enqueueReply(null, replyChatId, getAgentList());
+  } else if (command === '/pending') {
+    const pending = getPendingApprovals();
+    if (pending.length === 0) {
+      enqueueReply(null, replyChatId, '✅ لا توجد巴巴بات بانتظار الموافقة.');
+    } else {
+      const list = pending.map(a => `#${a.id} [${a.kind}] ${a.title || 'مهمة'}\n  أرسل: /approve ${a.id} yes أو no`).join('\n');
+      enqueueReply(null, replyChatId, '巴巴بات بانتظار موافقة القائد:\n' + list);
+    }
+  } else if (command.startsWith('/delegate ')) {
+    const parts = message.text.split(/\s+/);
+    const agentName = parts[1];
+    const taskTitle = parts.slice(2).join(' ');
+    if (!agentName || !taskTitle) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /delegate <وكيل> <مهمة>\nالوكلاء: aurora, planner, executor, reviewer, scout');
+    } else {
+      const result = delegateTask(agentName, taskTitle);
+      if (result.error) {
+        enqueueReply(null, replyChatId, '❌ ' + result.error);
+      } else {
+        enqueueReply(null, replyChatId, `✅ تم تفويض المهمة لـ ${result.agent}\nرقم المهمة: #${result.taskId}\nالأولوية: ${result.priority}`);
+      }
+    }
   }
 }
 
