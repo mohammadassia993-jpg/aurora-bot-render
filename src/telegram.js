@@ -108,7 +108,10 @@ export function dailyReport() {
     `الأخطاء التي أُصلحت اليوم: ${fixedErrors}`,
     `الأحداث المفتوحة خلال ٢٤ ساعة: ${openErrors}`,
     `الموافقات المنتظرة: ${approvals}`,
-    `النماذج: ${models}`
+    `النماذج: ${models}`,
+    '',
+    '🛒 المتجر:',
+    ordersSummary()
   ].join('\n');
 }
 
