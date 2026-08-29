@@ -268,8 +268,10 @@ export async function handleTelegramUpdate(update) {
 async function handleCommand(message) {
   const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
   const replyChatId = effectiveChatId() || message.chat.id;
-  if (command === '/start' || command === '/help') {
-    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — قرار الموافقة', '/delegation — حالة التفويض', '/delegate <وكيل> <مهمة> — تفويض مهمة', '/agents — قائمة الوكلاء', '/pending —巴巴بات بانتظار الموافقة', '/products — منتجات المتجر', '/orders — حالة الطلبات'].join('\n'));
+  if (command === '/start') {
+    enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
+  } else if (command === '/help') {
+    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
   } else if (command === '/status') {
     enqueueReply(null, replyChatId, statusText());
   } else if (command === '/report') {
@@ -303,7 +305,7 @@ async function handleCommand(message) {
       const list = pending.map(a => `#${a.id} [${a.kind}] ${a.title || 'مهمة'}\n  أرسل: /approve ${a.id} yes أو no`).join('\n');
       enqueueReply(null, replyChatId, '巴巴بات بانتظار موافقة القائد:\n' + list);
     }
-  } else if (command === '/products' || command === '/store' || command === '/market') {
+  } else if (command === '/products' || command === '/store' || command === '/market' || command === '/shop' || command === '/buy') {
     enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
   } else if (command === '/orders' || command === '/sales') {
     enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());
