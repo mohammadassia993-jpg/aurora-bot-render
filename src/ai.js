@@ -66,8 +66,28 @@ async function postJson(url, body, headers = {}, scope = 'ai') {
 }
 
 function smartFallback(agent, prompt) {
-  const topic = prompt.replace(/\s+/g, ' ').slice(0, 300);
+  const topic = prompt.replace(/\s+/g, ' ').slice(0, 2000);
   const lowerTopic = topic.toLowerCase();
+
+  // Storefront-aware templates (greeting, products, support, order confirmation)
+  const PRODUCT_TEXT = '🛒 منتجاتنا:\n1️⃣ قاموس Web3 (250+ مصطلح) — 15$\n2️⃣ دورة DePIN — 25$\n3️⃣ حزمة كتابة محتوى — 35$\n4️⃣ شرح العقد الذكي — 20$\n5️⃣ حزمة تقديم وظائف — 30$\n6️⃣ تحليل أمن واقتصاد رمزي — 40$\n\n💳 الدفع: USDT (TON) أو USDC (Base)\n📎 المتجر: https://mohammadassia993-jpg.github.io/aurora-bot-render/\nاكتب «اشتري <رقم>» لإتمام الطلب فوراً.';
+
+  // Greeting (warm + professional)
+  if (/مرحبا|السلام|اهلا|أهلا|هاي|hello|hi|صباح الخير|مساء الخير|good morning|good evening/i.test(lowerTopic)) {
+    return 'أهلاً وسهلاً بك! 🌟 أنا أورورا من فريق عمالقة الصمت، في خدمتك.\nيمكنني:\n• عرض منتجاتنا الرقمية (اكتب /products)\n• الرد على استفسارات الطلبات والمتجر\n• تقديم حالة النظام (اكتب /status)\n\nكيف أستطيع مساعدتك اليوم؟';
+  }
+  // Product inquiry (detailed, helpful)
+  if (/منتج|المتجر|متجر|اشتري|شراء|سعر|ثمن|products|buy|price|القاموس|قاموس|دورة|حزمة|طلب/iu.test(lowerTopic)) {
+    return PRODUCT_TEXT;
+  }
+  // Technical complaint / support (patient, collaborative)
+  if (/مشكلة|شكوى|عطل|خطأ|لا يعمل|لا يشتغل|بطئ|بطيء|مشوش|problem|issue|error|broken|slow|help|مساعدة/i.test(lowerTopic)) {
+    return 'آسف على الإزعاج 🙏 دعنا نحل الأمر معاً.\n\n• إن كانت المشكلة في البوت: جرّب /status لفحص الحالة.\n• إن كانت في منتج/طلب: أرسل رقم الطلب أو المنتج وسأتابع معك فوراً.\n• إن كانت تقنية عامة: صف لي ما يحدث خطوة بخطوة.\n\nأنا هنا لمساعدتك حتى نصل لحل.';
+  }
+  // Order confirmation (clear, organized)
+  if (/تأكيد|اكد|اكّد|confirmed|order|تم الطلب|متى يصلك|طلب وجد/i.test(lowerTopic)) {
+    return '📦 تأكيد الطلب:\n\n1️⃣ اختر المنتج بـ «اشتري <رقم>».\n2️⃣ ادفع المبلغ للمحفظة المذكورة (USDT/USDC).\n3️⃣ أرسل إيصال التحويل (TXID) هنا.\n4️⃣ بعد التحقق نسلمك الملف خلال ساعة.\n\nهل تريد تأكيد طلبك الآن؟';
+  }
 
   if (/مرحبا|السلام|اهلا|أهلا|هاي|hello|hi/i.test(lowerTopic)) {
     return 'أهلاً بك! أنا أورورا، منسقة فريق عمالقة الصمت. كيف يمكنني مساعدتك اليوم؟ أوامر سريعة: /status للحالة، /report للتقرير.';
