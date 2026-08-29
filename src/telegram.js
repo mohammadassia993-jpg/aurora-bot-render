@@ -173,6 +173,16 @@ export async function contextualReply(text, sender = {}) {
   if (/cat|catalogue|المنتجات|متجر|اسعار|الأسعار|كام سعر/i.test(lower) && !/socket|بيت/i.test(lower)) {
     return ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n');
   }
+  // Direct storefront intent handlers (deterministic, before AI)
+  if (/سعر|ثمن|كم.*منتج|منتج|شراء|اشتري|buy|price|products|المتجر|متجر/i.test(lower)) {
+    return ['🛒 منتجاتنا:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب فوراً.'].join('\n');
+  }
+  if (/تأكيد|اكّد|اكد|confirmed|order.*تم|متى يصلك|طلب وجد/i.test(lower)) {
+    return '📦 تأكيد الطلب:\n\n1️⃣ اختر المنتج بـ «اشتري <رقم>».\n2️⃣ ادفع المبلغ للمحفظة المذكورة (USDT/USDC).\n3️⃣ أرسل إيصال التحويل (TXID) هنا.\n4️⃣ بعد التحقق نسلمك الملف خلال ساعة.\n\nهل تريد تأكيد طلبك الآن؟';
+  }
+  if (/مشكلة|شكوى|عطل|خطأ|لا يعمل|بطيء|بطئ|لا يشتغل|problem|issue|slow|broken/i.test(lower)) {
+    return 'آسف على الإزعاج 🙏 دعنا نحل الأمر معاً.\n\n• إن كانت المشكلة في البوت: جرّب /status لفحص الحالة.\n• إن كانت في منتج/طلب: أرسل رقم الطلب أو المنتج وسأتابع معك فوراً.\n• إن كانت تقنية عامة: صف لي ما يحدث خطوة بخطوة.\n\nأنا هنا لمساعدتك حتى نصل لحل.';
+  }
 
   // Always use the intelligent AI engine for ALL messages
   try {
