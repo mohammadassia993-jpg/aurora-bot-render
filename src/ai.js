@@ -25,6 +25,7 @@ export function availableModels() {
     config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 2 },
     config.geminiKey && { id: 'gemini-3.6-flash', label: 'Gemini Flash', priority: 2 },
     config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-3.6-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
+    { id: 'ollama', label: 'Ollama محلي (' + (config.ollamaModel || 'qwen') + ')', priority: 2 },
     { id: 'pollinations-llama', label: 'Pollinations (مجاني بدون مفتاح)', priority: 3 },
     { id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 99 }
   ].filter(Boolean);
@@ -36,6 +37,8 @@ export function selectModel() {
     const preferred = available.find(item => item.id === config.aiPrimaryModel);
     if (preferred) return preferred.id;
   }
+  const ollamaModel = available.find(m => m.id === 'ollama');
+  if (ollamaModel && process.env.AI_PREFER_LOCAL === 'true') return ollamaModel.id;
   if (config.deepSeekKey) { const ds = available.find(m => m.id === config.deepSeekModel); if (ds) return ds.id; }
   if (config.siliconFlowKey) { const sf = available.find(m => m.id === config.siliconFlowModel); if (sf) return sf.id; }
   if (config.geminiKey) { const gemini = available.find(m => m.id === 'gemini-3.6-flash'); if (gemini) return gemini.id; }
@@ -186,6 +189,16 @@ export async function callModel(agent, prompt, taskId = null) {
       const data = await response.json();
       output = data.choices?.[0]?.message?.content || data.response || data.content || '';
       if (!output) throw Object.assign(new Error('GPT-OSS returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+    } else if (model === 'ollama') {
+      const ollamaRes = await fetch(config.ollamaUrl + '/api/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: config.ollamaModel, messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }], stream: false, options: { temperature: 0.7, num_predict: 300 } }),
+        signal: AbortSignal.timeout(30000)
+      });
+      if (!ollamaRes.ok) throw Object.assign(new Error('Ollama HTTP ' + ollamaRes.status), { code: 'AI_PROVIDER' });
+      const ollamaData = await ollamaRes.json();
+      output = ollamaData.message?.content || ollamaData.response || '';
+      if (!output) throw Object.assign(new Error('Ollama empty response'), { code: 'AI_EMPTY_RESPONSE' });
     } else if (model === 'pollinations-llama') {
       const encoded = encodeURIComponent(prompt.slice(0, 1500));
       const response = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });

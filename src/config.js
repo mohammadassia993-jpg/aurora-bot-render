@@ -39,6 +39,9 @@ export const config = {
   siliconFlowModel: process.env.SILICONFLOW_MODEL || 'deepseek-chat',
   deepSeekKey: process.env.DEEPSEEK_API_KEY || '',
   deepSeekModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+  ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
+  ollamaModel: process.env.OLLAMA_MODEL || 'qwen2.5:0.5b',
+
 
 
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',

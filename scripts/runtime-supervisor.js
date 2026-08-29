@@ -40,6 +40,7 @@ if (process.env.CLOUDFLARED_TUNNEL_TOKEN) {
   services.push({ name: 'pinggy', command: 'bash', args: ['deploy/pinggy-supervisor.sh'] });
 }
 services.push(
+  { name: 'ollama', command: 'bash', args: ['deploy/ollama-start.sh'] },
   { name: 'platform', command: process.execPath, args: ['src/index.js'] },
   { name: 'watchdog', command: 'bash', args: ['deploy/aurora-watchdog.sh'] },
   { name: 'zeroclaw', command: '/root/zeroclaw/bin/zeroclaw', args: ['--config-dir', '/root/zeroclaw/config', 'daemon'] },
