@@ -23,9 +23,9 @@ export function availableModels() {
     config.deepSeekKey && { id: config.deepSeekModel, label: 'DeepSeek (' + (config.deepSeekModel || 'deepseek-chat') + ')', priority: 0 },
     config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 1 },
     config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 2 },
-    config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 0 },
     config.geminiKey && { id: 'gemini-3.6-flash', label: 'Gemini Flash', priority: 2 },
     config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-3.6-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
+    { id: 'pollinations-llama', label: 'Pollinations (مجاني بدون مفتاح)', priority: 3 },
     { id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 99 }
   ].filter(Boolean);
 }
@@ -149,7 +149,9 @@ export async function callModel(agent, prompt, taskId = null) {
   let errorType = '';
   try {
     const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl);
-    if ((simulationEnabled() && !hasRealProvider) || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey)) {
+    const useSimulation = (simulationEnabled() && !hasRealProvider && model !== 'pollinations-llama')
+      || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey);
+    if (useSimulation) {
       if (agent === 'daily-scout') {
         output = JSON.stringify({
           opportunities: [
@@ -184,6 +186,13 @@ export async function callModel(agent, prompt, taskId = null) {
       const data = await response.json();
       output = data.choices?.[0]?.message?.content || data.response || data.content || '';
       if (!output) throw Object.assign(new Error('GPT-OSS returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+    } else if (model === 'pollinations-llama') {
+      const encoded = encodeURIComponent(prompt.slice(0, 1500));
+      const response = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw Object.assign(new Error('Pollinations HTTP ' + response.status), { code: 'AI_PROVIDER' });
+      output = await response.text();
+      output = output.replace(/^data:image\/[^;]+;base64,.*$/, '').trim();
+      if (!output) throw Object.assign(new Error('Pollinations empty response'), { code: 'AI_EMPTY_RESPONSE' });
     } else if (model === config.deepSeekModel && config.deepSeekKey) {
       const response = await postJson('https://api.deepseek.com/v1/chat/completions', {
         model,
@@ -229,8 +238,19 @@ export async function callModel(agent, prompt, taskId = null) {
   } catch (caught) {
     success = true;
     errorType = 'AI_SMART_SIMULATION';
-    model = `${model}->smart-simulation`;
-    output = smartFallback(agent, prompt);
+    model = `${model}->pollinations`;
+    try {
+      const encoded = encodeURIComponent(prompt.slice(0, 1500));
+      const fallbackRes = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });
+      if (fallbackRes.ok) {
+        const text = await fallbackRes.text();
+        output = text.replace(/^data:image\/[^;]+;base64,.*$/, '').trim();
+      }
+    } catch {}
+    if (!output) {
+      model = `${model}->smart-simulation`;
+      output = smartFallback(agent, prompt);
+    }
     recordError('ai', 'AI_SMART_FALLBACK', `${caught.code || 'AI_UNKNOWN'}: ${caught.message}`, { requestedModel: model }, 'تم تشغيل قوالب المحاكاة الذكية العربية');
   } finally {
     db.prepare(`
