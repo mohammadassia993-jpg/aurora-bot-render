@@ -20,7 +20,15 @@ services:
       - key: MAIL_DELIVERY_MODE
         value: disabled
       - key: AI_SIMULATION_MODE
-        value: "true"
+        value: "false"
+      - key: SILICONFLOW_API_KEY
+        sync: false
+      - key: SILICONFLOW_MODEL
+        value: deepseek-chat
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
       - key: AUTO_RUN_CONNECTORS
         value: "false"
       - key: DATABASE_SYNC_TOKEN

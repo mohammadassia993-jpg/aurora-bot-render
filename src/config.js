@@ -35,6 +35,9 @@ export const config = {
   usdcAddress: process.env.USDC_RECEIVE_ADDRESS || '',
   usdtAddress: process.env.USDT_RECEIVE_ADDRESS || '',
   gptOssApiUrl: process.env.GPT_OSS_API_URL || '',
+  siliconFlowKey: process.env.SILICONFLOW_API_KEY || '',
+  siliconFlowModel: process.env.SILICONFLOW_MODEL || 'deepseek-chat',
+
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',
   aiPrimaryModel: process.env.AI_PRIMARY_MODEL || '',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
