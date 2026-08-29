@@ -21,6 +21,10 @@ services:
         value: disabled
       - key: AI_SIMULATION_MODE
         value: "false"
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
       - key: SILICONFLOW_API_KEY
         sync: false
       - key: SILICONFLOW_MODEL

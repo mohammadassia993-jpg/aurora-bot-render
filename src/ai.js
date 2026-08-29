@@ -17,9 +17,12 @@ export function simulationEnabled() {
 }
 
 export function availableModels() {
-  if (simulationEnabled()) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
+  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey);
+  if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
-    config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 1 },
+    config.deepSeekKey && { id: config.deepSeekModel, label: 'DeepSeek (' + (config.deepSeekModel || 'deepseek-chat') + ')', priority: 0 },
+    config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 1 },
+    config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 2 },
     config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 0 },
     config.geminiKey && { id: 'gemini-3.6-flash', label: 'Gemini Flash', priority: 2 },
     config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-3.6-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
@@ -33,6 +36,7 @@ export function selectModel() {
     const preferred = available.find(item => item.id === config.aiPrimaryModel);
     if (preferred) return preferred.id;
   }
+  if (config.deepSeekKey) { const ds = available.find(m => m.id === config.deepSeekModel); if (ds) return ds.id; }
   if (config.siliconFlowKey) { const sf = available.find(m => m.id === config.siliconFlowModel); if (sf) return sf.id; }
   if (config.geminiKey) { const gemini = available.find(m => m.id === 'gemini-3.6-flash'); if (gemini) return gemini.id; }
   const metrics = new Map(modelScores().map(row => [row.model, row]));
@@ -124,7 +128,8 @@ export async function callModel(agent, prompt, taskId = null) {
   let success = true;
   let errorType = '';
   try {
-    if (simulationEnabled() || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey)) {
+    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl);
+    if ((simulationEnabled() && !hasRealProvider) || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey)) {
       if (agent === 'daily-scout') {
         output = JSON.stringify({
           opportunities: [
@@ -159,6 +164,18 @@ export async function callModel(agent, prompt, taskId = null) {
       const data = await response.json();
       output = data.choices?.[0]?.message?.content || data.response || data.content || '';
       if (!output) throw Object.assign(new Error('GPT-OSS returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+    } else if (model === config.deepSeekModel && config.deepSeekKey) {
+      const response = await postJson('https://api.deepseek.com/v1/chat/completions', {
+        model,
+        messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.7,
+        stream: false
+      }, { authorization: `Bearer ${config.deepSeekKey}` }, 'deepseek');
+      if (!response.ok) throw Object.assign(new Error(`DeepSeek HTTP ${response.status}`), { code: 'AI_PROVIDER' });
+      const data = await response.json();
+      output = data.choices?.[0]?.message?.content || '';
+      if (!output) throw Object.assign(new Error('DeepSeek returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
     } else if (model === config.siliconFlowModel && config.siliconFlowKey) {
       const response = await postJson('https://api.siliconflow.cn/v1/chat/completions', {
         model,

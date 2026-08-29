@@ -37,6 +37,9 @@ export const config = {
   gptOssApiUrl: process.env.GPT_OSS_API_URL || '',
   siliconFlowKey: process.env.SILICONFLOW_API_KEY || '',
   siliconFlowModel: process.env.SILICONFLOW_MODEL || 'deepseek-chat',
+  deepSeekKey: process.env.DEEPSEEK_API_KEY || '',
+  deepSeekModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+
 
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',
   aiPrimaryModel: process.env.AI_PRIMARY_MODEL || '',

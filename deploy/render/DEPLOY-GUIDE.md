@@ -41,6 +41,8 @@ ALLOW_DATABASE_RESTORE_RESTART=true
 MAIL_DELIVERY_MODE=queue
 AI_SIMULATION_MODE=false
 SILICONFLOW_MODEL=deepseek-chat
+DEEPSEEK_API_KEY=<من .env>
+DEEPSEEK_MODEL=deepseek-chat
 TELEGRAM_BOT_TOKEN=<من .env>
 TELEGRAM_WEBHOOK_SECRET=<من .env>
 TEAM_UI_TOKEN=<من .env>
@@ -66,7 +68,11 @@ curl https://silent-giants-primary.onrender.com/report
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://silent-giants-primary.onrender.com/telegram/webhook&secret_token=<SECRET>"
 ```
 
-### 3. تفعيل وكيل الذكاء عبر SiliconFlow
+### 3. تفعيل وكيل الذكاء عبر DeepSeek/SiliconFlow
+- **DeepSeek:** ضع `DEEPSEEK_API_KEY` — يتحول النموذج تلقائياً إلى `deepseek-chat`.
+- **ملاحظة رصيد:** المفتاح الحالي صالح لكن حسابه بلا رصيد (HTTP 402). بعد شحن الحساب على platform.deepseek.com يُفعَّل الرد الفعلي تلقائياً.
+
+### 3ب. SiliconFlow (بديل)
 - بعد وضع `SILICONFLOW_API_KEY`، يتحول النموذج تلقائياً إلى `deepseek-chat` (أو Qwen/GLM).
 - تحقق: أرسل رسالة في تيليجرام → يجب أن يكون الرد عربياً وذكياً.
 

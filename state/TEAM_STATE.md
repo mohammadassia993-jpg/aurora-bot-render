@@ -107,8 +107,9 @@
 
 | الإعداد | القيمة | الحالة |
 |---------|--------|--------|
-| AI Mode | `AI_SIMULATION_MODE=true` | ✅ ردود عربية ذكية محلياً |
+| AI Mode | `AI_SIMULATION_MODE=true` + DeepSeek جاهز | ✅ ردود عربية ذكية (المحاكاة الحالية، DeepSeek يفعّل تلقائياً عند الشحن) |
 | GEMINI_API_KEY | `AQ.Ab8RN6...` | ⚠️ فشل التحقق (401) عند الاختبار |
+| DEEPSEEK_API_KEY | `sk-c651...` (من القائد) | ⚠️ صالح لكن بلا رصيد (402) — يحتاج شحناً |
 | OPENROUTER_API_KEY | موجود | ⚠️ مرفوض بواسطة سياسة الأمان |
 | Team UI Token | `8cdQ7WY9SvAGxe6SfFPlngj0_UbX6vCr` | ✅ |
 | Port | 8788 | ✅ |
