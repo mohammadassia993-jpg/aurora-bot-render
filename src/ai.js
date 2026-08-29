@@ -25,6 +25,7 @@ export function availableModels() {
     config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 2 },
     config.geminiKey && { id: 'gemini-3.6-flash', label: 'Gemini Flash', priority: 2 },
     config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-3.6-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
+    { id: 'local-llama-cpp', label: 'ذكاء محلي (node-llama-cpp)', priority: -1 },
     { id: 'ollama', label: 'Ollama محلي (' + (config.ollamaModel || 'qwen') + ')', priority: 2 },
     { id: 'pollinations-llama', label: 'Pollinations (مجاني بدون مفتاح)', priority: 3 },
     { id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 99 }
@@ -37,8 +38,12 @@ export function selectModel() {
     const preferred = available.find(item => item.id === config.aiPrimaryModel);
     if (preferred) return preferred.id;
   }
-  const ollamaModel = available.find(m => m.id === 'ollama');
-  if (ollamaModel && process.env.AI_PREFER_LOCAL === 'true') return ollamaModel.id;
+  if (process.env.AI_PREFER_LOCAL === 'true') {
+    const localCpp = available.find(m => m.id === 'local-llama-cpp');
+    if (localCpp) return localCpp.id;
+    const ollamaModel = available.find(m => m.id === 'ollama');
+    if (ollamaModel) return ollamaModel.id;
+  }
   if (config.deepSeekKey) { const ds = available.find(m => m.id === config.deepSeekModel); if (ds) return ds.id; }
   if (config.siliconFlowKey) { const sf = available.find(m => m.id === config.siliconFlowModel); if (sf) return sf.id; }
   if (config.geminiKey) { const gemini = available.find(m => m.id === 'gemini-3.6-flash'); if (gemini) return gemini.id; }
@@ -199,6 +204,23 @@ export async function callModel(agent, prompt, taskId = null) {
       const ollamaData = await ollamaRes.json();
       output = ollamaData.message?.content || ollamaData.response || '';
       if (!output) throw Object.assign(new Error('Ollama empty response'), { code: 'AI_EMPTY_RESPONSE' });
+    } else if (model === 'local-llama-cpp') {
+      try {
+        const { getLlama, LlamaChatSession } = await import('/usr/local/lib/node_modules/openclaw/node_modules/node-llama-cpp/dist/index.js');
+        const modelPath = process.env.LOCAL_LLM_MODEL_PATH || '/root/.ollama/models/blobs/sha256-c5396e06af294bd101b30dce59131a76d2b773e76950acc870eda801d3ab0515';
+        const llama = await getLlama({ gpu: false });
+        const localModel = await llama.loadModel({ modelPath });
+        const localCtx = await localModel.createContext({ contextSize: 1024 });
+        const localSession = new LlamaChatSession({ contextSequence: localCtx.getSequence() });
+        output = (await localSession.prompt(soulPrompt() + '\n\n' + prompt, { maxTokens: 300, temperature: 0.7 })).trim();
+        await localCtx.dispose();
+        await localModel.dispose();
+        if (!output) throw Object.assign(new Error('Local LLM empty response'), { code: 'AI_EMPTY_RESPONSE' });
+      } catch (caught) {
+        const msg = `local-llama-cpp: ${caught.message || caught}`;
+        console.error(msg);
+        throw Object.assign(new Error(msg), { code: 'AI_PROVIDER' });
+      }
     } else if (model === 'pollinations-llama') {
       const encoded = encodeURIComponent(prompt.slice(0, 1500));
       const response = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });
