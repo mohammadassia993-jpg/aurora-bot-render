@@ -8,6 +8,10 @@ import { runConnectors } from './connectors.js';
 import { modelPerformance, selectModel, callModel } from './ai.js';
 import { telegramRequest } from './telegram-api.js';
 import { teamEvents } from './team.js';
+
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), ms))]);
+}
 import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary } from './storefront.js';
 
 let offset = 0;
@@ -195,7 +199,7 @@ export async function contextualReply(text, sender = {}) {
       priorContext ? `السياق الأخير: ${priorContext.slice(0, 240)}.` : '',
       `رسالة القائد: ${value}`
     ].filter(Boolean).join('\n');
-    const generated = await callModel('aurora', prompt);
+    const generated = await withTimeout(callModel('aurora', prompt), 45000).catch(caught => { warn('timed.ai', caught.message); return ''; });
     const clean = String(generated || '').replace(/<[^>]*>/g, '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]).trim();
     if (clean) return clean;
   } catch {}
@@ -222,6 +226,18 @@ function enqueueReply(updateId, chatId, text, replyToMessageId = null) {
     VALUES (?, ?, ?, ?)
   `).run(updateId, String(chatId), String(text).slice(0, 4000), replyToMessageId || storedMessageId);
   return Number(row.lastInsertRowid);
+}
+
+
+// Background contextual reply: replies instantly with an ack, then generates the
+// smart Arabic reply asynchronously so a slow local-LLM never blocks the polling loop.
+async function asyncContextualReply(updateId, chatId, text, sender) {
+  try {
+    const reply = await contextualReply(text, sender);
+    if (reply) enqueueReply(updateId, chatId, reply, null);
+  } catch (caught) {
+    warn('telegram', `background reply failed: ${caught.message}`);
+  }
 }
 
 export async function handleTelegramUpdate(update) {
@@ -254,7 +270,8 @@ export async function handleTelegramUpdate(update) {
     });
   }
   if (update.message?.text && !update.message.text.startsWith('/')) {
-    enqueueReply(update.update_id, chatId, await contextualReply(update.message.text, update.message.from || {}), update.message.message_id);
+    enqueueReply(update.update_id, chatId, '✅ تلقيت رسالتك جارٍ الرد التفصيلي...', update.message.message_id);
+    asyncContextualReply(update.update_id, chatId, update.message.text, update.message.from || {});
   }
   if (update.message) await handleCommand(update.message);
   if (update.update_id) {
