@@ -175,6 +175,6 @@
 - **الأمر:** cb85374
 
 ### البريد (2026-08-30)
-- **الرمز الجديد:** vpeovouahqngiqjs — مرفوض من Google (535 / AUTHENTICATIONFAILED)
+- **الرمز الجديد:** [REDACTED—لا يُنشر أبداً] — مرفوض من Google (535 / AUTHENTICATIONFAILED)
 - **المطلوب:** التحقق من 2SV + IMAP مفعّل + App Password جديد
 - **الحالة:** ⏸ في انتظار رمز صحيح
