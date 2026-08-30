@@ -12,3 +12,7 @@ logs/
 *.pid
 *.lock
 service-pids.json
+.venv-swarm/
+agent_workspace/
+__pycache__/
+
