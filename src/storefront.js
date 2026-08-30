@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { db } from './db.js';
+
+const root = path.resolve(import.meta.dirname, '..');
 
 export const PRODUCTS = [
   { id: '1', name: '📖 قاموس مصطلحات Web3 (250+ مصطلح، عربي/إنجليزي)', price: 15 },
@@ -77,11 +81,35 @@ export function orderPromptReply(message, sender = {}) {
   return null;
 }
 
+
+export function deliveryPackPath(productId) {
+  if (!fs.existsSync) return null;
+  const candidates = fs.readdirSync(path.join(root, 'store-delivery'));
+  const match = candidates.find(f => f.startsWith(`product-${productId}-`));
+  return match ? path.join(root, 'store-delivery', match) : null;
+}
+
+export function confirmOrderPaid(orderId, txid) {
+  const order = db.prepare('SELECT * FROM store_orders WHERE id = ?').get(orderId);
+  if (!order) return { ok: false, error: 'ORDER_NOT_FOUND' };
+  if (order.status !== 'awaiting_payment' && order.status !== 'paid') return { ok: false, error: `BAD_STATUS_${order.status}` };
+  db.prepare("UPDATE store_orders SET status='paid', txid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(txid || order.txid || '', orderId);
+  const pack = deliveryPackPath(order.product_id);
+  if (pack) {
+    db.prepare("UPDATE store_orders SET status='delivered', delivered_file=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(pack, orderId);
+    return { ok: true, orderId, status: 'delivered', deliveredFile: pack };
+  }
+  return { ok: true, orderId, status: 'paid', note: 'ملف التسليم سيُرفق يدوياً' };
+}
+
 export function ordersSummary() {
   const rows = db.prepare(`
     SELECT status, COUNT(*) AS count, COALESCE(SUM(price), 0) AS total
     FROM store_orders GROUP BY status
   `).all();
   if (!rows.length) return 'لا توجد طلبات بعد.';
-  return rows.map(r => `${r.status === 'awaiting_payment' ? '⏳ بانتظار الدفع' : r.status === 'paid' ? '✅ مدفوع' : r.status}: ${r.count} طلب — ${r.total}$`).join('\n') + `\nإجمالي مبيعات: ${db.prepare(`SELECT COALESCE(SUM(price),0) AS t FROM store_orders WHERE status IN ('paid','delivered')`).get().t}$`;
+  const realTotal = db.prepare(`SELECT COALESCE(SUM(price),0) AS t FROM store_orders WHERE status IN ('paid','delivered') AND (payment_note IS NULL OR payment_note != 'TEST-RECORD-FOR-DEMO')`).get().t;
+  const testCount = db.prepare(`SELECT COUNT(*) c FROM store_orders WHERE payment_note = 'TEST-RECORD-FOR-DEMO'`).get().c;
+  return rows.map(r => `${r.status === 'awaiting_payment' ? '⏳ بانتظار الدفع' : r.status === 'paid' ? '✅ مدفوع' : r.status}: ${r.count} طلب — ${r.total}$`).join('\n')
+    + `\n💰 إجمالي الإيراد الفعلي: ${realTotal}$` + (testCount ? `\n🧪 سجلات اختبار فقط: ${testCount}` : '');
 }
