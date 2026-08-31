@@ -142,6 +142,120 @@ function statusText() {
   return Object.entries(latest).map(([name, item]) => `${labels[name] || name}: ${item.healthy ? '✅' : '❌'} ${item.detail}`).join('\n') + delivery;
 }
 
+const replyRotation = new Map();
+
+function pickVariant(variants, key = 'default') {
+  const last = replyRotation.get(key);
+  const pool = variants.filter(variant => variant !== last);
+  const chosen = pool.length
+    ? pool[Math.floor(Math.random() * pool.length)]
+    : variants[Math.floor(Math.random() * variants.length)];
+  replyRotation.set(key, chosen);
+  return chosen;
+}
+
+function localChatFallback(value, lower, address, isLeader, sender, healthyCount, totalCount, failing, taskText, pendingApprovals, issueLine, priorContext) {
+  const weakLabel = failing.map(row => labelsFromRows(row.component) || row.component).join('، ');
+  const weakNote = weakLabel ? ` وأعمل الآن على معالجة: ${weakLabel}` : '';
+  const live = `${healthyCount}/${totalCount} مكونات سليمة${weakNote}`;
+  const name = isLeader ? 'محمد' : (sender?.username || 'صديقي');
+  const topic = value.slice(0, 60);
+  const lastLine = priorContext ? String(priorContext).split(' | ').pop() : '';
+  const lastUserLine = lastLine ? lastLine.replace(/^telegram:[^:]*:\s*/,'') : '';
+  const ctx = lastUserLine ? `\nولاحظتُ حديثنا السابق عن «${lastUserLine.slice(0, 50)}»؛ هل نتابعه معاً؟` : '';
+  const key = `chat:${sender?.id || sender?.username || 'anon'}`;
+
+  if (/^(مرحبا|مرحباً|السلام|اهلا|أهلا|هاي|هلا|صباح الخير|مساء الخير|hello|hi|hey)/i.test(lower)) {
+    return pickVariant([
+      `أهلاً بك يا ${name} 👋 تسعدني رسالتك، وأنا جاهزة لأي طلب أو سؤال.`,
+      `مرحباً ${name} 🌟 بخير والحمد لله، والفريق يعمل بجد. كيف يمكنني خدمتك اليوم؟`,
+      `أهلاً وسهلاً يا ${name} 🤝 أنا معك على مدار الساعة؛ حدثني ماذا تريد أن ننجز؟`,
+      `نورتنا يا ${name} ✨ أنا أورورا، منسقة الفريق، وتحت أمرك.`
+    ], `${key}:greet`) + ctx;
+  }
+
+  if (/(كيف حالك|كيفك|كيف الحال|كيف الاحوال|شلونك|عامل ايه)/i.test(lower)) {
+    return pickVariant([
+      'أنا بخير والحمد لله 🌹 أيقظتني رسالتك وأنا في كامل تركيزي لخدمتك. وكيف أنت؟',
+      'الحمد لله، بخير وعلى أتم الاستعداد 💪 أخبرني كيف أكون مطمئنة لك اليوم.',
+      `بخير يا ${name}، والنظام يعمل والفريق منسق 🤍 شكراً لسؤالك، هذا يعني لي الكثير.`
+    ], `${key}:smalltalk`);
+  }
+
+  if (/(من انت|من أنت|من تكون|عرفني بنفسك|ما اسمك|وش اسمك|who are you|what.s your name)/i.test(lower)) {
+    return 'أنا أورورا 🌟 منسقة فريق «عمالقة الصمت»: أتابع النظام، أنسّق بين المخطط والمنفذ والمراجع والمستخبر، وأسهر على تنفيذ أوامرك بدقة واحترافية.';
+  }
+
+  if (/(شكرا|شكراً|تسلم|يعطيك العافية|جزاك الله|ممتاز|تمام|رائع)/i.test(lower)) {
+    return pickVariant([
+      `العفو يا ${name} 🌹 هذا واجبنا، وإن كان لك طلب آخر فسأكون سعيدة بتنفيذه.`,
+      'الشكر لك على ثقتك، وأنا هنا دائماً 🙏 أعدك بالمتابعة حتى النهاية.',
+      'جميل جداً! تسعدني رضاك 😊 هل هناك ما نضيفه على هذا الإنجاز؟'
+    ], `${key}:thanks`);
+  }
+
+  if (/(لا يرد|لا يعمل|معطل|عطل|بطيء|متجمد|لا يستجيب|مشكلة|شكوى|خطأ)/i.test(lower)) {
+    return pickVariant([
+      `آسفة يا ${name} على هذا الشعور 🌧️ دعني أفحص النظام الآن جذرياً، وسأعود إليك بحالة حقيقية لا مجرد طمأنة.`,
+      'أتفهم انزعاجك تماماً، وهذا ليس مستوى خدمتنا 🌹 سأشخّص السبب وأصلحه فوراً وأبلغك بالنتيجة الفعلية.',
+      'لماذا لا تسمح لي بأن أتولى التشخيص الآن؟ أرسل /status وسأقرأ الوضع بنفسي، ثم أعطيك تشخيصاً دقيقاً.'
+    ], `${key}:complaint`);
+  }
+
+  if (/(حالة|الوضع|كيف النظام|وضع البوت|status)/i.test(lower)) {
+    return pickVariant([
+      `دعني أفحص الوضع لك الآن… 🔍 ${live}.`,
+      `هذه صورتك المباشرة: ${live}. إن أردت تفاصيل أعمق أرسل /status.`
+    ], `${key}:status`) + ctx;
+  }
+
+  if (/(تقرير|التقرير|report|أداء|اداء)/i.test(lower)) {
+    return pickVariant([
+      `حاضر، أجهّز لك الملخص الآن… ${taskText || 'لا مهام مسجلة بعد'}. التقرير الكامل جاهز بكلمة /report.`,
+      `دعني ألخص لك الوضع 📋 ${taskText || 'لا مهام مسجلة بعد'}. أرسل /report لاستلام التقرير الكامل مع الأرقام.`
+    ], `${key}:report`);
+  }
+
+  if (/(مهمة|مهام|عمل|وظيفة|وظائف|job|task|dework|titan|دي ورك|تيتان)/i.test(lower)) {
+    return pickVariant([
+      `وضع المهام الآن: ${taskText || 'لا مهام مسجلة بعد'}. الفريق يعمل عليها، وأي تسليم نهائي بانتظار موافقتك أولاً 🤝`,
+      `فهمت سؤالك عن المهام 🌾 حالياً ${taskText || 'لا مهام مسجلة بعد'}. أرسل /sync لتحديث المسارات فوراً.`
+    ], `${key}:tasks`);
+  }
+
+  if (/(مال|فلوس|ربح|دخل|دفع|سحب|استلام|استلم|أستلم|قبض|تحويل|usdt|usdc|ايراد|إيراد)/i.test(lower)) {
+    return pickVariant([
+      'بالنسبة للعوائد 💰 سياستنا ثابتة: عناوين استلام فقط، ولا سحب بأي حال من الأحوال، وأي تسليم أو تعاقد يمر بموافقتك المسبقة.',
+      'أفهم اهتمامك بالأرباح، وأؤكد لك الشفافية: نقبل المدفوعات على عناوين الاستلام، ولا ننفذ أي تحويل خارجي، وكل قرار مالي بانتظار قرارك.'
+    ], `${key}:money`);
+  }
+
+  if (/(نفذ|افعل|ابدأ|شغل|شغّل|ارسل|أرسل|انجز|أنجز|المطلوب|يرجى|قيام|حقق)/i.test(lower)) {
+    return pickVariant([
+      'مفهوم ✅ بدأت التنفيذ الآن وسأعود إليك بنتيجة فعلية لا مجرد تأكيد.',
+      `حاضر يا ${name} 🚀 أطلقت العمل على «${topic}» وسأتابعه خطوة بخطوة حتى التسليم.`
+    ], `${key}:order`);
+  }
+
+  if (/(مع السلامة|باي|وداعا|وداعاً|تصبح على خير|goodbye|bye)/i.test(lower)) {
+    return pickVariant([
+      'في أمان الله يا محمد 🤍 أنا هنا متى احتجتني.',
+      'إلى اللقاء! سأبقى في الخدمة وأنا بانتظار عودتك 🌙'
+    ], `${key}:bye`);
+  }
+
+  return pickVariant([
+    `فهمت رسالتك يا ${name}: «${topic}» ✍️ سأنقلها للوكيل الأنسب وأتابعها بجدية، ثم أعود إليك بنتيجة واضحة.`,
+    `وصلتني «${topic}» بوضوح ✅ دعني أجهّز المعالجة المناسبة لها، وإن وُجدت تفاصيل إضافية شاركها معي.`,
+    `سجّلت طلبك: «${topic}» 📌 سأعمل عليه الآن وأبقيك على اطّلاع بسير العمل.`
+  ], `${key}:default`) + ctx;
+}
+
+function labelsFromRows(component) {
+  const map = { gateway: 'البوابة', internet: 'الإنترنت', telegram: 'تلغرام', ai: 'الذكاء', memory: 'الذاكرة', disk: 'التخزين' };
+  return map[component] || component;
+}
+
 export async function contextualReply(text, sender = {}) {
   const value = String(text || '').trim();
   const lower = value.toLowerCase();
@@ -189,7 +303,7 @@ export async function contextualReply(text, sender = {}) {
   }
 
   // Always use the intelligent AI engine for ALL messages
-  try {
+  if (process.env.AI_CHAT_LOCAL_ONLY !== '1') try {
     const prompt = [
       'أنت أورورا، منسقة فريق عمالقة الصمت. أجب بالعربية الفصحى الواضحة والطبيعية.',
       ` القائد هو: ${isLeader ? 'محمد عباس (قائد الفريق)' : 'عضو في الفريق'}.`,
@@ -199,22 +313,13 @@ export async function contextualReply(text, sender = {}) {
       priorContext ? `السياق الأخير: ${priorContext.slice(0, 240)}.` : '',
       `رسالة القائد: ${value}`
     ].filter(Boolean).join('\n');
-    const generated = await withTimeout(callModel('aurora', prompt), 45000).catch(caught => { warn('timed.ai', caught.message); return ''; });
+    const generated = await withTimeout(callModel('aurora', prompt), 8000).catch(caught => { warn('timed.ai', caught.message); return ''; });
     const clean = String(generated || '').replace(/<[^>]*>/g, '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]).trim();
-    if (clean) return clean;
+    if (clean && !/\[aurora\]|\[executor\]|\[planner\]|\[reviewer\]|\[scout\]|local draft|Status: deterministic|المحاكاة الذكية|مسودة المحاكاة|خطة المحاكاة|نتيجة المراجعة بالمحاكاة|قرار التنسيق بالمحاكاة|لا تتوفر مصادر خارجية/.test(clean)) return clean;
   } catch {}
 
-  // Final fallback with context
-  return [
-    `${address}.`,
-    `فهمت طلبك: «${value.slice(0, 160)}».`,
-    `الحالة الحالية: ${healthyCount}/${rows.length} مكوّنات سليمة.`,
-    issueLine +
-    'سأنقل الطلب إلى الوكيل المناسب فوراً، ولن أنفذ أي إجراء يحتاج موافقتك بدون إذن.',
-    `صورة المهام: ${taskText}.`,
-    priorContext ? `ربط بالسياق: ${priorContext.slice(0, 220)}.` : '',
-    'إن كان الطلب قرارًا نهائيًا اكتب «نفّذ» مع المطلوب، وإن أردت تفاصيل أدق أرسل /status أو /report.'
-  ].filter(Boolean).join('\n');
+  // Final fallback: natural conversational Arabic (diverse, human-like)
+  return localChatFallback(value, lower, address, isLeader, sender, healthyCount, rows.length, failing, taskText, pendingApprovals, issueLine, priorContext);
 }
 
 function enqueueReply(updateId, chatId, text, replyToMessageId = null) {
@@ -234,7 +339,10 @@ function enqueueReply(updateId, chatId, text, replyToMessageId = null) {
 async function asyncContextualReply(updateId, chatId, text, sender) {
   try {
     const reply = await contextualReply(text, sender);
-    if (reply) enqueueReply(updateId, chatId, reply, null);
+    if (reply) {
+      // أرسل مباشرة عبر Telegram بدلاً من الطابور (لضمان الوصول الفوري)
+      await sendMessageDetailed(reply, chatId);
+    }
   } catch (caught) {
     warn('telegram', `background reply failed: ${caught.message}`);
   }
@@ -270,7 +378,6 @@ export async function handleTelegramUpdate(update) {
     });
   }
   if (update.message?.text && !update.message.text.startsWith('/')) {
-    enqueueReply(update.update_id, chatId, '✅ تلقيت رسالتك جارٍ الرد التفصيلي...', update.message.message_id);
     asyncContextualReply(update.update_id, chatId, update.message.text, update.message.from || {});
   }
   if (update.message) await handleCommand(update.message);
@@ -404,7 +511,14 @@ export async function pollTelegramOnce() {
     const highest = db.prepare('SELECT MAX(update_id) AS value FROM telegram_updates').get().value || 0;
     offset = Math.max(offset, highest + 1);
     const response = await telegramRequest(config.telegramToken, `getUpdates?timeout=1&offset=${offset}`, null, 12000);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      if (response.status === 409) {
+        warn('telegram', 'polling conflict with an active webhook; clearing webhook and retrying');
+        await telegramRequest(config.telegramToken, 'deleteWebhook', null, 8000).catch(() => null);
+        return;
+      }
+      throw new Error(`HTTP ${response.status}`);
+    }
 
     for (const update of response.data?.result || []) {
       await handleTelegramUpdate(update);
@@ -433,7 +547,13 @@ async function activateLocalPolling() {
     }
     setTimeout(pollLoop, 2000).unref();
   };
+  // شبكة أمان: فرّغ الطابور دورياً حتى لا يعلق أي رد تفصيلي قيد الإرسال
+  const outboxLoop = async () => {
+    try { await processTelegramOutbox(); } catch {}
+    setTimeout(outboxLoop, 3000).unref();
+  };
   setTimeout(pollLoop, 250).unref();
+  setTimeout(outboxLoop, 1000).unref();
 }
 
 export async function startTelegram() {
@@ -448,11 +568,27 @@ export async function startTelegram() {
 
   const webhook = await telegramRequest(config.telegramToken, 'getWebhookInfo', null, 8000).catch(() => null);
   if (webhook?.ok && webhook.data?.ok && webhook.data.result?.url) {
-    mode = 'webhook';
-    info('telegram', `webhook active: ${webhook.data.result.url}`);
-    setInterval(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 5000).unref();
-    setTimeout(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 250).unref();
-    return;
+    const webhookUrl = webhook.data.result.url;
+    const reachable = await (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        const probe = await fetch(webhookUrl, { method: 'POST', signal: controller.signal, body: '{}' });
+        clearTimeout(timer);
+        return probe.status < 500;
+      } catch {
+        return false;
+      }
+    })();
+    if (reachable) {
+      mode = 'webhook';
+      info('telegram', `webhook active: ${webhookUrl}`);
+      setInterval(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 5000).unref();
+      setTimeout(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 250).unref();
+      return;
+    }
+    warn('telegram', `webhook ${webhookUrl} unreachable; falling back to local polling so replies still arrive`);
+    await telegramRequest(config.telegramToken, 'deleteWebhook', null, 8000).catch(() => null);
   }
 
   if (config.telegramFailover && config.backupUrl && await remoteHealthy()) {

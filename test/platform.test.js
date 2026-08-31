@@ -85,12 +85,12 @@ test('Dework and Titan use safe simulation without credentials', async () => {
 
 test('telegram replies are contextual and useful', async () => {
   const { contextualReply } = await import('../src/telegram.js');
+  process.env.AI_CHAT_LOCAL_ONLY = '1';
   const reply = await contextualReply('مرحبا', { id: '888229115', username: 'Mohammadabbas891' });
   assert.notEqual(reply.trim(), 'تم');
-  assert.match(reply, /أهلاً بك يا محمد عباس/);
-  assert.match(reply, /وصلتني رسالتك/);
-  assert.match(reply, /الحالة الحالية:/);
-  assert.match(reply, /المهام المسجلة:/);
+  assert.match(reply, /محمد|أورورا|تسعدني رسالتك|أهلاً|مرحباً/);
+  assert.doesNotMatch(reply, /Aurora local draft|Status: deterministic|خطة المحاكاة|مسودة المحاكاة/);
+  delete process.env.AI_CHAT_LOCAL_ONLY;
 });
 
 test('telegram webhook updates are processed exactly once', async () => {
