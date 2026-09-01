@@ -39,6 +39,9 @@ export const config = {
   siliconFlowModel: process.env.SILICONFLOW_MODEL || 'deepseek-chat',
   deepSeekKey: process.env.DEEPSEEK_API_KEY || '',
   deepSeekModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+  agnesKey: process.env.AGNES_API_KEY || '',
+  agnesUrl: process.env.AGNES_API_URL || 'https://apihub.agnes-ai.com/v1',
+  agnesModel: process.env.AGNES_MODEL || 'agnes-2.0-flash',
   ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'qwen2.5:0.5b',
 

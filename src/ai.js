@@ -17,9 +17,10 @@ export function simulationEnabled() {
 }
 
 export function availableModels() {
-  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey);
+  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey || config.agnesKey);
   if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
+    config.agnesKey && { id: "agnes", label: "Agnes AI (agnes-2.0-flash)", priority: 0 },
     config.deepSeekKey && { id: config.deepSeekModel, label: 'DeepSeek (' + (config.deepSeekModel || 'deepseek-chat') + ')', priority: 0 },
     config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 1 },
     config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 2 },
@@ -44,6 +45,7 @@ export function selectModel() {
     const ollamaModel = available.find(m => m.id === 'ollama');
     if (ollamaModel) return ollamaModel.id;
   }
+  if (config.agnesKey) return "agnes";
   if (config.deepSeekKey) { const ds = available.find(m => m.id === config.deepSeekModel); if (ds) return ds.id; }
   if (config.siliconFlowKey) { const sf = available.find(m => m.id === config.siliconFlowModel); if (sf) return sf.id; }
   if (config.geminiKey) { const gemini = available.find(m => m.id === 'gemini-3.6-flash'); if (gemini) return gemini.id; }
@@ -156,9 +158,9 @@ export async function callModel(agent, prompt, taskId = null) {
   let success = true;
   let errorType = '';
   try {
-    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl);
+    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl || config.agnesKey);
     const useSimulation = (simulationEnabled() && !hasRealProvider && model !== 'pollinations-llama')
-      || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey);
+      || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey && !config.agnesKey);
     if (useSimulation) {
       if (agent === 'daily-scout') {
         output = JSON.stringify({
@@ -228,6 +230,19 @@ export async function callModel(agent, prompt, taskId = null) {
       output = await response.text();
       output = output.replace(/^data:image\/[^;]+;base64,.*$/, '').trim();
       if (!output) throw Object.assign(new Error('Pollinations empty response'), { code: 'AI_EMPTY_RESPONSE' });
+    } else if (model === 'agnes' && config.agnesKey) {
+      const response = await postJson(config.agnesUrl + '/chat/completions', {
+        model: config.agnesModel,
+        messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.7,
+        stream: false
+      }, { authorization: 'Bearer ' + config.agnesKey }, 'agnes');
+      if (!response.ok) throw Object.assign(new Error('Agnes HTTP ' + response.status), { code: 'AI_PROVIDER' });
+      const data = await response.json();
+      output = data.choices?.[0]?.message?.content || '';
+      if (!output) throw Object.assign(new Error('Agnes returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+
     } else if (model === config.deepSeekModel && config.deepSeekKey) {
       const response = await postJson('https://api.deepseek.com/v1/chat/completions', {
         model,
