@@ -1,0 +1,24 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Render
+        uses: andrecr12/render-blueprint-deploy@main
+        with:
+          api-key: ${{ secrets.RENDER_API_KEY }}
+          blueprint-file: render.yaml
+      
+      - name: Get service URL
+        run: |
+          echo "Checking Render service status..."
+          sleep 30
+          curl -sf https://silent-giants-primary.onrender.com/health || echo "Service may still be starting..."
