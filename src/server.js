@@ -124,15 +124,12 @@ export async function startServer() {
       if (url.pathname === '/telegram/webhook') {
         if (request.method === 'GET') { return json(response, 200, { ok: true }); }
         if (request.method !== 'POST') { return; }
+        // Return 200 immediately, process update in background
         const update = await readBody(request);
-        let outbox = { processed: 0 };
-        try {
-          await handleTelegramUpdate(update);
-          outbox = await processTelegramOutbox();
-        } catch (caught) {
-          recordError('telegram', 'WEBHOOK_HANDLER_ERROR', caught.message);
-        }
-        return json(response, 200, { ok: true, outbox });
+        setTimeout(() => {
+          handleTelegramUpdate(update).then(() => processTelegramOutbox()).catch(e => recordError('telegram', 'WEBHOOK_BG_ERROR', e.message));
+        }, 0);
+        return json(response, 200, { ok: true });
       }
 
       if (url.pathname === '/api/sync/database' && request.method === 'GET') {
