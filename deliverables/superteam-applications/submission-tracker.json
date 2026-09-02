@@ -1,0 +1,62 @@
+{
+  "last_updated": "2026-09-02T20:15:00Z",
+  "account": {
+    "username": "ethical-copper-10",
+    "email": "auroraalmada4@gmail.com"
+  },
+  "submissions": [
+    {
+      "id": 1,
+      "opportunity": "ZNS Solana Creator Challenge",
+      "url": "https://superteam.fun/listings/zns-sol",
+      "prize": "500 USDC",
+      "tasks": ["TASK-408", "TASK-409"],
+      "status": "pending",
+      "submitted_at": null
+    },
+    {
+      "id": 2,
+      "opportunity": "Canada Creator Challenge",
+      "url": "https://superteam.fun/listings/solana-summit-canada-creator-challenge-part-1",
+      "prize": "10,000 USDG",
+      "tasks": ["TASK-410", "TASK-411"],
+      "status": "pending",
+      "submitted_at": null
+    },
+    {
+      "id": 3,
+      "opportunity": "Creator Grant",
+      "url": "https://superteam.fun/listings/solana-summit-creator-grant",
+      "prize": "2,000 USDG",
+      "tasks": ["TASK-414", "TASK-415"],
+      "status": "pending",
+      "submitted_at": null
+    },
+    {
+      "id": 4,
+      "opportunity": "New Builders Content",
+      "url": "https://superteam.fun/listings/create-content-to-engage-new-builders-for-the-hackathon",
+      "prize": "900 USDG",
+      "tasks": ["TASK-423", "TASK-424"],
+      "status": "pending",
+      "submitted_at": null
+    },
+    {
+      "id": 5,
+      "opportunity": "CastleDAO Content",
+      "url": "https://superteam.fun/listings/castledao-content-challenge",
+      "prize": "1,000 USDG",
+      "tasks": ["TASK-425", "TASK-426"],
+      "status": "pending",
+      "submitted_at": null
+    }
+  ],
+  "statistics": {
+    "total_tasks": 92,
+    "submitted": 0,
+    "pending": 5,
+    "accepted": 0,
+    "rejected": 0,
+    "total_prize_value": "$14,400"
+  }
+}
