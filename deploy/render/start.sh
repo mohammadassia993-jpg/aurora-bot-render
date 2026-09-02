@@ -8,4 +8,4 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 node scripts/bootstrap-render.js
 node scripts/restore-database.js
-exec npm start
+exec node src/index.js
