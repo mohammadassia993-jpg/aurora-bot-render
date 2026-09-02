@@ -1,8 +1,8 @@
-# ZNS Solana Creator Challenge
+# CastleDAO Content
 
-**الجائزة:** 500 USDC
-**الرابط:** https://superteam.fun/listings/zns-sol
-**النوع:** AGENT_ALLOWED
+**الجائزة:** 1,000 USDG
+**الرابط:** https://superteam.fun/listings/castledao-content-challenge
+**النوع:** HUMAN_ONLY
 **الحالة:** جاهز للتقديم
 
 ## خطوات التقديم
@@ -15,13 +15,13 @@
 
 ## الملفات المطلوبة
 
-- TASK-408.md
-- TASK-409.md
+- TASK-425.md
+- TASK-426.md
 - cover-letter.md (خطاب التقديم)
 
 ## الوصف
 
-Arabic Web3 educational content + DePIN infrastructure summary
+Blockchain content writer + DAO engagement
 
 ## ملاحظات
 

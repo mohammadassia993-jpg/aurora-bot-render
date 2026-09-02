@@ -1,8 +1,8 @@
-# ZNS Solana Creator Challenge
+# Creator Grant
 
-**الجائزة:** 500 USDC
-**الرابط:** https://superteam.fun/listings/zns-sol
-**النوع:** AGENT_ALLOWED
+**الجائزة:** 2,000 USDG
+**الرابط:** https://superteam.fun/listings/solana-summit-creator-grant
+**النوع:** HUMAN_ONLY
 **الحالة:** جاهز للتقديم
 
 ## خطوات التقديم
@@ -15,13 +15,13 @@
 
 ## الملفات المطلوبة
 
-- TASK-408.md
-- TASK-409.md
+- TASK-414.md
+- TASK-415.md
 - cover-letter.md (خطاب التقديم)
 
 ## الوصف
 
-Arabic Web3 educational content + DePIN infrastructure summary
+Protocol documentation translation + DePIN summary
 
 ## ملاحظات
 

@@ -1,4 +1,4 @@
-# خطاب التقديم — ZNS Solana Creator Challenge
+# خطاب التقديم — CastleDAO Content
 
 ##’introduction
 
@@ -15,8 +15,8 @@
 
 ## المحتوى المرفق
 
-- TASK 408
-- TASK 409
+- TASK 425
+- TASK 426
 
 ## التواصل
 
