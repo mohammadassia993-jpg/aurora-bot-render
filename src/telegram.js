@@ -573,20 +573,9 @@ export async function startTelegram() {
   const webhook = await telegramRequest(config.telegramToken, 'getWebhookInfo', null, 8000).catch(() => null);
   if (webhook?.ok && webhook.data?.ok && webhook.data.result?.url) {
     const webhookUrl = webhook.data.result.url;
-    const reachable = await (async () => {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 6000);
-        const probe = await fetch(webhookUrl, { method: 'POST', signal: controller.signal, body: '{}' });
-        clearTimeout(timer);
-        return probe.status < 500;
-      } catch {
-        return false;
-      }
-    })();
-    if (reachable) {
-      mode = 'webhook';
-      info('telegram', `webhook active: ${webhookUrl}`);
+    // Accept webhook without probing (Render handles verification via GET)
+    mode = 'webhook';
+    info('telegram', `webhook active: ${webhookUrl}`);
       setInterval(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 5000).unref();
       setTimeout(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 250).unref();
       return;
