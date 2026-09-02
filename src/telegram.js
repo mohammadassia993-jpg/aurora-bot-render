@@ -484,6 +484,10 @@ export async function syncTelegramWebhook() {
   try {
     const tunnel = JSON.parse(fs.readFileSync(path.join(config.root, 'data', 'tunnel.json'), 'utf8'));
     if (!tunnel.url) return { skipped: true };
+    if (tunnel.expiresInHours && tunnel.updatedAt) {
+      const age = (Date.now() - new Date(tunnel.updatedAt).getTime()) / 3600000;
+      if (age > tunnel.expiresInHours) return { skipped: true, reason: 'tunnel expired' };
+    }
     const expectedUrl = `${String(tunnel.url).replace(/\/$/, '')}/telegram/webhook`;
     const current = await telegramRequest(config.telegramToken, 'getWebhookInfo', null, 8000);
     const currentUrl = current.data?.result?.url || '';
