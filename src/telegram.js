@@ -14,6 +14,7 @@ function withTimeout(promise, ms) {
 }
 import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary } from './storefront.js';
 import { createTask, runTaskFlow, getTaskStatus, getTaskReport, isLeaderMessage, matchTaskCommand, matchReportCommand, matchStatusCommand } from './task-flow.js';
+import { runBrowserSubmissions } from './superteam-submit.js';
 
 let offset = 0;
 let mode = 'disabled';
@@ -427,7 +428,7 @@ async function handleCommand(message) {
   if (command === '/start') {
     enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
   } else if (command === '/help') {
-    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/tasks — تقرير المهام', '/task <عنوان> — تنفيذ مهمة جديدة', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
+    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/tasks — تقرير المهام\n/submit — التقديم على Superteam Earn', '/task <عنوان> — تنفيذ مهمة جديدة', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
   } else if (command === '/status') {
     enqueueReply(null, replyChatId, statusText());
   } else if (command === '/report') {
@@ -464,7 +465,19 @@ async function handleCommand(message) {
   } else if (command === '/products' || command === '/store' || command === '/market' || command === '/shop' || command === '/buy') {
     enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
   } else if (command === '/orders' || command === '/sales') {
-    enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());
+    enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());  } else if (command === '/submit') {
+    enqueueReply(null, replyChatId, '🚀 جارٍ بدء التقديم على Superteam عبر المتصفح...\n⏳ قد يستغرق هذا بضع دقائق.\nسأبلغك بالنتيجة فور الانتهاء.');
+    runBrowserSubmissions().then(result => {
+      if (result.error) {
+        sendMessageDetailed('❌ خطأ في التقديم: ' + result.error, effectiveChatId());
+      } else {
+        const summary = result.output.slice(-2000) || 'لا يوجد مخرجات';
+        const status = result.code === 0 ? '✅' : '⚠️';
+        sendMessageDetailed(status + ' انتهى التقديم (كود: ' + result.code + ')\n\n' + summary, effectiveChatId());
+      }
+    }).catch(err => {
+      sendMessageDetailed('❌ خطأ غير متوقع: ' + err.message, effectiveChatId());
+    });
   } else if (command === '/tasks' || command === '/مهام') {
     enqueueReply(null, replyChatId, getTaskReport());
   } else if (command.startsWith('/task ')) {
