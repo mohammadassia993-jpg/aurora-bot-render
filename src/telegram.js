@@ -570,20 +570,8 @@ export async function startTelegram() {
   await syncTelegramWebhook();
   setInterval(() => syncTelegramWebhook().catch(() => {}), 60_000).unref();
 
-  const webhook = await telegramRequest(config.telegramToken, 'getWebhookInfo', null, 8000).catch(() => null);
-  if (webhook?.ok && webhook.data?.ok && webhook.data.result?.url) {
-    const webhookUrl = webhook.data.result.url;
-    // Accept webhook without probing (Render handles verification via GET)
-    mode = 'webhook';
-    info('telegram', `webhook active: ${webhookUrl}`);
-      setInterval(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 5000).unref();
-      setTimeout(() => processTelegramOutbox().catch(caught => warn('telegram', `outbox failed: ${caught.message}`)), 250).unref();
-      return;
-    }
-    warn('telegram', `webhook ${webhookUrl} unreachable; falling back to local polling so replies still arrive`);
-    await telegramRequest(config.telegramToken, 'deleteWebhook', null, 8000).catch(() => null);
-  }
-
+  // Always use polling mode
+  info('telegram', 'using polling mode');
   if (config.telegramFailover && config.backupUrl && await remoteHealthy()) {
     mode = 'armed';
     info('telegram', 'token installed; local listener armed while Render backup is healthy');
