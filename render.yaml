@@ -40,8 +40,20 @@ services:
       - key: TEAM_UI_TOKEN
         sync: false
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
+        value: 8964456145:AAEcQ5AGdssnNbgMRW06b96PMiaXXvsWVdE
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
       - key: TELEGRAM_ADMIN_CHAT_ID
-        sync: false
+        value: "888229115"
+      - key: AGNES_API_KEY
+        value: sk-MNKF4OnRdkKmM8xcFSHqejeEQgfP2vPc6DX5EYXpy8J2hREN
+      - key: AGNES_API_URL
+        value: https://apihub.agnes-ai.com/v1
+      - key: AGNES_MODEL
+        value: agnes-2.0-flash
+      - key: AI_PRIMARY_MODEL
+        value: agnes
+      - key: TELEGRAM_FAILOVER
+        value: "false"
+      - key: OFFICIAL_EMAIL
+        value: auroraalmada4@gmail.com
