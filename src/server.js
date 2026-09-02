@@ -89,6 +89,11 @@ export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     try {
+      if (url.pathname === '/submit' && request.method === 'POST') {
+        // Trigger Superteam browser submissions (fire and forget)
+        import('./superteam-submit.js').then(m => m.runBrowserSubmissions().then(r => console.log('[submit] done:', r.code || r.error)).catch(e => console.error('[submit] failed:', e.message)));
+        return json(response, 200, { ok: true, message: 'submission_started' });
+      }
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
