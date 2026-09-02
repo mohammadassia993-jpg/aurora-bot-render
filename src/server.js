@@ -121,11 +121,9 @@ export async function startServer() {
         });
       }
 
-      if (url.pathname === '/telegram/webhook' && request.method === 'POST') {
-        const secret = request.headers['x-telegram-bot-api-secret-token'] || '';
-        if (!config.telegramWebhookSecret || secret !== config.telegramWebhookSecret) {
-          return json(response, 401, { ok: false });
-        }
+      if (url.pathname === '/telegram/webhook') {
+        if (request.method === 'GET') { return json(response, 200, { ok: true }); }
+        if (request.method !== 'POST') { return; }
         const update = await readBody(request);
         let outbox = { processed: 0 };
         try {
