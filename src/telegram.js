@@ -13,6 +13,7 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), ms))]);
 }
 import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary } from './storefront.js';
+import { createTask, runTaskFlow, getTaskStatus, getTaskReport, isLeaderMessage, matchTaskCommand, matchReportCommand, matchStatusCommand } from './task-flow.js';
 
 let offset = 0;
 let mode = 'disabled';
@@ -302,6 +303,37 @@ export async function contextualReply(text, sender = {}) {
     return 'آسف على الإزعاج 🙏 دعنا نحل الأمر معاً.\n\n• إن كانت المشكلة في البوت: جرّب /status لفحص الحالة.\n• إن كانت في منتج/طلب: أرسل رقم الطلب أو المنتج وسأتابع معك فوراً.\n• إن كانت تقنية عامة: صف لي ما يحدث خطوة بخطوة.\n\nأنا هنا لمساعدتك حتى نصل لحل.';
   }
 
+  // Task flow: handle leader task commands
+  if (isLeaderMessage(sender)) {
+    const taskTitle = matchTaskCommand(value);
+    if (taskTitle) {
+      const taskId = createTask(taskTitle, 'leader');
+      // Execute in background
+      runTaskFlow(taskId).then(results => {
+        const summary = [
+          `✅ تم تسليم المهمة #${taskId}: "${taskTitle}"`,
+          '',
+          '📋 ملخص التنفيذ:',
+          results.planner ? `• المخطط: ${String(results.planner).slice(0, 300)}` : '',
+          results.executor ? `• المنفذ: ${String(results.executor).slice(0, 300)}` : '',
+          results.reviewer ? `• المراجع: ${String(results.reviewer).slice(0, 300)}` : '',
+          '',
+          '📊 المهمة مكتملة.'
+        ].filter(Boolean).join('\n');
+        sendMessageDetailed(summary, effectiveChatId());
+      }).catch(err => {
+        sendMessageDetailed(`❌ خطأ في المهمة #${taskId}: ${err.message}`, effectiveChatId());
+      });
+      return `✅ تم استلام المهمة: "${taskTitle}"\n\n🔄 جارٍ تنفيذ التدفق الكامل:\n1. 📋 المخطط يحلل...\n2. ⚙️ المنفذ ينفّذ...\n3. 🔍 المراجع يراجع...\n\n⏳ سأبلغك فور الانتهاء.`;
+    }
+    if (matchReportCommand(value)) {
+      return getTaskReport();
+    }
+    if (matchStatusCommand(value)) {
+      return statusText();
+    }
+  }
+
   // Always use the intelligent AI engine for ALL messages
   if (process.env.AI_CHAT_LOCAL_ONLY !== '1') try {
     const prompt = [
@@ -395,7 +427,7 @@ async function handleCommand(message) {
   if (command === '/start') {
     enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
   } else if (command === '/help') {
-    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
+    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/tasks — تقرير المهام', '/task <عنوان> — تنفيذ مهمة جديدة', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
   } else if (command === '/status') {
     enqueueReply(null, replyChatId, statusText());
   } else if (command === '/report') {
@@ -433,6 +465,32 @@ async function handleCommand(message) {
     enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
   } else if (command === '/orders' || command === '/sales') {
     enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());
+  } else if (command === '/tasks' || command === '/مهام') {
+    enqueueReply(null, replyChatId, getTaskReport());
+  } else if (command.startsWith('/task ')) {
+    const taskTitle = message.text.slice(6).trim();
+    if (!taskTitle) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /task <عنوان المهمة>');
+    } else {
+      const taskId = createTask(taskTitle, 'leader');
+      enqueueReply(null, replyChatId, `✅ تم استلام المهمة #${taskId}: "${taskTitle}"\n\n🔄 جارٍ تنفيذ التدفق الكامل:\n1. 📋 المخطط يحلل المهمة...\n2. ⚙️ المنفذ ينفّذ...\n3. 🔍 المراجع يراجع الجودة...\n\n⏳ سأبلغك بالنتيجة فور الانتهاء.`);
+      // Execute task flow in background
+      runTaskFlow(taskId).then(results => {
+        const summary = [
+          `✅ تم تسليم المهمة #${taskId}: "${taskTitle}"`,
+          '',
+          '📋 خطوات التنفيذ:',
+          results.planner ? `• المخطط: ${String(results.planner).slice(0, 200)}` : '',
+          results.executor ? `• المنفذ: ${String(results.executor).slice(0, 200)}` : '',
+          results.reviewer ? `• المراجع: ${String(results.reviewer).slice(0, 200)}` : '',
+          '',
+          '📊 المهمة مكتملة وجاهزة للمراجعة.'
+        ].filter(Boolean).join('\n');
+        sendMessageDetailed(summary, effectiveChatId());
+      }).catch(err => {
+        sendMessageDetailed(`❌ خطأ في المهمة #${taskId}: ${err.message}`, effectiveChatId());
+      });
+    }
   } else if (command.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
