@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: aurora-bot-backup
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci --omit=dev || npm install --omit=dev
+    startCommand: bash deploy/render/start.sh
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8788
+      - key: PLATFORM_ROLE
+        value: render
+      - key: ALLOW_DATABASE_RESTORE_RESTART
+        value: "true"
+      - key: MAIL_DELIVERY_MODE
+        value: disabled
+      - key: AI_SIMULATION_MODE
+        value: "false"
+      - key: TELEGRAM_BOT_TOKEN
+        value: 8964456145:AAEcQ5AGdssnNbgMRW06b96PMiaXXvsWVdE
+      - key: TELEGRAM_ADMIN_CHAT_ID
+        value: "888229115"
+      - key: AGNES_API_KEY
+        value: sk-MNKF4OnRdkKmM8xcFSHqejeEQgfP2vPc6DX5EYXpy8J2hREN
+      - key: AGNES_API_URL
+        value: https://apihub.agnes-ai.com/v1
+      - key: AGNES_MODEL
+        value: agnes-2.0-flash
+      - key: AI_PRIMARY_MODEL
+        value: agnes
+      - key: TELEGRAM_FAILOVER
+        value: "false"
+      - key: OFFICIAL_EMAIL
+        value: auroraalmada4@gmail.com
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: SUPERTEAM_API_KEY
+        sync: false
