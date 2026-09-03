@@ -90,9 +90,32 @@ export async function startServer() {
     const url = new URL(request.url, `http://${request.headers.host}`);
     try {
       if (url.pathname === '/submit' && request.method === 'POST') {
-        // Trigger Superteam browser submissions (fire and forget)
-        import('./superteam-submit.js').then(m => m.runBrowserSubmissions().then(r => console.log('[submit] done:', r.code || r.error)).catch(e => console.error('[submit] failed:', e.message)));
+        const sync = url.searchParams.get('sync') === '1';
+        if (sync) {
+          // Synchronous: wait for Puppeteer result (up to 4 min)
+          try {
+            const { runBrowserSubmissions } = await import('./superteam-submit.js');
+            const result = await Promise.race([
+              runBrowserSubmissions(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('SUBMISSION_TIMEOUT')), 240000))
+            ]);
+            return json(response, 200, { ok: true, result });
+          } catch (e) {
+            return json(response, 500, { ok: false, error: e.message });
+          }
+        }
+        // Async fire and forget
+        import('./superteam-submit.js').then(m => m.runBrowserSubmissions().then(r => console.log('[submit] done:', JSON.stringify(r))).catch(e => console.error('[submit] failed:', e.message)));
         return json(response, 200, { ok: true, message: 'submission_started' });
+      }
+      if (url.pathname === '/submit/results' && request.method === 'GET') {
+        try {
+          const resultsPath = path.join(config.root, 'deliverables', 'reports', 'puppeteer-submissions.json');
+          const data = await fs.readFile(resultsPath, 'utf8');
+          return json(response, 200, JSON.parse(data));
+        } catch (e) {
+          return json(response, 404, { error: 'no results yet', detail: e.message });
+        }
       }
       if (url.pathname === '/health') {
         const latest = db.prepare(`
