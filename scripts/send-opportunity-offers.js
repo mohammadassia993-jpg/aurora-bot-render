@@ -1,26 +1,20 @@
 #!/usr/bin/env node
 /**
  * send-opportunity-offers.js
- * Send 10 specialized offers to 10 additional projects for 3 new opportunities
+ * Send 10 specialized offers for 3 new opportunities using built-in SMTP
  */
 
-import nodemailer from 'nodemailer';
+import { config } from '../src/config.js';
+import { sendMail } from '../src/mail.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const LOG_FILE = path.join(ROOT, 'logs', 'outreach.log');
 
-const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER || 'Mohammadassia993@gmail.com';
-const SMTP_PASS = process.env.SMTP_PASS || 'smsusatmgawyndfp';
-
 const OFFERS = [
-  // Smart Contract Content (3)
   {
-    project: 'Solana',
-    email: 'partnerships@solana.com',
+    project: 'Solana', email: 'partnerships@solana.com',
     subject: 'Smart Contract Content Writing — Arabic Market | Silent Giants',
     body: `مرحباً فريق Solana 👋
 
@@ -32,198 +26,113 @@ const OFFERS = [
 • تحليلات أمنية مبسطة
 • توثيق أفضل الممارسات
 
-📊 خبرتنا:
-• 92+ مهمة مكتملة في مجال Web3
-• فريق يتحدث العربية بطلاقة
-• خبرة في Solidity, Rust, Move
+📊 خبرتنا: 92+ مهمة مكتملة | فريق يتحدث العربية | خبرة في Rust
 
-💰 الأسعار:
-• مقال تقني: 50-150$
-• دليل تعليمي: 100-300$
-• تحليل أمني: 200-500$
+💰 الأسعار: مقال 50-150$ | دليل 100-300$ | تحليل 200-500$
 
 الدفع: USDT | التسليم: 24-72 ساعة
 
 هل تريدون عينة مجانية لمقال تقني عن Solana؟
 
-مع أطيب التحيات،
-فريق عمالقة الصمت
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'Ethereum Foundation',
-    email: 'partnerships@ethereum.org',
+    project: 'Ethereum Foundation', email: 'partnerships@ethereum.org',
     subject: 'Solidity Content & Documentation — Arabic Web3 Team',
     body: `مرحباً فريق Ethereum 👋
 
 فريق عمالقة الصمت متخصص في كتابة محتوى Solidity بالعربية:
-
-📝 الخدمات:
-• توثيق العقود الذكية
-• أدلة مبتدئين ومتقدمين
-• تحليل أنماط التصميم (Design Patterns)
-• مقالات عن أمن العقود
-
-📊 خبرتنا في Web3:
-• فريق تقني يتحدث العربية
-• خبرة في Solidity, Vyper
-• 92+ مهمة مكتملة
-
-💰 أسعار تنافسية | الدفع USDT | التسليم سريع
-
-هل تريدون عرض أسعار مخصص؟
+• توثيق العقود الذكية | أدلة مبتدئين ومتقدمين | تحليل Design Patterns
+92+ مهمة | خبرة في Solidity, Vyper
+💰 أسعار تنافسية | USDT | تسليم سريع
 
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'Aptos',
-    email: 'partnerships@aptoslabs.com',
+    project: 'Aptos', email: 'partnerships@aptoslabs.com',
     subject: 'Move Smart Contract Content — Arabic Technical Writing',
     body: `مرحباً فريق Aptos 👋
 
 فريق عمالقة الصمت يقدم محتوى تقني عن Move بالعربية:
-
-📝 الخدمات:
-• أدلة تعليمية عن Move Language
-• توثيق العقود الذكية
-• تحليل الميزات التقنية
-• مقارنات مع Solidity
-
-📊 خبرتنا: 92+ مهمة مكتملة | فريق تقني عربي
-
-💰 أسعار تنافسية | USDT | تسليم سريع
+• أدلة تعليمية | توثيق عقود | تحليل ميزات | مقارنات مع Solidity
+92+ مهمة | فريق تقني عربي | USDT | تسليم سريع
 
 📧 auroraalmada4@gmail.com`
   },
-  // DAO Governance (3)
   {
-    project: 'Compound',
-    email: 'governance@compound.finance',
+    project: 'Compound', email: 'governance@compound.finance',
     subject: 'DAO Governance Support — Arabic Community Engagement',
     body: `مرحباً فريق Compound 👋
 
 فريق عمالقة الصمت يقدم خدمات حوكمة DAO:
-
-📝 الخدمات:
-• كتابة مقترحات حوكمة بالعربية
-• تحليل اتجاهات التصويت
-• ترجمة مقترحات للمجتمع العربي
-• تقارير شهرية عن الحوكمة
-
-📊 خبرتنا: 92+ مهمة | خبرة في Governance
-
-💰 الأسعار: 200-500$ لكل مقترح
+• كتابة مقترحات | تحليل التصويت | ترجمة للعربية | تقارير شهرية
+💰 200-500$ لكل مقترح | USDT
 
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'Curve Finance',
-    email: 'team@curve.fi',
+    project: 'Curve Finance', email: 'team@curve.fi',
     subject: 'DAO Governance Content & Arabic Community Support',
     body: `مرحباً فريق Curve 👋
 
 فريق عمالقة الصمت متخصص في محتوى الحوكمة:
-
-📝 الخدمات:
-• ترجمة مقترحات Curve Governance
-• كتابة محتوى تعليمي عن Voting
-• تحليل تأثير المقترحات على المجتمع
-• تقارير شهرية
-
-💰 أسعار تنافسية | USDT | تسليم سريع
+• ترجمة مقترحات | محتوى تعليمي | تحليل التأثير | تقارير شهرية
+💰 أسعار تنافسية | USDT
 
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'Yearn Finance',
-    email: 'team@yearn.finance',
+    project: 'Yearn Finance', email: 'team@yearn.finance',
     subject: 'DAO Governance & Arabic Content — Silent Giants Team',
     body: `مرحباً فريق Yearn 👋
 
 فريق عمالقة الصمت يقدم خدمات حوكمة:
-
-📝 الخدمات:
-• كتابة مقترحات حوكمة
-• تحليل Vault Strategies بالعربية
-• محتوى تعليمي للمجتمع
-• تقارير أداء شهرية
-
+• مقترحات حوكمة | تحليل Vault Strategies | محتوى تعليمي | تقارير
 💰 أسعار تنافسية | USDT
 
 📧 auroraalmada4@gmail.com`
   },
-  // Research & Analysis (4)
   {
-    project: 'Messari',
-    email: 'research@messari.io',
+    project: 'Messari', email: 'research@messari.io',
     subject: 'Web3 Research Reports — Arabic Market Expansion',
     body: `مرحباً فريق Messari 👋
 
 فريق عمالقة الصمت يقدم خدمات بحثية:
-
-📝 الخدمات:
-• تقارير بحثية عن مشاريع Web3 بالعربية
-• تحليل بيانات on-chain
-• مقارنات مشاريع
-• تقييم مخاطر
-
-📊 خبرتنا: 92+ مهمة | فريق بحثي عربي
-
-💰 تقارير: 200-1000$ حسب العمق
+• تقارير بحثية | تحليل on-chain | مقارنات | تقييم مخاطر
+💰 تقارير 200-1000$ | USDT
 
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'Delphi Digital',
-    email: 'research@delphidigital.io',
+    project: 'Delphi Digital', email: 'research@delphidigital.io',
     subject: 'Arabic Web3 Research & Analysis Services',
     body: `مرحباً فريق Delphi 👋
 
 فريق عمالقة الصمت يقدم تقارير بحثية:
-
-📝 الخدمات:
-• تحليل مشاريع Web3 بالعربية
-• تقارير sector analysis
-• تحليلات اقتصادية للرموز
-• تقارير DePIN
-
-💰 أسعار تنافسية | USDT
+• تحليل مشاريع | sector analysis | تحليلات اقتصادية | تقارير DePIN
+💰 USDT | أسعار تنافسية
 
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'The Block',
-    email: 'research@theblock.co',
+    project: 'The Block', email: 'research@theblock.co',
     subject: 'Arabic Crypto Research — Content Partnership',
     body: `مرحباً فريق The Block 👋
 
 فريق عمالقة الصمت متخصص في البحث والتحليل:
-
-📝 الخدمات:
-• تقارير سوق كريبتو بالعربية
-• تحليل اتجاهات السوق
-• مقارنات منصات التداول
-• تقارير DePIN/DeFi
-
-💰 شراكة محتوى | USDT | أسعار تنافسية
+• تقارير سوق | تحليل اتجاهات | مقارنات منصات | تقارير DePIN
+💰 شراكة محتوى | USDT
 
 📧 auroraalmada4@gmail.com`
   },
   {
-    project: 'Dune Analytics',
-    email: 'hello@dune.com',
+    project: 'Dune Analytics', email: 'hello@dune.com',
     subject: 'On-chain Data Analysis — Arabic Web3 Research',
     body: `مرحباً فريق Dune 👋
 
 فريق عمالقة الصمت يقدم تحليل بيانات on-chain:
-
-📝 الخدمات:
-• تحليل بيانات blockchain بالعربية
-• إنشاء dashboards للمجتمع
-• تقارير نمو مشاريع
-• مقارنات أداء الشبكات
-
-💰 أسعار تنافسية | USDT
+• تحليل blockchain | dashboards | تقارير نمو | مقارنات أداء
+💰 USDT | أسعار تنافسية
 
 📧 auroraalmada4@gmail.com`
   }
@@ -237,39 +146,29 @@ function log(msg) {
 
 async function main() {
   log('=== Starting Opportunity Offers (10 emails) ===');
+  log(`Mail mode: ${config.mailDeliveryMode}`);
   
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: false,
-    auth: { user: SMTP_USER, pass: SMTP_PASS }
-  });
-
   let successCount = 0;
   let failCount = 0;
 
   for (const offer of OFFERS) {
     try {
-      await transporter.sendMail({
-        from: `"عمالقة الصمت" <${SMTP_USER}>`,
+      const result = await sendMail({
         to: offer.email,
         subject: offer.subject,
-        text: offer.body,
-        replyTo: 'auroraalmada4@gmail.com'
+        text: offer.body
       });
       successCount++;
-      log(`✅ Offer sent to ${offer.project} (${offer.email})`);
+      log(`✅ Offer sent to ${offer.project} (${offer.email}) [${result.disabled ? 'queued' : 'sent'}]`);
     } catch (err) {
       failCount++;
       log(`❌ Failed ${offer.project}: ${err.message}`);
     }
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 2000));
   }
 
-  const summary = `Opportunity offers: ${successCount} sent, ${failCount} failed`;
-  log(summary);
+  log(`Opportunity offers: ${successCount} sent, ${failCount} failed`);
   log('=== Opportunity Offers finished ===');
-  
   console.log(JSON.stringify({ success: successCount, failed: failCount, total: OFFERS.length }));
 }
 

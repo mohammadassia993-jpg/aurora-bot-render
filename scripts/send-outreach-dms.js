@@ -1,22 +1,17 @@
 #!/usr/bin/env node
 /**
  * send-outreach-dms.js
- * Send outreach messages to 20 Arabic Web3 projects via email
- * Works on any platform (no Puppeteer required)
+ * Send outreach emails to 20 Arabic Web3 projects using the built-in SMTP module
  */
 
-import nodemailer from 'nodemailer';
+import { config } from '../src/config.js';
+import { sendMail } from '../src/mail.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const LOG_FILE = path.join(ROOT, 'logs', 'outreach.log');
 const TRACKER = path.join(ROOT, 'deliverables', 'outreach-2026-09-03', 'tracker.md');
-
-const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_USER = process.env.SMTP_USER || 'Mohammadassia993@gmail.com';
-const SMTP_PASS = process.env.SMTP_PASS || 'smsusatmgawyndfp';
 
 const DM_TEMPLATES = {
   trading: `مرحباً 👋
@@ -35,8 +30,7 @@ const DM_TEMPLATES = {
 
 مع أطيب التحيات،
 فريق عمالقة الصمت
-📧 auroraalmada4@gmail.com
-🌐 https://mohammadassia993-jpg.github.io/aurora-bot-render/`,
+📧 auroraalmada4@gmail.com`,
 
   depin: `مرحباً 👋
 
@@ -94,26 +88,26 @@ const DM_TEMPLATES = {
 };
 
 const PROJECTS = [
-  { name: 'BitOasis', email: 'support@bitoasis.net', type: 'trading', twitter: '@BitOasis' },
-  { name: 'CoinMENA', email: 'info@coinmena.com', type: 'trading', twitter: '@CoinMENA' },
-  { name: 'Rain', email: 'support@rain.co', type: 'trading', twitter: '@rainaborse' },
-  { name: 'Fasset', email: 'info@fasset.com', type: 'trading', twitter: '@FassetT' },
-  { name: 'Render Network', email: 'hello@rendernetwork.org', type: 'depin', twitter: '@rendernetwork' },
-  { name: 'Filecoin', email: 'info@filecoin.io', type: 'depin', twitter: '@Filecoin' },
-  { name: 'Helium', email: 'hello@helium.com', type: 'depin', twitter: '@helium' },
-  { name: 'Arweave', email: 'info@arweave.org', type: 'depin', twitter: '@Arab_orders' },
-  { name: 'MakerDAO', email: 'governance@makerdao.com', type: 'dao', twitter: '@MakerDAO' },
-  { name: 'Aave', email: 'governance@aave.com', type: 'dao', twitter: '@AaveAave' },
-  { name: 'Uniswap', email: 'governance@uniswap.org', type: 'dao', twitter: '@Uniswap' },
-  { name: 'Arbitrum', email: 'info@arbitrum.io', type: 'general', twitter: '@Arbitrum' },
-  { name: 'Polygon', email: 'info@polygon.technology', type: 'general', twitter: '@0xPolygon' },
-  { name: 'Optimism', email: 'info@optimism.io', type: 'general', twitter: '@optimismFND' },
-  { name: 'NEAR Protocol', email: 'info@near.org', type: 'general', twitter: '@NEARProtocol' },
-  { name: 'zkSync', email: 'info@zksync.io', type: 'general', twitter: '@zksync' },
-  { name: 'StarkNet', email: 'info@starknet.io', type: 'general', twitter: '@StarkNet' },
-  { name: 'Cosmos', email: 'info@cosmos.network', type: 'general', twitter: '@cosmos' },
-  { name: 'Polkadot', email: 'info@polkadot.network', type: 'general', twitter: '@Polkadot' },
-  { name: 'Avalanche', email: 'info@avax.network', type: 'general', twitter: '@avaborse' }
+  { name: 'BitOasis', email: 'support@bitoasis.net', type: 'trading' },
+  { name: 'CoinMENA', email: 'info@coinmena.com', type: 'trading' },
+  { name: 'Rain', email: 'support@rain.co', type: 'trading' },
+  { name: 'Fasset', email: 'info@fasset.com', type: 'trading' },
+  { name: 'Render Network', email: 'hello@rendernetwork.org', type: 'depin' },
+  { name: 'Filecoin', email: 'info@filecoin.io', type: 'depin' },
+  { name: 'Helium', email: 'hello@helium.com', type: 'depin' },
+  { name: 'Arweave', email: 'info@arweave.org', type: 'depin' },
+  { name: 'MakerDAO', email: 'governance@makerdao.com', type: 'dao' },
+  { name: 'Aave', email: 'governance@aave.com', type: 'dao' },
+  { name: 'Uniswap', email: 'governance@uniswap.org', type: 'dao' },
+  { name: 'Arbitrum', email: 'info@arbitrum.io', type: 'general' },
+  { name: 'Polygon', email: 'info@polygon.technology', type: 'general' },
+  { name: 'Optimism', email: 'info@optimism.io', type: 'general' },
+  { name: 'NEAR Protocol', email: 'info@near.org', type: 'general' },
+  { name: 'zkSync', email: 'info@zksync.io', type: 'general' },
+  { name: 'StarkNet', email: 'info@starknet.io', type: 'general' },
+  { name: 'Cosmos', email: 'info@cosmos.network', type: 'general' },
+  { name: 'Polkadot', email: 'info@polkadot.network', type: 'general' },
+  { name: 'Avalanche', email: 'info@avax.network', type: 'general' }
 ];
 
 function log(msg) {
@@ -129,14 +123,9 @@ function updateTracker(project, status, details = '') {
 
 async function main() {
   log('=== Starting Email Outreach to 20 Projects ===');
+  log(`SMTP: ${config.smtpHost}:${config.smtpPort} user=${config.smtpUser}`);
+  log(`Mail mode: ${config.mailDeliveryMode}`);
   
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: false,
-    auth: { user: SMTP_USER, pass: SMTP_PASS }
-  });
-
   let successCount = 0;
   let failCount = 0;
 
@@ -145,28 +134,31 @@ async function main() {
       const template = DM_TEMPLATES[project.type] || DM_TEMPLATES.general;
       const subject = `عرض تعاون — محتوى Web3 بالعربية | فريق عمالقة الصمت`;
       
-      await transporter.sendMail({
-        from: `"عمالقة الصمت" <${SMTP_USER}>`,
+      const result = await sendMail({
         to: project.email,
         subject,
-        text: template,
-        replyTo: 'auroraalmada4@gmail.com'
+        text: template
       });
 
-      successCount++;
-      log(`✅ Sent to ${project.name} (${project.email})`);
-      updateTracker(project, 'email-sent', `Email sent to ${project.email}`);
+      if (result.disabled || result.queued) {
+        log(`⚠️ ${project.name}: queued (${result.reason || 'mail queue'})`);
+        successCount++;
+        updateTracker(project, 'queued', result.reason || 'queued');
+      } else {
+        successCount++;
+        log(`✅ Sent to ${project.name} (${project.email})`);
+        updateTracker(project, 'email-sent', `Email sent to ${project.email}`);
+      }
     } catch (err) {
       failCount++;
       log(`❌ Failed ${project.name}: ${err.message}`);
       updateTracker(project, 'email-failed', err.message.slice(0, 100));
     }
     
-    // Delay between emails to avoid rate limiting
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 2000));
   }
 
-  const summary = `Email outreach complete: ${successCount} sent, ${failCount} failed out of ${PROJECTS.length}`;
+  const summary = `Email outreach: ${successCount} sent/queued, ${failCount} failed out of ${PROJECTS.length}`;
   log(summary);
   log('=== Email Outreach finished ===');
   
