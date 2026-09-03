@@ -13,7 +13,7 @@ function log(msg) {
 }
 
 (async () => {
-  log('🚀 Starting platform registrations...');
+  log('🚀 Registering on web3.career...');
   
   let browser;
   try {
@@ -29,13 +29,13 @@ function log(msg) {
     process.exit(1);
   }
 
-  // === web3.career (email registration) ===
-  log('\n📋 Registering on web3.career...');
   const page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
   await page.setViewport({ width: 1280, height: 800 });
-  
+
   try {
+    // Navigate to signup page
+    log('📄 Navigating to signup...');
     await page.goto('https://web3.career/users/sign_up', { waitUntil: 'networkidle2', timeout: 30000 });
     await new Promise(r => setTimeout(r, 3000));
     log(`📍 URL: ${page.url()}`);
@@ -48,22 +48,30 @@ function log(msg) {
       log('📧 Email entered');
     } else {
       log('❌ Email input not found');
-      const text = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '');
+      const text = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '');
       log(`📄 Page: ${text.slice(0, 200)}`);
+      await browser.close();
+      process.exit(1);
     }
 
-    // Check TOS
+    // Check the TOS checkbox
     try {
       const checkbox = await page.$('input[type="checkbox"]');
-      if (checkbox) { await checkbox.click(); log('☑️ TOS accepted'); }
-    } catch {}
+      if (checkbox) {
+        await checkbox.click();
+        log('☑️ TOS accepted');
+      }
+    } catch (e) {
+      log(`⚠️ TOS checkbox: ${e.message}`);
+    }
 
     // Wait for Turnstile
+    log('⏳ Waiting for Turnstile...');
     await new Promise(r => setTimeout(r, 5000));
 
-    // Submit
+    // Click submit
     const submitted = await page.evaluate(() => {
-      const btn = document.querySelector('input[type="submit"], button[type="submit"]');
+      const btn = document.querySelector('input[type="submit"][value="Sign up"], button[type="submit"]');
       if (btn) { btn.click(); return true; }
       return false;
     });
@@ -71,47 +79,18 @@ function log(msg) {
     if (submitted) {
       log('👉 Submit clicked');
       await new Promise(r => setTimeout(r, 8000));
-      log(`📍 After: ${page.url()}`);
-      const txt = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '');
-      log(`📄 ${txt.slice(0, 200).replace(/\n/g, ' ')}`);
-    }
-  } catch (e) {
-    log(`❌ Error: ${e.message}`);
-  }
-  await page.close();
-
-  // === Try crypto.jobs ===
-  log('\n📋 Checking crypto.jobs...');
-  const page2 = await browser.newPage();
-  await page2.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
-  try {
-    await page2.goto('https://crypto.jobs', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await new Promise(r => setTimeout(r, 3000));
-    const links = await page2.evaluate(() => {
-      return Array.from(document.querySelectorAll('a')).filter(a => 
-        /sign|register|join|create/i.test(a.textContent + a.href)
-      ).map(a => ({ text: a.textContent.trim().slice(0, 30), href: a.href })).slice(0, 5);
-    });
-    log(`  Found: ${JSON.stringify(links)}`);
-    
-    if (links.length > 0) {
-      await page2.goto(links[0].href, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await new Promise(r => setTimeout(r, 3000));
-      log(`📍 URL: ${page2.url()}`);
+      log(`📍 After submit: ${page.url()}`);
       
-      // Check for email signup form
-      const hasEmail = await page2.$('input[type="email"]');
-      if (hasEmail) {
-        await hasEmail.click({ clickCount: 3 });
-        await hasEmail.type(EMAIL, { delay: 30 });
-        log('📧 Email entered on crypto.jobs');
-      }
+      const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '');
+      log(`📄 Response: ${pageText.slice(0, 300).replace(/\n/g, ' ')}`);
+    } else {
+      log('❌ Submit button not found');
     }
+
   } catch (e) {
     log(`❌ Error: ${e.message}`);
   }
-  await page2.close();
 
   await browser.close();
-  log('\n✅ All registration attempts complete');
+  log('\n✅ Registration attempt complete');
 })();
