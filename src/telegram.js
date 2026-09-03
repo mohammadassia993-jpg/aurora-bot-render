@@ -346,7 +346,7 @@ export async function contextualReply(text, sender = {}) {
       priorContext ? `السياق الأخير: ${priorContext.slice(0, 240)}.` : '',
       `رسالة القائد: ${value}`
     ].filter(Boolean).join('\n');
-    const generated = await withTimeout(callModel('aurora', prompt), 8000).catch(caught => { warn('timed.ai', caught.message); return ''; });
+    const generated = await withTimeout(callModel('aurora', prompt), 25000).catch(caught => { warn('timed.ai', caught.message); return ''; });
     const clean = String(generated || '').replace(/<[^>]*>/g, '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]).trim();
     if (clean && !/\[aurora\]|\[executor\]|\[planner\]|\[reviewer\]|\[scout\]|local draft|Status: deterministic|المحاكاة الذكية|مسودة المحاكاة|خطة المحاكاة|نتيجة المراجعة بالمحاكاة|قرار التنسيق بالمحاكاة|لا تتوفر مصادر خارجية/.test(clean)) return clean;
   } catch {}
