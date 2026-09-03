@@ -383,6 +383,11 @@ async function asyncContextualReply(updateId, chatId, text, sender) {
 
 export async function handleTelegramUpdate(update) {
   const chatId = String(update.message?.chat?.id || update.edited_message?.chat?.id || update.callback_query?.message?.chat?.id || '');
+  // Allowlist check
+  if (config.telegramAllowedIds.length > 0 && chatId && !config.telegramAllowedIds.includes(chatId)) {
+    info('telegram', `blocked sender: chat_id=${chatId} (not in TELEGRAM_ALLOWED_IDS)`);
+    return false;
+  }
   if (update.update_id) {
     const inserted = db.prepare(`
       INSERT OR IGNORE INTO telegram_updates(update_id, chat_id, message_id, payload_json)

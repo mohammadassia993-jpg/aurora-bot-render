@@ -22,6 +22,7 @@ export const config = {
   telegramWebhookSyncDisabled: process.env.TELEGRAM_WEBHOOK_SYNC_DISABLED === 'true',
   telegramProxyUrl: process.env.TELEGRAM_PROXY_URL || '',
   telegramChatId: process.env.TELEGRAM_ADMIN_CHAT_ID || '',
+  telegramAllowedIds: (process.env.TELEGRAM_ALLOWED_IDS || '').split(',').filter(Boolean),
   openRouterKey: process.env.OPENROUTER_API_KEY || '',
   geminiKey: process.env.GEMINI_API_KEY || '',
   autoRunConnectors: process.env.AUTO_RUN_CONNECTORS === 'true',
