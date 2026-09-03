@@ -108,6 +108,25 @@ export async function startServer() {
         import('./superteam-submit.js').then(m => m.runBrowserSubmissions().then(r => console.log('[submit] done:', JSON.stringify(r))).catch(e => console.error('[submit] failed:', e.message)));
         return json(response, 200, { ok: true, message: 'submission_started' });
       }
+      if (url.pathname === '/register' && request.method === 'POST') {
+        try {
+          const { runBrowserSubmissions } = await import('./superteam-submit.js');
+          // Run registration script as child process
+          const { spawn } = await import('node:child_process');
+          const scriptPath = path.join(config.root, 'scripts', 'register-platforms.js');
+          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+          let output = '';
+          child.stdout.on('data', d => output += d.toString());
+          child.stderr.on('data', d => output += d.toString());
+          await new Promise((resolve) => {
+            child.on('close', () => resolve());
+            setTimeout(() => { child.kill(); resolve(); }, 120000);
+          });
+          return json(response, 200, { ok: true, output: output.slice(-2000) });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
       if (url.pathname === '/submit/results' && request.method === 'GET') {
         try {
           const resultsPath = path.join(config.root, 'deliverables', 'reports', 'puppeteer-submissions.json');
