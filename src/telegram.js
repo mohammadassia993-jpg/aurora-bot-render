@@ -390,7 +390,7 @@ export async function handleTelegramUpdate(update) {
   const chatId = String(update.message?.chat?.id || update.edited_message?.chat?.id || update.callback_query?.message?.chat?.id || '');
   // Allowlist check
   if (config.telegramAllowedIds.length > 0 && chatId && !config.telegramAllowedIds.includes(chatId)) {
-    info('telegram', `blocked sender: chat_id=${chatId} (not in TELEGRAM_ALLOWED_IDS)`);
+    info('telegram', `blocked sender: chat_id=${chatId} (not in TELEGRAM_ALLOWED_IDS = ${JSON.stringify(config.telegramAllowedIds)})`);
     return false;
   }
   if (update.update_id) {
@@ -684,6 +684,12 @@ export async function startTelegram() {
     info('telegram', 'disabled; no token configured');
     return;
   }
+
+  info('telegram', `TELEGRAM_ALLOWED_IDS env = ${process.env.TELEGRAM_ALLOWED_IDS || '(empty)'}`);
+  info('telegram', `telegramAllowedIds parsed = ${JSON.stringify(config.telegramAllowedIds)}`);
+  info('telegram', `telegramAdminChatId = ${config.telegramChatId}`);
+  info('telegram', `platformRole = ${config.platformRole}`);
+  info('telegram', `telegramFailover = ${config.telegramFailover}`);
 
   await syncTelegramWebhook();
   setInterval(() => syncTelegramWebhook().catch(() => {}), 60_000).unref();
