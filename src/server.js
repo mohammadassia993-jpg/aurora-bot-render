@@ -321,7 +321,7 @@ export async function startServer() {
       }
 
       if (url.pathname === '/debug-telegram') {
-        const testId = url.searchParams.get('id') || '';
+        const testId = url.searchParams.get('testId') || url.searchParams.get('id') || '';
         const allowed = config.telegramAllowedIds;
         return json(response, 200, {
           TELEGRAM_ALLOWED_IDS_raw: process.env.TELEGRAM_ALLOWED_IDS || '(empty)',
