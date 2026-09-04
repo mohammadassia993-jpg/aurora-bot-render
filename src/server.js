@@ -320,6 +320,21 @@ export async function startServer() {
         });
       }
 
+      if (url.pathname === '/debug-telegram') {
+        const testId = url.searchParams.get('id') || '';
+        const allowed = config.telegramAllowedIds;
+        return json(response, 200, {
+          TELEGRAM_ALLOWED_IDS_raw: process.env.TELEGRAM_ALLOWED_IDS || '(empty)',
+          parsedArray: allowed,
+          parsedArrayLength: allowed.length,
+          testId,
+          isTestIdAllowed: allowed.includes(String(testId)),
+          types: { envType: typeof process.env.TELEGRAM_ALLOWED_IDS, arr0type: allowed[0] ? typeof allowed[0] : 'N/A', arr0value: allowed[0] || 'N/A' },
+          telegramFailover: config.telegramFailover,
+          platformRole: config.platformRole
+        });
+      }
+
       if (url.pathname === '/telegram/webhook') {
         if (request.method === 'GET') { return json(response, 200, { ok: true }); }
         if (request.method !== 'POST') { return; }
