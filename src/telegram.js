@@ -701,6 +701,13 @@ export async function startTelegram() {
   await syncTelegramWebhook();
   setInterval(() => syncTelegramWebhook().catch(() => {}), 60_000).unref();
 
+  // On backup/render role with failover disabled: do NOT start polling (prevents token conflict)
+  if (config.platformRole === 'render' && !config.telegramFailover) {
+    mode = 'disabled';
+    info('telegram', 'disabled on backup service (failover=false); primary service handles all polling');
+    return;
+  }
+
   // Always use polling mode
   info('telegram', 'using polling mode');
   if (config.telegramFailover && config.backupUrl && await remoteHealthy()) {
