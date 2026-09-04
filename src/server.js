@@ -162,6 +162,42 @@ export async function startServer() {
           return json(response, 404, { error: 'no tracker yet', detail: e.message });
         }
       }
+            if (url.pathname === '/email-check' && request.method === 'POST') {
+        try {
+          const { spawn } = await import('node:child_process');
+          const scriptPath = path.join(config.root, 'scripts', 'check-email-inbox.js');
+          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+          let output = '';
+          child.stdout.on('data', d => output += d.toString());
+          child.stderr.on('data', d => output += d.toString());
+          await new Promise((resolve) => {
+            child.on('close', () => resolve());
+            setTimeout(() => { child.kill(); resolve(); }, 60000);
+          });
+          return json(response, 200, { ok: true, output: output.slice(-2000) });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+      if (url.pathname === '/email-check' && request.method === 'GET') {
+        try {
+          const logPath = path.join(config.root, 'logs', 'email-check.log');
+          const data = await fs.readFile(logPath, 'utf8');
+          const lines = data.trim().split('\n').slice(-20);
+          return json(response, 200, { recentChecks: lines });
+        } catch (e) {
+          return json(response, 404, { error: 'no email checks yet' });
+        }
+      }
+            if (url.pathname === '/performance' && request.method === 'GET') {
+        try {
+          const metricsPath = path.join(config.root, 'deliverables', 'publishing', 'metrics.json');
+          const data = await fs.readFile(metricsPath, 'utf8');
+          return json(response, 200, JSON.parse(data));
+        } catch (e) {
+          return json(response, 404, { error: 'no metrics yet', detail: e.message });
+        }
+      }
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
