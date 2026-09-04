@@ -16,8 +16,7 @@ const POSTS_DIR = path.join(ROOT, 'deliverables', 'publishing');
 
 // Channels to post to (update with actual channel IDs/usernames)
 const CHANNELS = [
-  // Leader's chat (primary) — add channel IDs here as you create them
-  '888229115',
+  process.env.TELEGRAM_CHANNEL_ID || '-1003836853169', // @SilentGiants_Store
 ];
 
 const DELAY_BETWEEN_POSTS = 60000; // 1 minute between posts to avoid rate limits
