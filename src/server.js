@@ -215,6 +215,23 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
+            if (url.pathname === '/smart-reply' && request.method === 'POST') {
+        try {
+          const { spawn } = await import('node:child_process');
+          const scriptPath = path.join(config.root, 'scripts', 'smart-email-reply.js');
+          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+          let output = '';
+          child.stdout.on('data', d => output += d.toString());
+          child.stderr.on('data', d => output += d.toString());
+          await new Promise((resolve) => {
+            child.on('close', () => resolve());
+            setTimeout(() => { child.kill(); resolve(); }, 60000);
+          });
+          return json(response, 200, { ok: true, output: output.slice(-2000) });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
