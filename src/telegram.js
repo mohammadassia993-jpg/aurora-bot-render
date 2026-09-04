@@ -533,6 +533,38 @@ async function handleCommand(message) {
         enqueueReply(null, replyChatId, `✅ تم تفويض المهمة لـ ${result.agent}\nرقم المهمة: #${result.taskId}\nالأولوية: ${result.priority}`);
       }
     }
+  } else if (resolved.startsWith('/2fa ')) {
+    const code = message.text.slice(5).trim();
+    if (!code || !/^\d{6}$/.test(code)) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /2fa <رقم ستّي>\nمثال: /2fa 123456');
+    } else {
+      enqueueReply(null, replyChatId, '✅ تم استلام الرمز: ' + code + '\n\n🔄 جارٍ تفعيل 2FA على Twitter...');
+      const { spawn } = await import('node:child_process');
+      const scriptPath = path.join(config.root, 'scripts', 'complete-twitter-2fa.js');
+      const child = spawn('node', [scriptPath, code], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = '';
+      child.stdout.on('data', d => output += d.toString());
+      child.stderr.on('data', d => output += d.toString());
+      child.on('close', () => {
+        const result = output.includes('success') ? '✅ تم تفعيل 2FA بنجاح!' : '❌ فشل التفعيل — يرجى المحاولة مرة أخرى';
+        sendMessageDetailed(result, effectiveChatId());
+      });
+    }
+  } else if (resolved === '/2fa-status') {
+    try {
+      const statusPath = path.join(config.root, 'data', 'twitter-2fa-status.json');
+      const data = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+      enqueueReply(null, replyChatId, '🔐 حالة 2FA:\n• الحالة: ' + data.status + '\n• التاريخ: ' + data.timestamp);
+    } catch {
+      enqueueReply(null, replyChatId, 'لم يتم بدء عملية 2FA بعد. أرسل /start-2fa لبدء.');
+    }
+  } else if (resolved === '/start-2fa') {
+    enqueueReply(null, replyChatId, '🔐 بدء عملية تفعيل 2FA على Twitter...');
+    const { spawn } = await import('node:child_process');
+    const scriptPath = path.join(config.root, 'scripts', 'twitter-2fa-qr-capture.js');
+    const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.on('close', () => { log('2FA QR capture finished'); });
+    enqueueReply(null, replyChatId, '⏳ جاري فتح Twitter والبحث عن رمز QR...\nسأرسل لك الرمز خلال دقائق.');
   }
 }
 
@@ -674,50 +706,4 @@ export async function startTelegram() {
   }
 
   await activateLocalPolling();
-
-  } else if (resolved.startsWith('/2fa ')) {
-    const code = message.text.slice(5).trim();
-    if (!code || !/^\d{6}$/.test(code)) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /2fa <رقم ستّي>
-مثال: /2fa 123456');
-    } else {
-      enqueueReply(null, replyChatId, `✅ تم استلام الرمز: ${code}
-
-🔄 جارٍ تفعيل 2FA على Twitter...`);
-      // Trigger 2FA completion
-      const { spawn } = await import('node:child_process');
-      const scriptPath = path.join(config.root, 'scripts', 'complete-twitter-2fa.js');
-      const child = spawn('node', [scriptPath, code], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-      let output = '';
-      child.stdout.on('data', d => output += d.toString());
-      child.stderr.on('data', d => output += d.toString());
-      child.on('close', () => {
-        const result = output.includes('success') ? '✅ تم تفعيل 2FA بنجاح!' : '❌ فشل التفعيل — يرجى المحاولة مرة أخرى';
-        sendMessageDetailed(result, effectiveChatId());
-      });
-    }
-  } else if (resolved === '/2fa-status') {
-    try {
-      const statusPath = path.join(config.root, 'data', 'twitter-2fa-status.json');
-      const data = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
-      enqueueReply(null, replyChatId, `🔐 حالة 2FA:
-• الحالة: ${data.status}
-• التاريخ: ${data.timestamp}${data.reason ? '\n• السبب: ' + data.reason : ''}`);
-    } catch {
-      enqueueReply(null, replyChatId, 'لم يتم بدء عملية 2FA بعد. أرسل /start-2fa لبدء.');
-    }
-  } else if (resolved === '/start-2fa') {
-    enqueueReply(null, replyChatId, '🔐 بدء عملية تفعيل 2FA على Twitter...');
-    const { spawn } = await import('node:child_process');
-    const scriptPath = path.join(config.root, 'scripts', 'twitter-2fa-qr-capture.js');
-    const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = '';
-    child.stdout.on('data', d => output += d.toString());
-    child.stderr.on('data', d => output += d.toString());
-    child.on('close', () => {
-      log('2FA QR capture script finished');
-    });
-    enqueueReply(null, replyChatId, '⏳ جاري فتح Twitter والبحث عن رمز QR...
-سأرسل لك الرمز خلال دقائق.');
-
 }
