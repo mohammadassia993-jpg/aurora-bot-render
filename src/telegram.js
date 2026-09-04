@@ -439,7 +439,6 @@ async function handleCommand(message) {
   const aliases = { '/update': '/sync', '/help': '/start', '/menu': '/start', '/info': '/status', '/stats': '/report', '/مهام': '/tasks', '/حالة': '/status', '/تقرير': '/report' };
   const resolved = aliases[command] || command;
   // Use resolved command for matching
-  const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
   const replyChatId = effectiveChatId() || message.chat.id;
   if (resolved === '/start') {
     enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
