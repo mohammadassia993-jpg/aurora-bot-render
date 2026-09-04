@@ -338,6 +338,10 @@ export async function startServer() {
       if (url.pathname === '/telegram/webhook') {
         if (request.method === 'GET') { return json(response, 200, { ok: true }); }
         if (request.method !== 'POST') { return; }
+        const secretToken = request.headers['x-telegram-bot-api-secret-token'];
+        if (config.telegramWebhookSecret && secretToken !== config.telegramWebhookSecret) {
+          return json(response, 403, { ok: false, error: 'invalid secret token' });
+        }
         // Return 200 immediately, process update in background
         const update = await readBody(request);
         setTimeout(() => {

@@ -19,6 +19,7 @@ export const config = {
   gatewayUrl: process.env.OPENCLAW_GATEWAY_URL || 'http://127.0.0.1:18789',
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
+  telegramWebhookUrl: process.env.TELEGRAM_WEBHOOK_URL || '',
   telegramWebhookSyncDisabled: process.env.TELEGRAM_WEBHOOK_SYNC_DISABLED === 'true',
   telegramProxyUrl: process.env.TELEGRAM_PROXY_URL || '',
   telegramChatId: process.env.TELEGRAM_ADMIN_CHAT_ID || '',

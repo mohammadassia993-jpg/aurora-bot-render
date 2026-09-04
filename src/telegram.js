@@ -708,6 +708,20 @@ export async function startTelegram() {
     return;
   }
 
+  // Exclusive webhook mode: when TELEGRAM_WEBHOOK_URL is set, never poll. Telegram then
+  // delivers updates ONLY to this service's /telegram/webhook and any external poller
+  // (e.g. a bridge with the same token) is rejected with 409 conflict.
+  if (config.telegramWebhookUrl) {
+    mode = 'webhook';
+    info('telegram', `using webhook mode exclusively: ${config.telegramWebhookUrl} (polling disabled)`);
+    const outboxLoop = async () => {
+      try { await processTelegramOutbox(); } catch {}
+      setTimeout(outboxLoop, 3000).unref();
+    };
+    setTimeout(outboxLoop, 1000).unref();
+    return;
+  }
+
   // Always use polling mode
   info('telegram', 'using polling mode');
   if (config.telegramFailover && config.backupUrl && await remoteHealthy()) {
