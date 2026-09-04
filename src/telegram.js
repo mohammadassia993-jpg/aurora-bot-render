@@ -346,13 +346,18 @@ export async function contextualReply(text, sender = {}) {
       priorContext ? `السياق الأخير: ${priorContext.slice(0, 240)}.` : '',
       `رسالة القائد: ${value}`
     ].filter(Boolean).join('\n');
-    const generated = await withTimeout(callModel('aurora', prompt), 25000).catch(caught => { warn('timed.ai', caught.message); return ''; });
+    const generated = await withTimeout(callModel('aurora', prompt), 30000).catch(caught => { warn('timed.ai', caught.message); return ''; });
     const clean = String(generated || '').replace(/<[^>]*>/g, '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]).trim();
     if (clean && !/\[aurora\]|\[executor\]|\[planner\]|\[reviewer\]|\[scout\]|local draft|Status: deterministic|المحاكاة الذكية|مسودة المحاكاة|خطة المحاكاة|نتيجة المراجعة بالمحاكاة|قرار التنسيق بالمحاكاة|لا تتوفر مصادر خارجية/.test(clean)) return clean;
   } catch {}
 
   // Final fallback: natural conversational Arabic (diverse, human-like)
-  return localChatFallback(value, lower, address, isLeader, sender, healthyCount, rows.length, failing, taskText, pendingApprovals, issueLine, priorContext);
+  const naturalFallback = pickVariant([
+    `عذراً يا ${name}، لم أتمكن من فهم طلبك بدقة. جرّب أن تكتب رسالتك بشكل أوضح، أو استخدم الأوامر: /status للحالة، /task لإنشاء مهمة، /products لرؤية المنتجات.`,
+    `لم أفهم تماماً ما تريد يا ${name} 🤔 هل تقصد一个问题 تقنية، أم طلباً على المتجر، أم حكماً على النظام؟ أخبرني وسأساعدك فوراً.`,
+    `أعتذر، يبدو أن رسالتك وصلتني بشكل غير واضح يا ${name} ✍️ يمكنك إعادة صياغتها أو استخدام /help لرؤية الأوامر المتاحة.`
+  ], `${key}:confused`);
+  return naturalFallback + ctx;
 }
 
 function enqueueReply(updateId, chatId, text, replyToMessageId = null) {
@@ -429,19 +434,25 @@ export async function handleTelegramUpdate(update) {
 
 async function handleCommand(message) {
   const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
+
+  // Command aliases
+  const aliases = { '/update': '/sync', '/help': '/start', '/menu': '/start', '/info': '/status', '/stats': '/report', '/مهام': '/tasks', '/حالة': '/status', '/تقرير': '/report' };
+  const resolved = aliases[command] || command;
+  // Use resolved command for matching
+  const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
   const replyChatId = effectiveChatId() || message.chat.id;
-  if (command === '/start') {
+  if (resolved === '/start') {
     enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
-  } else if (command === '/help') {
+  } else if (resolved === '/help') {
     enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/tasks — تقرير المهام\n/submit — التقديم على Superteam Earn', '/task <عنوان> — تنفيذ مهمة جديدة', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
-  } else if (command === '/status') {
+  } else if (resolved === '/status') {
     enqueueReply(null, replyChatId, statusText());
-  } else if (command === '/report') {
+  } else if (resolved === '/report') {
     enqueueReply(null, replyChatId, dailyReport());
-  } else if (command === '/sync') {
+  } else if (resolved === '/sync') {
     const result = await runConnectors();
     enqueueReply(null, replyChatId, ['تم تحديث المسارات:', `دي ورك: ${result.dework ? 'تم' : 'متوقف'}`, `تيتان: ${result.titan ? 'تم' : 'متوقف'}`, `الوظائف: ${result.jobs ? 'تم' : 'متوقف'}`, `الفرص: ${result.opportunities ? 'تم' : 'متوقف'}`].join('\n'));
-  } else if (command.startsWith('/approve ')) {
+  } else if (resolved.startsWith('/approve ')) {
     const parts = message.text.split(/\s+/);
     const approvalId = Number(parts[1]);
     const decision = parts[2];
@@ -455,11 +466,11 @@ async function handleCommand(message) {
         enqueueReply(null, replyChatId, `قرار الموافقة رقم ${approvalId}: ${decision === 'yes' ? '✅ مقبول' : '❌ مرفوض'}.`);
       }
     }
-  } else if (command === '/delegation' || command === '/team') {
+  } else if (resolved === '/delegation' || resolved === '/team') {
     enqueueReply(null, replyChatId, getDelegationStatus());
-  } else if (command === '/agents') {
+  } else if (resolved === '/agents') {
     enqueueReply(null, replyChatId, getAgentList());
-  } else if (command === '/pending') {
+  } else if (resolved === '/pending') {
     const pending = getPendingApprovals();
     if (pending.length === 0) {
       enqueueReply(null, replyChatId, '✅ لا توجد巴巴بات بانتظار الموافقة.');
@@ -467,10 +478,10 @@ async function handleCommand(message) {
       const list = pending.map(a => `#${a.id} [${a.kind}] ${a.title || 'مهمة'}\n  أرسل: /approve ${a.id} yes أو no`).join('\n');
       enqueueReply(null, replyChatId, '巴巴بات بانتظار موافقة القائد:\n' + list);
     }
-  } else if (command === '/products' || command === '/store' || command === '/market' || command === '/shop' || command === '/buy') {
+  } else if (resolved === '/products' || resolved === '/store' || resolved === '/market' || resolved === '/shop' || resolved === '/buy') {
     enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
-  } else if (command === '/orders' || command === '/sales') {
-    enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());  } else if (command === '/submit') {
+  } else if (resolved === '/orders' || resolved === '/sales') {
+    enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());  } else if (resolved === '/submit') {
     enqueueReply(null, replyChatId, '🚀 جارٍ بدء التقديم على Superteam عبر المتصفح...\n⏳ قد يستغرق هذا بضع دقائق.\nسأبلغك بالنتيجة فور الانتهاء.');
     runBrowserSubmissions().then(result => {
       if (result.error) {
@@ -483,9 +494,9 @@ async function handleCommand(message) {
     }).catch(err => {
       sendMessageDetailed('❌ خطأ غير متوقع: ' + err.message, effectiveChatId());
     });
-  } else if (command === '/tasks' || command === '/مهام') {
+  } else if (resolved === '/tasks' || resolved === '/مهام') {
     enqueueReply(null, replyChatId, getTaskReport());
-  } else if (command.startsWith('/task ')) {
+  } else if (resolved.startsWith('/task ')) {
     const taskTitle = message.text.slice(6).trim();
     if (!taskTitle) {
       enqueueReply(null, replyChatId, 'الاستخدام: /task <عنوان المهمة>');
@@ -509,7 +520,7 @@ async function handleCommand(message) {
         sendMessageDetailed(`❌ خطأ في المهمة #${taskId}: ${err.message}`, effectiveChatId());
       });
     }
-  } else if (command.startsWith('/delegate ')) {
+  } else if (resolved.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
     const taskTitle = parts.slice(2).join(' ');

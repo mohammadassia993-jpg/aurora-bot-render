@@ -79,76 +79,30 @@ function smartFallback(agent, prompt) {
   const topic = prompt.replace(/\s+/g, ' ').slice(0, 2000);
   const lowerTopic = topic.toLowerCase();
 
-  // Storefront-aware templates (greeting, products, support, order confirmation)
-  const PRODUCT_TEXT = '🛒 منتجاتنا:\n1️⃣ قاموس Web3 (250+ مصطلح) — 15$\n2️⃣ دورة DePIN — 25$\n3️⃣ حزمة كتابة محتوى — 35$\n4️⃣ شرح العقد الذكي — 20$\n5️⃣ حزمة تقديم وظائف — 30$\n6️⃣ تحليل أمن واقتصاد رمزي — 40$\n\n💳 الدفع: USDT (TON) أو USDC (Base)\n📎 المتجر: https://mohammadassia993-jpg.github.io/aurora-bot-render/\nاكتب «اشتري <رقم>» لإتمام الطلب فوراً.';
-
-  // Greeting (warm + professional)
-  if (/مرحبا|السلام|اهلا|أهلا|هاي|hello|hi|صباح الخير|مساء الخير|good morning|good evening/i.test(lowerTopic)) {
-    return 'أهلاً وسهلاً بك! 🌟 أنا أورورا من فريق عمالقة الصمت، في خدمتك.\nيمكنني:\n• عرض منتجاتنا الرقمية (اكتب /products)\n• الرد على استفسارات الطلبات والمتجر\n• تقديم حالة النظام (اكتب /status)\n\nكيف أستطيع مساعدتك اليوم؟';
-  }
-  // Product inquiry (detailed, helpful)
+  // Storefront product listing (only for explicit product queries)
   if (/منتج|المتجر|متجر|اشتري|شراء|سعر|ثمن|products|buy|price|القاموس|قاموس|دورة|حزمة|طلب/iu.test(lowerTopic)) {
-    return PRODUCT_TEXT;
-  }
-  // Technical complaint / support (patient, collaborative)
-  if (/مشكلة|شكوى|عطل|خطأ|لا يعمل|لا يشتغل|بطئ|بطيء|مشوش|problem|issue|error|broken|slow|help|مساعدة/i.test(lowerTopic)) {
-    return 'آسف على الإزعاج 🙏 دعنا نحل الأمر معاً.\n\n• إن كانت المشكلة في البوت: جرّب /status لفحص الحالة.\n• إن كانت في منتج/طلب: أرسل رقم الطلب أو المنتج وسأتابع معك فوراً.\n• إن كانت تقنية عامة: صف لي ما يحدث خطوة بخطوة.\n\nأنا هنا لمساعدتك حتى نصل لحل.';
-  }
-  // Order confirmation (clear, organized)
-  if (/تأكيد|اكد|اكّد|confirmed|order|تم الطلب|متى يصلك|طلب وجد/i.test(lowerTopic)) {
-    return '📦 تأكيد الطلب:\n\n1️⃣ اختر المنتج بـ «اشتري <رقم>».\n2️⃣ ادفع المبلغ للمحفظة المذكورة (USDT/USDC).\n3️⃣ أرسل إيصال التحويل (TXID) هنا.\n4️⃣ بعد التحقق نسلمك الملف خلال ساعة.\n\nهل تريد تأكيد طلبك الآن؟';
+    return '🛒 منتجاتنا الرقمية:\n1️⃣ قاموس Web3 (250+ مصطلح) — 15$\n2️⃣ دورة DePIN — 25$\n3️⃣ حزمة كتابة محتوى — 35$\n4️⃣ شرح العقد الذكي — 20$\n5️⃣ حزمة تقديم وظائف — 30$\n6️⃣ تحليل أمن واقتصاد رمزي — 40$\n\n💳 الدفع: USDT (TON) أو USDC (Base)\n📎 المتجر: https://mohammadassia993-jpg.github.io/aurora-bot-render/\nاكتب «اشتري <رقم>» لإتمام الطلب فوراً.';
   }
 
-  if (/مرحبا|السلام|اهلا|أهلا|هاي|hello|hi/i.test(lowerTopic)) {
-    return 'أهلاً بك! أنا أورورا، منسقة فريق عمالقة الصمت. كيف يمكنني مساعدتك اليوم؟ أوامر سريعة: /status للحالة، /report للتقرير.';
+  // All other responses: natural conversational Arabic
+  if (/مرحبا|السلام|اهلا|أهلا|هاي|hello|hi|صباح|مساء/i.test(lowerTopic)) {
+    return 'أهلاً وسهلاً! 🌟 أنا أورورا من فريق عمالقة الصمت. كيف يمكنني مساعدتك اليوم؟';
   }
-  if (/شكر|تمام|جيد|ممتاز|thanks/i.test(lowerTopic)) {
-    return 'الشكر لله! الفريق يعمل بانتظام. إذا تحتاج أي شيء، أنا هنا. للتحقق من الحالة: /status';
+  if (/شكرا|تمام|ممتاز|thanks/i.test(lowerTopic)) {
+    return 'الشكر لله! 🙏 الفريق يعمل بجد. إذا تحتاج أي شيء، أنا هنا.';
   }
-  if (/كيف حالك|كيفك|أحوالك/i.test(lowerTopic)) {
-    return 'أنا بخير والحمد لله! النظام يعمل بشكل مستقر. هل تريد تقريراً عن آخر المستجدات؟';
+  if (/مشكلة|شكوى|عطل|خطأ|لا يعمل|بطيء|help|مساعدة/i.test(lowerTopic)) {
+    return 'أتفهم انزعاجك 🌹 دعني أفحص النظام. جرّب /status لمعرفة الحالة الفورية.';
   }
-  if (/مهمة|مهام|عمل|وظيفة|job|task|dework|titan/i.test(lowerTopic)) {
-    return '📋 ملخص المهام: نظام Dework وTitan يعملان ببيانات المحاكاة حالياً. لأمر بتشغيل المسارات: /sync. للتقرير الكامل: /report';
-  }
-  if (/تقرير|report|أداء|اداء/i.test(lowerTopic)) {
-    return '📊 جاري تحضير التقرير... استخدم /report للحصول على التقرير الكامل مع جميع الإحصائيات.';
-  }
-  if (/حالة|وضع|status|مشكلة|خطأ/i.test(lowerTopic)) {
-    return '🔍 جاري فحص النظام... استخدم /status للحصول على تقرير الحالة الفورية.';
-  }
-  if (/عقد|approval|موافقة|contract/i.test(lowerTopic)) {
-    return '⚖️ تذكير: لا يُسمّع بأي عقد أو التزام مالي بدون موافقة القائد البشري محمد عباس بشكل صريح. أرسل /approve للرد على طلبات الموافقة.';
+  if (/contract|عقد|approval|موافقة/i.test(lowerTopic)) {
+    return '⚖️ تذكير: لا يُسمّع بأي عقد بدون موافقة القائد محمد عباس. أرسل /approve للرد على طلبات الموافقة.';
   }
   if (/محفظة|USDC|USDT|crypto|عملة|wallet/i.test(lowerTopic)) {
-    return '💰 محفظة الفريق في وضع الاستلام فقط. لا نسحب أموالاً أبداً. راقب العناوين المخزنة فقط.';
-  }
-  if (/أنت من|اسمك|تعريف|who are you|aurora|أورورا/i.test(lowerTopic)) {
-    return '🤖 أنا أورورا، الوكيل المنسق لفريق عمالقة الصمت (Silent Giants). أدير المهام والتنسيق بين الوكلاء: المخطط، المنفذ، المراجع، والمستخبر.';
-  }
-  if (/وداع|bye|goodbye/i.test(lowerTopic)) {
-    return '👋 إلى اللقاء! أنا هنا دائماً عندما تحتاجني. أرسل أي رسالة وسأرد فوراً.';
-  }
-  if (/بحث|فرص|وظائف|jobs|search|opportunities/i.test(lowerTopic)) {
-    return '🔎 المستخبر يراقب فرص Dework والتوظيف باستمرار. استخدم /sync لتحديث المسارات أو /report لرؤية آخر الفرص.';
-  }
-  if (/تطوير|تحسين|improve|تحديث/i.test(lowerTopic)) {
-    return '📈 للتحسين المستمر، أنا أتعلم من كل تفاعل. اقترح أي تحسين وسأحوّله إلى خطة تنفيذية.';
-  }
-  if (/notify|إشعار|تنبيه|alert/i.test(lowerTopic)) {
-    return '🔔 الإشعارات تعمل بشكل تلقائي. سأبلّغك بأي تغيير مهم في حالة النظام أو المهام.';
+    return '💰 محفظة الفريق في وضع الاستلام فقط. لا نسحب أموالاً أبداً.';
   }
 
-  const templates = {
-    planner: `🧠 تحليل المخطط:\n\n• الموضوع: \${topic.slice(0, 120)}\n• تحديد المخرجات والمتطلبات\n• تقسيم العمل إلى خطوات قابلة للتنفيذ\n• تحديد المخاطر ومتطلبات الموافقة البشرية\n• المسودة جاهزة للمراجعة`,
-    executor: `🛠️ تنفيذ:\n\n• الموضوع: \${topic.slice(0, 120)}\n• الجهة: المنفذ مع دعم المستخبر\n• المخرج: ملخص تنفيذي ونقاط عمل\n• الضوابط: لا بيانات حساسة، لا عقود بدون موافقة\n• الخطوة التالية: مراجعة وتسليم`,
-    reviewer: `🔍 مراجعة:\n\n• الموضوع: \${topic.slice(0, 120)}\n• الدرجة: 80/100\n• الحالة: جاهز للموافقة\n• الملاحظات: البنية سليمة، يجب تأكيد الدقة والموارد`,
-    scout: `📡 استكشاف:\n\n• الموضوع: \${topic.slice(0, 120)}\n• لا فرص جديدة موثوقة الآن\n• أتابع مصادر Dework وTitan باستمرار\n• سأبلّغ فور ظهور فرصة مناسبة`,
-    aurora: `🎯 تنسيق:\n\n• الموضوع: \${topic.slice(0, 120)}\n• فهمت الطلب وأحوّله للوكيل المناسب\n• المخطط يحلل، المنفذ ينفّذ، المراجع يدقّق\n• لا إجراء حساس بدون موافقة القائد\n• سأذكر أي نقص في المفاتيح أو الموارد`,
-    leader: `🎯 تم استلام طلبك:\n\n• الموضوع: \${topic.slice(0, 120)}\n• سأحوّله إلى مسار العمل المناسب\n• الرد يتضمن الخطوات والمسؤول والمخرج المتوقع`,
-    generic: `🎯 تم فهم رسالتك:\n\n• الموضوع: \${topic.slice(0, 120)}\n• سأحدد الوكيل المناسب والمخرج المطلوب\n• لن أنفذ أي إجراء حساس بدون موافقة\n• الحالة الفعلية والعائق إن وجد سيُذكر بوضوح`
-  };
-  return templates[agent] || templates.generic;
+  // Default: natural conversational response (no template feel)
+  return `فهمت رسالتك ✍️ يمكنني مساعدتك في:\n• عرض المنتجات (/products)\n• معرفة حالة النظام (/status)\n• إنشاء مهمة جديدة (/task)\n• متابعة المهام (/tasks)\n\nأخبرني بما تريد بالضبط وسأساعدك فوراً.`;
 }
 
 export async function callModel(agent, prompt, taskId = null) {

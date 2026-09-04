@@ -3,120 +3,222 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>عمالقة الصمت — محتوى + خدمات Web3 بالعربية</title>
+<title>Silent Giants — Web3 Content & Services | عمالقة الصمت</title>
+<meta name="description" content="Arabic Web3 content creation, translation, and community management. Digital products ready for instant delivery.">
+<meta property="og:title" content="عمالقة الصمت — محتوى + خدمات Web3">
+<meta property="og:description" content="26 منتج رقمي جاهز — خدمات Web3 متكاملة بالعربية">
+<meta property="og:image" content="https://mohammadassia993-jpg.github.io/aurora-bot-render/icons/og-image.png">
 <style>
-  body{font-family:system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif;background:#0b1020;color:#e8ecf4;margin:0;padding:24px;line-height:1.7}
-  .wrap{max-width:960px;margin:0 auto}
-  h1{font-size:1.6rem;border-bottom:2px solid #3b82f6;padding-bottom:10px}
-  h2{font-size:1.15rem;color:#93c5fd;margin-top:28px}
-  h3{font-size:1rem;color:#60a5fa;margin-top:16px}
-  a{color:#93c5fd;text-decoration:none}
-  a:hover{text-decoration:underline}
-  ul,ol{list-style:none;padding:0}
-  li{background:#151b30;border:1px solid #232a45;border-radius:8px;padding:12px 16px;margin:8px 0}
-  .tag{display:inline-block;background:#1d4ed8;border-radius:12px;padding:2px 10px;font-size:.8rem;margin-inline-start:8px}
-  .count{color:#60a5fa;font-weight:bold}
-  .price{color:#facc15;font-weight:bold}
-  .section{border:1px solid #232a45;border-radius:12px;padding:20px;margin:16px 0;background:#111827}
-  .hero{text-align:center;padding:40px 0;border-bottom:2px solid #3b82f6}
-  .cta{display:inline-block;background:#3b82f6;color:#fff;padding:12px 24px;border-radius:8px;font-weight:bold;margin-top:16px}
-  .cta:hover{background:#2563eb}
-  footer{margin-top:36px;font-size:.85rem;color:#8892b0;border-top:1px solid #232a45;padding-top:12px}
-  table{width:100%;border-collapse:collapse;margin:12px 0}
-  th,td{padding:8px 12px;border:1px solid #232a45;text-align:right;font-size:.9rem}
-  th{background:#1d4ed8;color:#fff}
+  :root { --bg: #0b1020; --card: #111827; --border: #232a45; --blue: #3b82f6; --indigo: #6366f1; --yellow: #facc15; --green: #22c55e; --text: #e8ecf4; --muted: #8892b0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+  .hero { text-align: center; padding: 60px 0 40px; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%); border-bottom: 2px solid var(--blue); }
+  .hero h1 { font-size: 2.2rem; margin-bottom: 12px; }
+  .hero h1 span { color: var(--yellow); }
+  .hero p { font-size: 1.1rem; color: var(--muted); max-width: 600px; margin: 0 auto; }
+  .lang-switch { position: fixed; top: 12px; left: 12px; z-index: 100; display: flex; gap: 4px; }
+  .lang-switch button { background: var(--card); border: 1px solid var(--border); color: var(--muted); padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: .8rem; transition: all .2s; }
+  .lang-switch button:hover, .lang-switch button.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .cta { display: inline-block; background: var(--blue); color: #fff; padding: 14px 28px; border-radius: 8px; font-weight: bold; font-size: 1rem; text-decoration: none; margin: 8px; transition: all .2s; }
+  .cta:hover { background: #2563eb; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(59,130,246,.4); }
+  .cta.secondary { background: var(--indigo); }
+  .cta.secondary:hover { background: #4f46e5; }
+  .section { border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; background: var(--card); }
+  h2 { font-size: 1.3rem; color: #93c5fd; margin: 32px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 1.05rem; color: #60a5fa; margin: 16px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  th, td { padding: 10px 14px; border: 1px solid var(--border); text-align: inherit; font-size: .9rem; }
+  th { background: var(--indigo); color: #fff; }
+  .price { color: var(--yellow); font-weight: bold; font-size: 1.1rem; }
+  .tag { display: inline-block; background: var(--blue); border-radius: 12px; padding: 2px 10px; font-size: .75rem; margin-inline-start: 8px; }
+  .tag.ready { background: var(--green); }
+  .buy-btn { display: inline-block; background: var(--green); color: #fff; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: .85rem; margin-top: 8px; transition: all .2s; }
+  .buy-btn:hover { background: #16a34a; transform: translateY(-1px); }
+  .product-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 12px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .product-card .info { flex: 1; min-width: 200px; }
+  .product-card .actions { text-align: center; }
+  .wallet { background: #1e293b; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 8px 0; word-break: break-all; font-family: monospace; font-size: .85rem; }
+  .steps { counter-reset: step; }
+  .steps li { counter-increment: step; list-style: none; padding: 12px 16px 12px 48px; position: relative; }
+  .steps li::before { content: counter(step); position: absolute; left: 12px; background: var(--blue); color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: .85rem; }
+  footer { margin-top: 40px; font-size: .85rem; color: var(--muted); border-top: 1px solid var(--border); padding: 16px 0; text-align: center; }
+  @media (max-width: 600px) { .hero h1 { font-size: 1.5rem; } .product-card { flex-direction: column; text-align: center; } }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="lang-switch">
+  <button onclick="setLang('ar')" class="active" id="btn-ar">عربي</button>
+  <button onclick="setLang('en')" id="btn-en">EN</button>
+  <button onclick="setLang('tr')" id="btn-tr">TR</button>
+  <button onclick="setLang('fa')" id="btn-fa">فارسی</button>
+  <button onclick="setLang('ur')" id="btn-ur">اردو</button>
+</div>
+
+<!-- HERO -->
 <div class="hero">
-<h1>⚡ عمالقة الصمت — محتوى + خدمات Web3 بالعربية</h1>
-<p>فريق متخصص في المحتوى والترجمة وإدارة مجتمعات الويب 3. <span class="count">26 مخرجة</span> جاهزة — خدمات متكاملة بأسعار تنافسية.</p>
-<a href="#services" class="cta">trois services</a>
-<a href="#content" class="cta" style="background:#1d4ed8">المحتوى المجاني</a>
+  <div class="wrap">
+    <h1 data-ar="⚡ عمالقة الصمت — محتوى + خدمات Web3" data-en="⚡ Silent Giants — Web3 Content & Services" data-tr="⚡ Silent Giants — Web3 İçerik ve Hizmetleri" data-fa="⚡ غول‌های سکوت — محتوا و خدمات Web3" data-ur="⚡ خاموش دیوون — ویب۳ مواد اور خدمات">⚡ عمالقة الصمت — محتوى + خدمات Web3</h1>
+    <p data-ar="فريق متخصص في المحتوى والترجمة وإدارة مجتمعات الويب 3. 26 منتجاً رقمياً جاهزاً — خدمات متكاملة بأسعار تنافسية." data-en="Specialized team in Web3 content, translation & community management. 26 digital products ready — comprehensive services at competitive prices." data-tr="Web3 içeriği, çevirisi ve topluluk yönetiminde uzman ekip. 26 dijital ürün hazır — rekabetçi fiyatlarla kapsamlı hizmetler." data-fa="تیم تخصصی در محتوا، ترجمه و مدیریت جامعه Web3. ۲۶ محصول دیجیتال آماده — خدمات جامع با قیمت‌های رقابتی." data-ur="ویب۳ مواد، ترجمہ اور کمیونٹی مینجمنٹ میں مہارت رکھنے والا ٹیم۔ 26 ڈیجیٹل مصنوعات تیار — مسابقتی قیمتوں پر جامع خدمات۔">فريق متخصص في المحتوى والترجمة وإدارة مجتمعات الويب 3. 26 منتجاً رقمياً جاهزاً — خدمات متكاملة بأسعار تنافسية.</p>
+    <a href="#products" class="cta" data-ar="🛒 تصفح المنتجات" data-en="🛒 Browse Products" data-tr="🛒 Ürünleri Keşfet" data-fa="🛒 مشاهده محصولات" data-ur="🛒 مصنوعات دیکھیں">🛒 تصفح المنتجات</a>
+    <a href="#services" class="cta secondary" data-ar="💼 خدماتنا" data-en="💼 Our Services" data-tr="💼 Hizmetlerimiz" data-fa="💼 خدمات ما" data-ur="💼 ہماری خدمات">💼 خدماتنا</a>
+  </div>
 </div>
 
-<h2 id="services">💼 خدماتنا المدفوعة</h2>
-<div class="section">
-<h3>📝 كتابة محتوى Web3 بالعربية</h3>
-<table>
-<tr><th>الخدمة</th><th>السعر</th></tr>
-<tr><td>مقال تعليمي (2000-3000 كلمة)</td><td class="price">150-250$</td></tr>
-<tr><td>سلسلة مقالات (3 قطع)</td><td class="price">400-600$</td></tr>
-<tr><td>نشرة إخبارية أسبوعية</td><td class="price">200$/شهر</td></tr>
-</table>
-</div>
-<div class="section">
-<h3>🌐 الترجمة التقنية (EN→AR)</h3>
-<table>
-<tr><th>الخدمة</th><th>السعر</th></tr>
-<tr><td>ترجمة مستند تقني (1000 كلمة)</td><td class="price">80-120$</td></tr>
-<tr><td>ترجمة Whitepaper كاملة</td><td class="price">300-500$</td></tr>
-<tr><td>اشتراك ترجمة شهري</td><td class="price">400$/شهر</td></tr>
-</table>
-</div>
-<div class="section">
-<h3>📡 إدارة مجتمعات Web3</h3>
-<table>
-<tr><th>الخدمة</th><th>السعر</th></tr>
-<tr><td>تحديثات يومية للمجتمع</td><td class="price">300$/شهر</td></tr>
-<tr><td>إدارة قنوات عربية (تليجرام + ديسكورد)</td><td class="price">500$/شهر</td></tr>
-<tr><td>تقرير مجتمع أسبوعي</td><td class="price">150$/تقرير</td></tr>
-</table>
-</div>
-<div class="section">
-<h3>🔒 التحليل والمراجعة</h3>
-<table>
-<tr><th>الخدمة</th><th>السعر</th></tr>
-<tr><td>ملخص أمان لعقد ذكي</td><td class="price">250$/مشروع</td></tr>
-<tr><td>تحليل اقتصاد رمزي</td><td class="price">350$/مشروع</td></tr>
-<tr><td>تقرير حالة شبكة DePIN شهري</td><td class="price">200$/شهر</td></tr>
-</table>
+<div class="wrap">
+
+<!-- PRODUCTS -->
+<h2 id="products" data-ar="📦 منتجاتنا الرقمية (جاهزة للطلب الفوري)" data-en="📦 Digital Products (Ready for Instant Delivery)" data-tr="📦 Dijital Ürünler (Anında Teslimat İçin Hazır)" data-fa="📦 محصولات دیجیتال (آماده تحویل فوری)" data-ur="📦 ڈیجیٹل مصنوعات (فوری تحویل کے لیے تیار)">📦 منتجاتنا الرقمية (جاهزة للطلب الفوري)</h2>
+
+<div class="product-card">
+  <div class="info">
+    <h3 data-ar="📖 قاموس Web3 (250+ مصطلح)" data-en="📖 Web3 Glossary (250+ Terms)" data-tr="📖 Web3 Sözlüğü (250+ Terim)" data-fa="📖 واژه‌نامه Web3 (بیش از ۲۵۰ اصطلاح)" data-ur="📖 Web3 لغت (250+ اصطلاحات)">📖 قاموس Web3 (250+ مصطلح)</h3>
+    <p data-ar="250+ مصطلح مترجم EN→AR با أعلى دقة" data-en="250+ terms translated EN→AR with highest accuracy" data-tr="250+ terim EN→AR en yüksek doğrulukla çevrildi" data-fa="بیش از ۲۵۰ اصطلاح با بالاترین دقت EN→AR ترجمه شده" data-ur="250+ اصطلاحات با اعلیٰ درستگی EN→AR ترجمہ شدہ">250+ مصطلح مترجم EN→AR با أعلى دقة</p>
+    <span class="tag ready" data-ar="جاهز" data-en="Ready" data-tr="Hazır" data-fa="آماده" data-ur="تیار">جاهز</span>
+  </div>
+  <div class="actions">
+    <div class="price">15$</div>
+    <a href="https://t.me/Aurora_Almada_88_Bot?start=buy1" class="buy-btn" data-ar="اطلب الآن" data-en="Order Now" data-tr="Hemen Sipariş Ver" data-fa="همین الان سفارش دهید" data-ur="ابھی آرڈر کریں">اطلب الآن</a>
+  </div>
 </div>
 
-<h2>📦 منتجات رقمية (قريبة الإطلاق)</h2>
-<ul>
-<li><strong>قاموس مصطلحات Web3</strong> (250+ مصطلح) — <span class="price">15$</span> <span class="tag">قريب</span></li>
-<li><strong>دورة أساسيات DePIN</strong> (5 محطات) — <span class="price">25$</span></li>
-<li><strong>حزمة كتابة محتوى Web3</strong> — <span class="price">50$</span></li>
-</ul>
-
-<h2>🛒 اطلب الآن — دفع فوري بـ USDT/USDC</h2>
-<div class="section">
-<p>المنتجات أدناه <strong>جاهزة للطلب الفوري</strong>. أرسل رقم المنتج + إيصال التحويل إلى المتجر عبر تيليجرام، وسيصلك المنتج خلال دقائق.</p>
-<table>
-<tr><th>#</th><th>المنتج</th><th>السعر</th><th>الحالة</th></tr>
-<tr><td>1</td><td>📖 قاموس مصطلحات Web3 (250+ مصطلح، عربي/إنجليزي)</td><td class="price">15$</td><td>جاهز</td></tr>
-<tr><td>2</td><td>🎓 دورة أساسيات DePIN (5 محطات)</td><td class="price">25$</td><td>جاهز</td></tr>
-<tr><td>3</td><td>✍️ حزمة كتابة محتوى Web3 (10 قوالب)</td><td class="price">35$</td><td>جاهز</td></tr>
-<tr><td>4</td><td>🔐 شرح العقد الذكي للمبتدئين</td><td class="price">20$</td><td>جاهز</td></tr>
-<tr><td>5</td><td>🗂️ حزمة تقديم الوظائف Web3 (3 حزم)</td><td class="price">30$</td><td>جاهز</td></tr>
-<tr><td>6</td><td>📊 تحليل الأمن والاقتصاد الرمزي (عيّنة + منهجية)</td><td class="price">40$</td><td>جاهز</td></tr>
-</table>
-<h3>طرق الدفع</h3>
-<ul>
-<li><strong>USDT (TRC-20/TON):</strong> <code>UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f</code></li>
-<li><strong>USDC (Base):</strong> <code>0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855</code></li>
-</ul>
-<p><strong>كيفية الطلب:</strong> ادفع المبلغ للمحفظة أعلاه، ثم أرسل رقم المنتج + إيصال التحويل إلى تيليجرام <code>@Aurora_Almada_88_Bot</code>، وسيصلك الملف فور التحقق (عادة خلال ساعة).</p>
-<p><em>ملاحظة: منصة Gumroad تحتاج إنشاء حساب منك مرة واحدة؛ حتى ذلك الحين نستلم الطلبات يدوياً عبر USDT.</em></p>
+<div class="product-card">
+  <div class="info">
+    <h3 data-ar="🎓 دورة أساسيات DePIN (5 محطات)" data-en="🎓 DePIN Basics Course (5 Stations)" data-tr="🎓 DePIN Temel Kursu (5 İstasyon)" data-fa="🎓 دوره پایه DePIN (۵ ایستگاه)" data-ur="🎓 DePIN بنیادی کورس (5 اسٹیشنز)">🎓 دورة أساسيات DePIN (5 محطات)</h3>
+    <p data-ar="5 محطات تعليمية شاملة عن بنية DePIN التحتية" data-en="5 comprehensive learning stations on DePIN infrastructure" data-tr="5 kapsamlı öğrenme istasyonu DePIN altyapısı hakkında" data-fa="۵ ایستگاه آموزشی جامع درباره زیرساخت DePIN" data-ur="5 جامع تعلیمی اسٹیشنز DePIN انفراسٹرکچر کے بارے میں">5 محطات تعليمية شاملة عن بنية DePIN التحتية</p>
+    <span class="tag ready" data-ar="جاهز" data-en="Ready" data-tr="Hazır" data-fa="آماده" data-ur="تیار">جاهز</span>
+  </div>
+  <div class="actions">
+    <div class="price">25$</div>
+    <a href="https://t.me/Aurora_Almada_88_Bot?start=buy2" class="buy-btn" data-ar="اطلب الآن" data-en="Order Now" data-tr="Hemen Sipariş Ver" data-fa="همین الان سفارش دهید" data-ur="ابھی آرڈر کریں">اطلب الآن</a>
+  </div>
 </div>
 
-<h2 id="content">📚 المحتوى المجاني (Open Source)</h2>
-<ul>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/articles/ar-web3-depin-intro.md">دليل المبتدئين إلى DePIN</a> <span class="tag">تعليمي</span></li>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/articles/ar-crypto-safety.md">دليل الأمان الرقمي</a> <span class="tag">أمان</span></li>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/articles/ar-depin-latency-reliability.md">متانة شبكات DePIN</a> <span class="tag">DePIN</span></li>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/articles/ar-wallet-security-multisig.md">المحافظ متعددة التوقيع</a> <span class="tag">أمان</span></li>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/translations/en-ar-web3-glossary.md">قاموس المصطلحات (Open Source)</a> <span class="tag">BSD-3</span></li>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/security/sample-audit-summary-web3.md">عيّنة ملخص أمان</a> <span class="tag">عيّنة</span></li>
-<li><a href="https://github.com/mohammadassia993-jpg/aurora-bot-render/blob/main/deliverables/community/sample-depin-community-report-ar.md">عيّنة تقرير مجتمع DePIN</a> <span class="tag">عيّنة</span></li>
-</ul>
+<div class="product-card">
+  <div class="info">
+    <h3 data-ar="✍️ حزمة كتابة محتوى Web3 (10 قوالب)" data-en="✍️ Web3 Content Writing Pack (10 Templates)" data-tr="✍️ Web3 İçerik Yazma Paketi (10 Şablon)" data-fa="✍️ بسته نوشتن محتوای Web3 (۱۰ قالب)" data-ur="✍️ Web3 مواد تحریر پیک (10 ٹیمپلیٹس)">✍️ حزمة كتابة محتوى Web3 (10 قوالب)</h3>
+    <p data-ar="10 قوالب احترافية جاهزة للتعديل والنشر" data-en="10 professional templates ready for customization and publishing" data-tr="10 profesyonel şablon özelleştirme ve yayınlama için hazır" data-fa="۱۰ قالب حرفه‌ای آماده سفارشی‌سازی و انتشار" data-ur="10 پیشہ ورانہ ٹیمپلیٹس تخصیص اور اشاعت کے لیے تیار">10 قوالب احترافية جاهزة للتعديل والنشر</p>
+    <span class="tag ready" data-ar="جاهز" data-en="Ready" data-tr="Hazır" data-fa="آماده" data-ur="تیار">جاهز</span>
+  </div>
+  <div class="actions">
+    <div class="price">35$</div>
+    <a href="https://t.me/Aurora_Almada_88_Bot?start=buy3" class="buy-btn" data-ar="اطلب الآن" data-en="Order Now" data-tr="Hemen Sipariş Ver" data-fa="همین الان سفارش دهید" data-ur="ابھی آرڈر کریں">اطلب الآن</a>
+  </div>
+</div>
 
+<div class="product-card">
+  <div class="info">
+    <h3 data-ar="🔐 شرح العقد الذكي للمبتدئين" data-en="🔐 Smart Contract Guide for Beginners" data-tr="🔐 Akıllı Sözleşme Başlangıç Rehberi" data-fa="🔐 راهنمای قرارداد هوشمند برای مبتدیان" data-ur="🔐 سمارٹ کنٹریکٹ گائیڈ نئے لوگوں کے لیے">🔐 شرح العقد الذكي للمبتدئين</h3>
+    <p data-ar="شرح مبسط بالعربية مع أمثلة عملية" data-en="Simplified Arabic explanation with practical examples" data-tr="Pratik örneklerle basit Arapça açıklama" data-fa="توضیح ساده عربی با مثال‌های عملی" data-ur="عملی مثالات کے ساتھ سادہ عربی وضاحت">شرح مبسط بالعربية مع أمثلة عملية</p>
+    <span class="tag ready" data-ar="جاهز" data-en="Ready" data-tr="Hazır" data-fa="آماده" data-ur="تیار">جاهز</span>
+  </div>
+  <div class="actions">
+    <div class="price">20$</div>
+    <a href="https://t.me/Aurora_Almada_88_Bot?start=buy4" class="buy-btn" data-ar="اطلب الآن" data-en="Order Now" data-tr="Hemen Sipariş Ver" data-fa="همین الان سفارش دهید" data-ur="ابھی آرڈر کریں">اطلب الآن</a>
+  </div>
+</div>
+
+<div class="product-card">
+  <div class="info">
+    <h3 data-ar="🗂️ حزمة تقديم وظائف Web3 (3 حزم)" data-en="🗂️ Web3 Job Application Pack (3 Packages)" data-tr="🗂️ Web3 İş Başvuru Paketi (3 Paket)" data-fa="🗂️ بسته درخواست شغل Web3 (۳ بسته)" data-ur="🗂️ Web3 ملازمت درخواست پیک (3 پیک)">🗂️ حزمة تقديم وظائف Web3 (3 حزم)</h3>
+    <p data-ar="3 حزم تقديم احترافية جاهزة" data-en="3 professional submission packages ready" data-tr="3 profesyonel başvuru paketi hazır" data-fa="۳ بسته درخواست حرفه‌ای آماده" data-ur="3 پیشہ ورانہ جمع کرانے کے پیک تیار">3 حزم تقديم احترافية جاهزة</p>
+    <span class="tag ready" data-ar="جاهز" data-en="Ready" data-tr="Hazır" data-fa="آماده" data-ur="تیار">جاهز</span>
+  </div>
+  <div class="actions">
+    <div class="price">30$</div>
+    <a href="https://t.me/Aurora_Almada_88_Bot?start=buy5" class="buy-btn" data-ar="اطلب الآن" data-en="Order Now" data-tr="Hemen Sipariş Ver" data-fa="همین الان سفارش دهید" data-ur="ابھی آرڈر کریں">اطلب الآن</a>
+  </div>
+</div>
+
+<div class="product-card">
+  <div class="info">
+    <h3 data-ar="📊 تحليل الأمن والاقتصاد الرمزي" data-en="📊 Security & Tokenomics Analysis" data-tr="📊 Güvenlik ve Tokenomik Analizi" data-fa="📊 تحلیل امنیت و اقتصاد توکن" data-ur="📊 سیکیورٹی اور ٹوکنomics تجزیہ">📊 تحليل الأمن والاقتصاد الرمزي</h3>
+    <p data-ar="تقييم شامل للمخاطر والفرص مع توصيات عملية" data-en="Comprehensive risk and opportunity assessment with actionable recommendations" data-tr="Uygulanabilir önerilerle kapsamlı risk ve fırsat değerlendirmesi" data-fa="ارزیابی جامع ریسک و فرصت با توصیه‌های عملی" data-ur="عملی تجاویز کے ساتھ جامع خطرے اور مواقع کی تشخیص">تقييم شامل للمخاطر والفرص مع توصيات عملية</p>
+    <span class="tag ready" data-ar="جاهز" data-en="Ready" data-tr="Hazır" data-fa="آماده" data-ur="تیار">جاهز</span>
+  </div>
+  <div class="actions">
+    <div class="price">40$</div>
+    <a href="https://t.me/Aurora_Almada_88_Bot?start=buy6" class="buy-btn" data-ar="اطلب الآن" data-en="Order Now" data-tr="Hemen Sipariş Ver" data-fa="همین الان سفارش دهید" data-ur="ابھی آرڈر کریں">اطلب الآن</a>
+  </div>
+</div>
+
+<!-- PAYMENT -->
+<h2 data-ar="💳 طرق الدفع" data-en="💳 Payment Methods" data-tr="💳 Ödeme Yöntemleri" data-fa="💳 روش‌های پرداخت" data-ur="💳 ادائیگی کے طریقے">💳 طرق الدفع</h2>
+<div class="section">
+  <div class="wallet">
+    <strong>USDT (TON):</strong><br>
+    <code>UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f</code>
+  </div>
+  <div class="wallet">
+    <strong>USDC (Base):</strong><br>
+    <code>0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855</code>
+  </div>
+  <h3 data-ar="كيفية الطلب:" data-en="How to Order:" data-tr="Sipariş Nasıl Verilir:" data-fa="نحوه سفارش:" data-ur="آرڈر کا طریقہ:">كيفية الطلب:</h3>
+  <ol class="steps">
+    <li data-ar="اختر المنتج واضغط «اطلب الآن»" data-en="Choose product and click 'Order Now'" data-tr="Ürünü seçin ve 'Hemen Sipariş Ver' butonuna tıklayın" data-fa="محصول را انتخاب کنید و روی «همین الان سفارش دهید» کلیک کنید" data-ur="مصنوعات منتخب کریں اور «ابھی آرڈر کریں» پر کلک کریں">اختر المنتج واضغط «اطلب الآن»</li>
+    <li data-ar="ادفع المبلغ للمحفظة المناسبة (USDT أو USDC)" data-en="Pay to the appropriate wallet (USDT or USDC)" data-tr="Uygun cüzdana ödeme yapın (USDT veya USDC)" data-fa="مبلغ را به کیف پول مناسب پرداخت کنید (USDT یا USDC)" data-ur="رقم مناسب والیت میں ادائیگی کریں (USDT یا USDC)">ادفع المبلغ للمحفظة المناسبة (USDT أو USDC)</li>
+    <li data-ar="أرسل رقم المنتج + إيصال التحويل إلى البوت" data-en="Send product number + payment receipt to the bot" data-tr="Ürün numarasını + ödeme dekontunu bota gönderin" data-fa="شماره محصول + رسید پرداخت را به ربات ارسال کنید" data-ur="مصنوعات نمبر + ادائیگی رسید بوٹ کو بھیجیں">أرسل رقم المنتج + إيصال التحويل إلى البوت</li>
+    <li data-ar="استلم المنتج فور التحقق (عادة خلال ساعة)" data-en="Receive product after verification (usually within an hour)" data-fa="محصول را پس از تأیید دریافت کنید (معمولاً ظرف یک ساعت)" data-ur="تصدیق کے بعد مصنوعات حاصل کریں (عموماً ایک گھنٹے کے اندر)">استلم المنتج فور التحقق (عادة خلال ساعة)</li>
+  </ol>
+</div>
+
+<!-- SERVICES -->
+<h2 id="services" data-ar="💼 خدماتنا الاحترافية" data-en="💼 Our Professional Services" data-tr="💼 Profesyonel Hizmetlerimiz" data-fa="💼 خدمات حرفه‌ای ما" data-ur="💼 ہماری پیشہ ورانہ خدمات">💼 خدماتنا الاحترافية</h2>
+
+<div class="section">
+  <h3 data-ar="📝 كتابة محتوى Web3 بالعربية" data-en="📝 Arabic Web3 Content Writing" data-tr="📝 Arapça Web3 İçerik Yazma" data-fa="📝 نوشتن محتوای عربی Web3" data-ur="📝 عربی Web3 مواد تحریر">📝 كتابة محتوى Web3 بالعربية</h3>
+  <table>
+    <tr><th data-ar="الخدمة" data-en="Service" data-tr="Hizmet" data-fa="خدمت" data-ur="خدمت">الخدمة</th><th data-ar="السعر" data-en="Price" data-tr="Fiyat" data-fa="قیمت" data-ur="قیمت">السعر</th></tr>
+    <tr><td data-ar="مقال تعليمي (2000-3000 كلمة)" data-en="Educational article (2000-3000 words)" data-tr="Eğitim makalesi (2000-3000 kelime)" data-fa="مقاله آموزشی (۲۰۰۰-۳۰۰۰ کلمه)" data-ur="تعلیمی مضمون (2000-3000 الفاظ)">مقال تعليمي (2000-3000 كلمة)</td><td class="price">150-250$</td></tr>
+    <tr><td data-ar="سلسلة مقالات (3 قطع)" data-en="Article series (3 pieces)" data-tr="Makale serisi (3 parça)" data-fa="مجموعه مقالات (۳ قطعه)" data-ur="مضامین سیریز (3 حصے)">سلسلة مقالات (3 قطع)</td><td class="price">400-600$</td></tr>
+    <tr><td data-ar="نشرة إخبارية أسبوعية" data-en="Weekly newsletter" data-tr="Haftalık bülten" data-fa="خبرنامه هفتگی" data-ur="ہفتہ وار نیوز لیٹر">نشرة إخبارية أسبوعية</td><td class="price">200$/شهر</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3 data-ar="🌐 الترجمة التقنية (EN→AR)" data-en="🌐 Technical Translation (EN→AR)" data-tr="🌐 Teknik Çeviri (EN→AR)" data-fa="🌐 ترجمه فنی (EN→AR)" data-ur="🌐 تکنیکل ترجمہ (EN→AR)">🌐 الترجمة التقنية (EN→AR)</h3>
+  <table>
+    <tr><th data-ar="الخدمة" data-en="Service" data-tr="Hizmet" data-fa="خدمت" data-ur="خدمت">الخدمة</th><th data-ar="السعر" data-en="Price" data-tr="Fiyat" data-fa="قیمت" data-ur="قیمت">السعر</th></tr>
+    <tr><td data-ar="ترجمة مستند تقني (1000 كلمة)" data-en="Technical document translation (1000 words)" data-tr="Teknik belge çevirisi (1000 kelime)" data-fa="ترجمه سند فنی (۱۰۰۰ کلمه)" data-ur="تکنیکل دستاویز ترجمہ (1000 الفاظ)">ترجمة مستند تقني (1000 كلمة)</td><td class="price">80-120$</td></tr>
+    <tr><td data-ar="ترجمة Whitepaper كاملة" data-en="Full Whitepaper translation" data-tr="Tam Whitepaper çevirisi" data-fa="ترجمه کامل وایت‌پیپر" data-ur="مکمل Whitepaper ترجمہ">ترجمة Whitepaper كاملة</td><td class="price">300-500$</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3 data-ar="📡 إدارة مجتمعات Web3" data-en="📡 Web3 Community Management" data-tr="📡 Web3 Topluluk Yönetimi" data-fa="📡 مدیریت جامعه Web3" data-ur="📡 ویب۳ کمیونٹی مینجمنٹ">📡 إدارة مجتمعات Web3</h3>
+  <table>
+    <tr><th data-ar="الخدمة" data-en="Service" data-tr="Hizmet" data-fa="خدمت" data-ur="خدمت">الخدمة</th><th data-ar="السعر" data-en="Price" data-tr="Fiyat" data-fa="قیمت" data-ur="قیمت">السعر</th></tr>
+    <tr><td data-ar="تحديثات يومية للمجتمع" data-en="Daily community updates" data-tr="Günlük topluluk güncellemeleri" data-fa="به‌روزرسانی‌های روزانه جامعه" data-ur="روزانہ کمیونٹی اپ ڈیٹس">تحديثات يومية للمجتمع</td><td class="price">300$/شهر</td></tr>
+    <tr><td data-ar="إدارة قنوات عربية كاملة" data-en="Full Arabic channel management" data-tr="Tam Arapça kanal yönetimi" data-fa="مدیریت کامل کانال عربی" data-ur="مکمل عربی چینل مینجمنٹ">إدارة قنوات عربية كاملة</td><td class="price">500$/شهر</td></tr>
+  </table>
+</div>
+
+<!-- FOOTER -->
 <footer>
-نُشر بواسطة فريق عمالقة الصمت — محتوى أصلي + خدمات Web3 بالعربية<br>
-last update: 2026-08-28 | لطلب الخدمة: أرسل رسالة عبر أي منصة
+  <p data-ar="نُشر بواسطة فريق عمالقة الصمت — محتوى أصلي + خدمات Web3 بالعربية" data-en="Published by Silent Giants Team — Original content + Arabic Web3 services" data-tr="Silent Giants Ekibi tarafından yayınlandı — Orijinel içerik + Arapça Web3 hizmetleri" data-fa="توسط تیم غول‌های سکوت منتشر شد — محتوای اصلی + خدمات عربی Web3" data-ur="خاموش دیوون ٹیم کی طرف سے شائع شدہ — اصلی مواد + عربی ویب۳ خدمات">نُشر بواسطة فريق عمالقة الصمت — محتوى أصلي + خدمات Web3 بالعربية</p>
+  <p>📧 auroraalmada4@gmail.com | 💬 <a href="https://t.me/Aurora_Almada_88_Bot">@Aurora_Almada_88_Bot</a> | 🌐 <a href="https://github.com/mohammadassia993-jpg/aurora-bot-render">GitHub</a></p>
 </footer>
 </div>
+
+<script>
+// Language detection and switching
+const userLang = navigator.language || navigator.userLanguage || 'ar';
+const defaultLang = userLang.startsWith('tr') ? 'tr' : userLang.startsWith('fa') ? 'fa' : userLang.startsWith('ur') ? 'ur' : userLang.startsWith('en') ? 'en' : 'ar';
+
+function setLang(lang) {
+  document.querySelectorAll('[data-' + lang + ']').forEach(el => {
+    el.textContent = el.getAttribute('data-' + lang);
+  });
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === 'ar' || lang === 'fa' || lang === 'ur') ? 'rtl' : 'ltr';
+  document.querySelectorAll('.lang-switch button').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + lang)?.classList.add('active');
+  localStorage.setItem('sg-lang', lang);
+}
+
+// Auto-detect on load
+const savedLang = localStorage.getItem('sg-lang') || defaultLang;
+setLang(savedLang);
+</script>
 </body>
 </html>

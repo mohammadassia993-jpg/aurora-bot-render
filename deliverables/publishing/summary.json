@@ -1,0 +1,20 @@
+{
+  "languages": [
+    "ar",
+    "en",
+    "tr",
+    "fa",
+    "ur"
+  ],
+  "totalPosts": 40,
+  "postsPerLang": {
+    "ar": 8,
+    "en": 8,
+    "tr": 8,
+    "fa": 8,
+    "ur": 8
+  },
+  "storeUrl": "https://mohammadassia993-jpg.github.io/aurora-bot-render/",
+  "botUrl": "https://t.me/Aurora_Almada_88_Bot",
+  "generatedAt": "2026-09-04T06:48:33.759Z"
+}
