@@ -388,9 +388,16 @@ async function asyncContextualReply(updateId, chatId, text, sender) {
 
 export async function handleTelegramUpdate(update) {
   const chatId = String(update.message?.chat?.id || update.edited_message?.chat?.id || update.callback_query?.message?.chat?.id || '');
-  // Allowlist check
-  if (config.telegramAllowedIds.length > 0 && chatId && !config.telegramAllowedIds.includes(chatId)) {
-    info('telegram', `blocked sender: chat_id=${chatId} (not in TELEGRAM_ALLOWED_IDS = ${JSON.stringify(config.telegramAllowedIds)})`);
+  const fromId = String(update.message?.from?.id || update.edited_message?.from?.id || update.callback_query?.from?.id || '');
+  const msgText = update.message?.text || update.edited_message?.text || update.callback_query?.data || '';
+  // Detailed diagnostic logging
+  info('telegram', `INCOMING: chatId=${chatId} fromId=${fromId} text=${String(msgText).slice(0, 60)}`);
+  info('telegram', `ALLOWLIST: parsed=${JSON.stringify(config.telegramAllowedIds)} len=${config.telegramAllowedIds.length}`);
+  info('telegram', `CHATID_ALLOWED=${config.telegramAllowedIds.includes(chatId)} FROMID_ALLOWED=${config.telegramAllowedIds.includes(fromId)}`);
+  // Allowlist check (use either chatId or fromId for maximum compatibility)
+  const isBlocked = config.telegramAllowedIds.length > 0 && !(config.telegramAllowedIds.includes(chatId) || config.telegramAllowedIds.includes(fromId));
+  if (isBlocked) {
+    info('telegram', `blocked sender: chat_id=${chatId} from_id=${fromId} (not in TELEGRAM_ALLOWED_IDS = ${JSON.stringify(config.telegramAllowedIds)})`);
     return false;
   }
   if (update.update_id) {
