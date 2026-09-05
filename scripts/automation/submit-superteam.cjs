@@ -140,6 +140,7 @@ async function main() {
   console.log(`🎯 Bounties to submit: ${CONFIG.bounties.length}`);
   
   const browser = await puppeteer.launch({
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   });
