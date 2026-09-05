@@ -32,9 +32,9 @@ export async function runBrowserSubmissions() {
     
     const timeout = setTimeout(() => {
       child.kill('SIGTERM');
-      warn('superteam', 'submission script timed out (5 min)');
+      warn('superteam', 'submission script timed out (15 min)');
       resolve({ error: 'TIMEOUT', output, errors });
-    }, 5 * 60 * 1000);
+    }, 15 * 60 * 1000);
     
     child.on('close', code => {
       clearTimeout(timeout);
