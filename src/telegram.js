@@ -48,6 +48,18 @@ async function remoteHealthy() {
 
 let outboxBusy = false;
 
+// Escape literal < > & so Telegram HTML parsing never rejects replies that
+// contain placeholder text like «اشتري <رقم>», while keeping our intentional
+// <b>bold</b> tags intact.
+function htmlSafeText(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/&lt;\/b&gt;/g, '</b>')
+    .replace(/&lt;b&gt;/g, '<b>');
+}
+
 export async function sendMessageDetailed(text, chatId = effectiveChatId(), replyToMessageId = null) {
   if (!config.telegramToken || !chatId) {
     return { delivered: false, error: 'MISSING_TELEGRAM_CONFIG' };
@@ -55,7 +67,7 @@ export async function sendMessageDetailed(text, chatId = effectiveChatId(), repl
   try {
     const response = await telegramRequest(config.telegramToken, 'sendMessage', {
       chat_id: chatId,
-      text,
+      text: htmlSafeText(text),
       ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
       parse_mode: 'HTML',
       link_preview_options: { is_disabled: true }
