@@ -89,6 +89,18 @@ async function main() {
     if (codeInput) {
       await codeInput.type(code, { delay: 100 });
       await new Promise(r => setTimeout(r, 1000));
+
+      // Prefer "remember/trust this device" so the account stops asking for a code each login.
+      log('Trying to opt into remember/trust this device...');
+      await page.evaluate(() => {
+        const labels = [...document.querySelectorAll('label, span, div')];
+        const target = labels.find(e => /remember this device|trust this device|don.t ask|stay signed in|remember me/i.test(e.textContent || '') && (e.textContent || '').length < 60);
+        if (target) {
+          const cb = target.querySelector('input[type=checkbox]') || target.querySelector('input[type=radio]');
+          if (cb && !cb.checked) cb.click();
+        }
+      });
+      await new Promise(r => setTimeout(r, 800));
       
       // Click confirm/submit
       const confirmBtn = await page.$('button[type="submit"], [data-testid="TOTPConfirm"]');
