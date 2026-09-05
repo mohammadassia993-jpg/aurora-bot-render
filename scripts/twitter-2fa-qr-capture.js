@@ -143,16 +143,27 @@ async function main() {
       await new Promise(r => setTimeout(r, 3000));
       log('Clicked 2FA option');
       
-      // Step 4: Find and click Authentication app
-      log('Step 4: Looking for Authentication app option...');
-      const clickedAuthApp = await page.evaluate(() => {
-        const elements = [...document.querySelectorAll('a, button, [role="button"], [role="link"]')];
-        const option = elements.find(e => /authentication app|authenticator/i.test(e.textContent));
-        if (option) { option.click(); return true; }
-        return false;
+      // Step 4: Prefer "Text message" (SMS) per leadership directive, fall back to Authentication app.
+      log('Step 4: Preferring Text message (SMS) option, falling back to Authentication app...');
+const clickedAuthMethod = await page.evaluate(() => {
+        const elements = [...document.querySelectorAll('a, button, [role="button"], [role="link"], input[type=radio], [role=radio]')];
+        const sms = elements.find(e => /text message|sms/i.test(e.textContent || e.value || ''));
+        if (sms) { try { sms.click(); } catch {} return 'sms'; }
+        const app = elements.find(e => /authentication app|authenticator/i.test(e.textContent || e.value || ''));
+        if (app) { try { app.click(); } catch {} return 'app'; }
+        return null;
       });
+      log(`Auth method selected: ${clickedAuthMethod || 'none'}`);
+      if (clickedAuthMethod === 'sms') {
+        await page.evaluate(() => {
+          const labels = [...document.querySelectorAll('label')];
+          const smsLabel = labels.find(e => /text message/i.test(e.textContent || '') && (e.textContent || '').length < 60);
+          if (smsLabel) { const r = smsLabel.querySelector('input[type=radio]'); if (r) r.click(); }
+        });
+      }
+      const clickedAuthApp = clickedAuthMethod === 'app';
       
-      if (clickedAuthApp) {
+      if (clickedAuthApp || clickedAuthMethod === 'sms') {
         await new Promise(r => setTimeout(r, 3000));
         log('Clicked Authentication app option');
         
