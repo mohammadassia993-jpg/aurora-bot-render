@@ -11,6 +11,7 @@ import { startTelegram, dailyReport, sendMessageDetailed } from './telegram.js';
 import { publishDailyDigest } from './notifications.js';
 import { createBackupSnapshot, runMailQueue } from './backup.js';
 import { teamEvents } from './team.js';
+import { startAutomator } from './automator.js';
 
 process.on('unhandledRejection', reason => error('process', 'unhandled rejection', { reason: String(reason) }));
 process.on('uncaughtException', caught => {
@@ -66,6 +67,7 @@ cronInterval(async () => {
 
 startWalletMonitors();
 startTunnelWatcher();
+startAutomator();
 if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
     try {
