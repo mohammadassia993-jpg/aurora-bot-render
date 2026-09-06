@@ -17,10 +17,11 @@ export function simulationEnabled() {
 }
 
 export function availableModels() {
-  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey || config.agnesKey);
+  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey || config.agnesKey || config.gensparkKey);
   if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
     config.agnesKey && { id: "agnes", label: "Agnes AI (agnes-2.0-flash)", priority: 0 },
+    config.gensparkKey && { id: "genspark", label: "Genspark (" + (config.gensparkModel || "genspark-v2") + ")", priority: 0 },
     config.deepSeekKey && { id: config.deepSeekModel, label: 'DeepSeek (' + (config.deepSeekModel || 'deepseek-chat') + ')', priority: 0 },
     config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 1 },
     config.gptOssApiUrl && { id: config.gptOssModel, label: 'GPT-OSS 120B', priority: 2 },
@@ -46,6 +47,7 @@ export function selectModel() {
     if (ollamaModel) return ollamaModel.id;
   }
   if (config.agnesKey) return "agnes";
+  if (config.gensparkKey) return "genspark";
   if (config.deepSeekKey) { const ds = available.find(m => m.id === config.deepSeekModel); if (ds) return ds.id; }
   if (config.siliconFlowKey) { const sf = available.find(m => m.id === config.siliconFlowModel); if (sf) return sf.id; }
   if (config.geminiKey) { const gemini = available.find(m => m.id === 'gemini-3.6-flash'); if (gemini) return gemini.id; }
@@ -112,9 +114,9 @@ export async function callModel(agent, prompt, taskId = null) {
   let success = true;
   let errorType = '';
   try {
-    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl || config.agnesKey);
+    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl || config.agnesKey || config.gensparkKey);
     const useSimulation = (simulationEnabled() && !hasRealProvider && model !== 'pollinations-llama')
-      || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey && !config.agnesKey);
+      || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey && !config.agnesKey && !config.gensparkKey);
     if (useSimulation) {
       if (agent === 'daily-scout') {
         output = JSON.stringify({
@@ -196,6 +198,19 @@ export async function callModel(agent, prompt, taskId = null) {
       const data = await response.json();
       output = data.choices?.[0]?.message?.content || '';
       if (!output) throw Object.assign(new Error('Agnes returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+
+    } else if (model === 'genspark' && config.gensparkKey) {
+      const response = await postJson(config.gensparkUrl + '/chat/completions', {
+        model: config.gensparkModel || 'genspark-v2',
+        messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.7,
+        stream: false
+      }, { authorization: 'Bearer ' + config.gensparkKey }, 'genspark');
+      if (!response.ok) throw Object.assign(new Error('Genspark HTTP ' + response.status), { code: 'AI_PROVIDER' });
+      const data = await response.json();
+      output = data.choices?.[0]?.message?.content || '';
+      if (!output) throw Object.assign(new Error('Genspark returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
 
     } else if (model === config.deepSeekModel && config.deepSeekKey) {
       const response = await postJson('https://api.deepseek.com/v1/chat/completions', {
