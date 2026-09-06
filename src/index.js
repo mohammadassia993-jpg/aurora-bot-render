@@ -8,6 +8,7 @@ import { runConnectors } from './connectors.js';
 import { startWalletMonitors } from './wallets.js';
 import { startTunnelWatcher, writePublicLink } from './tunnel.js';
 import { startTelegram, dailyReport, sendMessageDetailed } from './telegram.js';
+import { initDelegation } from './delegation.js';
 import { publishDailyDigest } from './notifications.js';
 import { createBackupSnapshot, runMailQueue } from './backup.js';
 import { teamEvents } from './team.js';
@@ -30,6 +31,7 @@ setInterval(async () => {
   }
 }, 30_000);
 await runWatchdog();
+initDelegation();
 await startTelegram();
 createBackupSnapshot().catch(caught => error('backup', caught.message));
 setInterval(() => createBackupSnapshot().catch(caught => error('backup', caught.message)), config.backupIntervalMinutes * 60_000);

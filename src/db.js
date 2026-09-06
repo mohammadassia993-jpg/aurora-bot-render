@@ -172,6 +172,47 @@ CREATE TABLE IF NOT EXISTS telegram_outgoing (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS memory_lessons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent TEXT NOT NULL,
+  task_id INTEGER,
+  lesson_type TEXT NOT NULL,
+  lesson_key TEXT NOT NULL,
+  lesson_text TEXT NOT NULL,
+  weight REAL DEFAULT 1.0,
+  times_applied INTEGER DEFAULT 0,
+  last_applied TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS memory_task_context (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER REFERENCES tasks(id),
+  agent TEXT NOT NULL,
+  context_key TEXT NOT NULL,
+  context_value TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS memory_trust_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent TEXT NOT NULL,
+  task_id INTEGER,
+  trust_score REAL NOT NULL,
+  reason TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS memory_audit_trail (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent TEXT NOT NULL,
+  action TEXT NOT NULL,
+  resource TEXT DEFAULT '',
+  detail TEXT DEFAULT '',
+  dct_verified INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 `);
 
 try {

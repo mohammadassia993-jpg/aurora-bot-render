@@ -1,7 +1,7 @@
 {
   "name": "aurora-bot",
   "version": "1.0.0",
-  "description": "Silent Giants \u2013 Aurora Bot (local platform + cloud backup entry)",
+  "description": "Silent Giants – Aurora Bot (local platform + cloud backup entry)",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "postinstall": "npx puppeteer browsers install chrome || true"
   },
   "dependencies": {
+    "delegate-os": "^0.3.0",
     "express": "^4.22.2",
     "puppeteer": "^25.9.0",
     "socks-proxy-agent": "^10.1.0"

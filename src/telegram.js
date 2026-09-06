@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { getDelegationStatus, delegateTask, requestApproval, decideApproval, getDelegationCommands, getAgentList, getPendingApprovals } from './delegation.js';
+import { getDelegationStatus, delegateTask, requestApproval, decideApproval, getDelegationCommands, getAgentList, getPendingApprovals, revokeAgentToken, getAgentDCTInfo, attenuateAgentToken, isDelegationReady } from './delegation.js';
+import { runFullWorkflow, getWorkflowStatus } from './workflow.js';
+import { generateDailyReport, getCommandCenterStatus, sendAlerts, getKeyMetrics } from './command-center.js';
+import { formatMemoryReport, getAgentContextWindow } from './memory.js';
+import { listAllAgents } from './agent-config.js';
+import { getExecutorToolset } from './executor-tools.js';
 import { db } from './db.js';
 import { info, warn } from './logger.js';
 import { runConnectors } from './connectors.js';
@@ -573,6 +578,64 @@ async function handleCommand(message) {
         sendMessageDetailed(`❌ خطأ في المهمة #${taskId}: ${err.message}`, effectiveChatId());
       });
     }
+  } else if (resolved.startsWith('/revoke ')) {
+    const agentName = message.text.split(/\s+/)[1]?.trim();
+    if (!agentName) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /revoke <وكيل>\nالوكلاء: aurora, planner, executor, reviewer, scout');
+    } else {
+      const result = revokeAgentToken(agentName);
+      if (result.error) {
+        enqueueReply(null, replyChatId, '❌ ' + result.error);
+      } else {
+        enqueueReply(null, replyChatId, `🚫 تم إلغاء تفويض ${result.agent}\nعدد الرموز الموقفة: ${result.revokedIds.length}`);
+      }
+    }
+  } else if (resolved.startsWith('/dct ')) {
+    const agentName = message.text.split(/\s+/)[1]?.trim();
+    if (!agentName) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /dct <وكيل>\nالوكلاء: aurora, planner, executor, reviewer, scout');
+    } else {
+      enqueueReply(null, replyChatId, getAgentDCTInfo(agentName));
+    }
+  } else if (resolved === '/workflow') {
+    const status = getWorkflowStatus();
+    const stats = status.stats.map(s => `  • ${s.status}: ${s.count}`).join('\n');
+    const recent = status.recent.map(t => `  • #${t.id}: ${t.title.slice(0, 40)} [${t.status}]`).join('\n');
+    enqueueReply(null, replyChatId, ['🔄 حالة سير العمل', '━━━━━━━━━━━━', '', '📊 الإحصائيات:', stats || '  لا توجد بيانات', '', '📋 آخر المهام:', recent || '  لا توجد مهام'].join('\n'));
+  } else if (resolved === '/runflow ') {
+    const taskId = Number(message.text.split(/\s+/)[1]);
+    if (!taskId) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /runflow <رقم المهمة>');
+    } else {
+      enqueueReply(null, replyChatId, `🔄 بدء سير العمل الكامل للمهمة #${taskId}...`);
+      runFullWorkflow(taskId).then(result => {
+        sendMessageDetailed(result.error ? '❌ ' + result.error : '✅ سير العمل مكتمل', effectiveChatId());
+      }).catch(err => sendMessageDetailed('❌ ' + err.message, effectiveChatId()));
+    }
+  } else if (resolved === '/daily') {
+    enqueueReply(null, replyChatId, generateDailyReport());
+  } else if (resolved === '/metrics') {
+    const m = getKeyMetrics();
+    enqueueReply(null, replyChatId, ['📈 المقاييس الرئيسية', '━━━━━━━━━━━━', '', '📊 معدل الإنجاز: ' + m.successRate + '%', '📋 المهام: ' + m.taskStats.total + ' (مكتملة: ' + m.taskStats.completed + ')', '⭐ متوسط الجودة: ' + m.taskStats.avgScore + '/100', '🤖 تشغيلات الوكلاء: ' + m.runStats.totalRuns, '🛡️ التدخل البشري: ' + m.humanInterventionRate + '%', '🔴 الأخطاء: ' + m.errors].join('\n'));
+  } else if (resolved === '/alerts') {
+    const alerts = sendAlerts();
+    enqueueReply(null, replyChatId, alerts.sent ? '🚨 ' + alerts.sent + ' تنبيهات مرسلة' : '✅ لا توجد تنبيهات');
+  } else if (resolved === '/memory') {
+    enqueueReply(null, replyChatId, formatMemoryReport());
+  } else if (resolved === '/memctx ') {
+    const agent = message.text.split(/\s+/)[1]?.trim();
+    if (!agent) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /memctx <وكيل>');
+    } else {
+      const ctx = getAgentContextWindow(agent);
+      enqueueReply(null, replyChatId, ctx.summary);
+    }
+  } else if (resolved === '/tools') {
+    const tools = getExecutorToolset();
+    enqueueReply(null, replyChatId, ['🔧 أدوات المنفذ', '━━━━━━━━━━━━', '', '🔓 CAPTCHA: ' + (process.env.CAPSOLVER_API_KEY ? 'متاح' : 'غير متاح'), '🔑 OTP: متاح', '🌐 Proxy: ' + (process.env.PROXY_LIST ? 'متاح' : 'غير متاح'), '📱 SMS: ' + (process.env.SMS_VERIFY_API_KEY ? 'متاح' : 'غير متاح'), '📧 Email: متاح', '📚 الحلول: متاح'].join('\n'));
+  } else if (resolved === '/cmdcenter') {
+    const status = getCommandCenterStatus();
+    enqueueReply(null, replyChatId, ['🎯 مركز القيادة', '━━━━━━━━━━━━', '', '🏥 صحة النظام: ' + (status.systemHealth === 'healthy' ? '✅ سليمة' : '⚠️ متضررة'), '🚨 تنبيهات: ' + status.alerts.length, '', '📈 المقاييس:', '  • الإنجاز: ' + status.metrics.successRate + '%', '  • الجودة: ' + status.metrics.taskStats.avgScore + '/100', '  • الثقة: ' + Object.entries(status.metrics.trustScores).map(([k,v]) => k + ':' + Math.round(v.avgTrust)).join(', ')].join('\n'));
   } else if (resolved.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
