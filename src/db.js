@@ -213,6 +213,28 @@ CREATE TABLE IF NOT EXISTS memory_audit_trail (
   dct_verified INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS operations_submissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform TEXT NOT NULL,
+  title TEXT NOT NULL,
+  value REAL DEFAULT 0,
+  type TEXT DEFAULT 'task',
+  status TEXT DEFAULT 'submitted',
+  followup_sent INTEGER DEFAULT 0,
+  email_to TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS operations_marketing (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel TEXT NOT NULL,
+  message_id INTEGER DEFAULT 0,
+  product_id TEXT DEFAULT '',
+  status TEXT DEFAULT 'queued',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 `);
 
 try {

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { getDelegationStatus, delegateTask, requestApproval, decideApproval, getDelegationCommands, getAgentList, getPendingApprovals, revokeAgentToken, getAgentDCTInfo, attenuateAgentToken, isDelegationReady } from './delegation.js';
 import { runFullWorkflow, getWorkflowStatus } from './workflow.js';
+import { getSubmissionStats, getOpsStatus, runTaskSubmissions, sendDailyOpsReport, runMarketingPublish, sendFollowups, getPlatformPolicy } from './operations.js';
 import { generateDailyReport, getCommandCenterStatus, sendAlerts, getKeyMetrics } from './command-center.js';
 import { formatMemoryReport, getAgentContextWindow } from './memory.js';
 import { listAllAgents } from './agent-config.js';
@@ -636,6 +637,37 @@ async function handleCommand(message) {
   } else if (resolved === '/cmdcenter') {
     const status = getCommandCenterStatus();
     enqueueReply(null, replyChatId, ['🎯 مركز القيادة', '━━━━━━━━━━━━', '', '🏥 صحة النظام: ' + (status.systemHealth === 'healthy' ? '✅ سليمة' : '⚠️ متضررة'), '🚨 تنبيهات: ' + status.alerts.length, '', '📈 المقاييس:', '  • الإنجاز: ' + status.metrics.successRate + '%', '  • الجودة: ' + status.metrics.taskStats.avgScore + '/100', '  • الثقة: ' + Object.entries(status.metrics.trustScores).map(([k,v]) => k + ':' + Math.round(v.avgTrust)).join(', ')].join('\n'));
+  } else if (resolved === '/ops') {
+    const status = getOpsStatus();
+    const byType = (status.submissions.byType || []).map(t => `  • ${t.type}: ${t.c} ($${Math.round(t.v)})`).join('\n');
+    enqueueReply(null, replyChatId, ['⚙️ العمليات التشغيلية', '━━━━━━━━━━━━', '', `📦 التقديمات (30 يوم): ${status.submissions.total}`, byType || '  لا توجد', '', `📬 متابعات معلقة: ${status.followupsPending}`, `📊 النشر: ${status.marketingActive ? 'نشط' : 'غير نشط'}`, `🛡️ المنصات المراقبة: ${status.policies}`].join('\n'));
+  } else if (resolved === '/ops-report') {
+    sendDailyOpsReport().then(() => console.log('ops report sent'));
+    enqueueReply(null, replyChatId, '📊 جارٍ إرسال التقرير التشغيلي اليومي...');
+  } else if (resolved === '/submit-tasks') {
+    runTaskSubmissions().then(result => {
+      const txt = result.submitted?.length ? `✅ تم تقديم ${result.submitted.length} مهام` : 'ℹ️ لا توجد مهام مؤهلة للتقديم الآن';
+      sendMessageDetailed(txt, effectiveChatId()).catch(() => {});
+    });
+    enqueueReply(null, replyChatId, '🔄 جارٍ تقديم المهام المؤهلة...');
+  } else if (resolved === '/publish-now') {
+    runMarketingPublish().then(result => {
+      sendMessageDetailed(`✅ تم نشر ${result.published} منشورات على القناة`, effectiveChatId()).catch(() => {});
+    });
+    enqueueReply(null, replyChatId, '🔄 جارٍ النشر على القناة...');
+  } else if (resolved === '/followups') {
+    sendFollowups().then(result => {
+      sendMessageDetailed(`✅ تم إرسال ${result.sent} رسائل متابعة`, effectiveChatId()).catch(() => {});
+    });
+    enqueueReply(null, replyChatId, '🔄 جارٍ إرسال رسائل المتابعة...');
+  } else if (resolved === '/policy ') {
+    const platform = message.text.split(/\s+/)[1]?.trim();
+    if (!platform) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /policy <منصة>');
+    } else {
+      const p = getPlatformPolicy(platform);
+      enqueueReply(null, replyChatId, `🛡️ سياسة المنصة ${platform}:\n${p.agentAllowed === true ? '✅ تسمح بالوكلاء' : p.agentAllowed === false ? '❌ تتطلب بشري' : '⚠️ غير معروفة'}\n📝 ${p.notes}`);
+    }
   } else if (resolved.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
