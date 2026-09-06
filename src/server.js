@@ -320,6 +320,27 @@ export async function startServer() {
         });
       }
 
+      if (url.pathname === '/automations') {
+        const fsSync = await import('node:fs').then(m => m.default);
+        let superteamCount = 0;
+        try {
+          const sf = fsSync.readFileSync('/tmp/superteam-listings.json', 'utf8');
+          superteamCount = JSON.parse(sf).count || 0;
+        } catch {}
+        return json(response, 200, {
+          automations: {
+            keepalive: { interval: '10 min', target: config.backupUrl || 'https://silent-giants-render-backup.onrender.com', status: 'running' },
+            superteamMonitor: { interval: '30 min', status: 'running', openEligibleListings: superteamCount },
+            watchdog: { interval: '30 sec', status: 'running' },
+            mailQueue: { interval: `${config.mailQueueIntervalMinutes} min`, status: 'running' },
+            backup: { interval: `${config.backupIntervalMinutes} min`, status: 'running' },
+            dailyReport: { hour: config.dailyReportHour, status: 'running' }
+          },
+          noHumanInputRequired: true,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       if (url.pathname === '/debug-telegram') {
         const testId = url.searchParams.get('testId') || url.searchParams.get('id') || '';
         const allowed = config.telegramAllowedIds;
