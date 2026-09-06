@@ -29,7 +29,8 @@ async function fetchJson(url, options = {}, timeoutMs = 15000) {
 
 /** Self-keepalive: ping backup service to prevent Render sleep */
 async function keepAlive() {
-  if (!config.backupUrl) return;
+  const backupUrl = config.backupUrl || 'https://silent-giants-render-backup.onrender.com';
+  if (!backupUrl) return;
   try {
     await fetchJson(`${config.backupUrl.replace(/\/$/, '')}/keepalive`, {}, 8000);
     info('automator', 'backup keepalive ping successful');
