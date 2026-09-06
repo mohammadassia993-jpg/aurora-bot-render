@@ -12,7 +12,7 @@ import { teamEvents } from './team.js';
 function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), ms))]);
 }
-import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary, sendInvoiceArgs, handleSuccessfulPayment } from './storefront.js';
+import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary, sendInvoiceArgs, handleSuccessfulPayment, subscriptionInfo, SUBSCRIPTION } from './storefront.js';
 import { createTask, runTaskFlow, getTaskStatus, getTaskReport, isLeaderMessage, matchTaskCommand, matchReportCommand, matchStatusCommand } from './task-flow.js';
 import { runBrowserSubmissions } from './superteam-submit.js';
 

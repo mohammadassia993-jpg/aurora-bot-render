@@ -176,3 +176,31 @@ export function handleSuccessfulPayment(payment, sender) {
     packPath ? '✅ جاهز! الملفات سترسل فوراً.' : '⏳ الملفات ستُجهّز وترسل خلال دقائق.'
   ].join('\n');
 }
+export const SUBSCRIPTION = {
+  id: 'sub',
+  name: '🎯 اشتراك محتوى Web3 الشهري',
+  description: '5 مقالات + 3 ترجمات + تقرير أسبوعي + دعم مباشر',
+  monthlyPrice: 500,
+  monthlyStars: 25000,
+  features: [
+    '📝 5 مقالات تقنية عربية شهرياً',
+    '🔄 3 ترجمات EN→AR شهرياً',
+    '📊 تقرير أسبوعي عن أحدث التطورات',
+    '💬 دعم مباشر عبر البوت',
+    '📦 تحديثات مستمرة مجانية'
+  ]
+};
+
+export function subscriptionInfo() {
+  return [
+    '🎯 اشتراك محتوى Web3 الشهري',
+    '',
+    '📋 ما تحصل عليه:',
+    ...SUBSCRIPTION.features,
+    '',
+    `💰 السعر: ${SUBSCRIPTION.monthlyPrice}$ / شهرياً أو ${SUBSCRIPTION.monthlyStars} ⭐`,
+    '',
+    '📝 للاشتراك: اكتب /subscribe إلى البوت',
+    '📩 أو تواصل معنا: @Aurora_Almada_88_Bot'
+  ].join('\n');
+}
