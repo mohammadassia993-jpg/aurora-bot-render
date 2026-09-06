@@ -101,6 +101,20 @@ function savePreviousCount(count) {
   } catch {}
 }
 
+
+/** Monitor Freelancer, Remotive, RemoteOK for relevant jobs */
+async function monitorJobs() {
+  try {
+    const { execSync } = await import('node:child_process');
+    const output = execSync(
+      `cd ${config.root} && TELEGRAM_BOT_TOKEN=${config.telegramToken} TELEGRAM_ADMIN_CHAT_ID=${config.telegramChatId || ''} node scripts/monitor-jobs.js --alert`,
+      { timeout: 60000, encoding: 'utf8' }
+    );
+    info('automator', 'job monitor complete: ' + output.split('\n').slice(-3).join('; '));
+  } catch (caught) {
+    warn('automator', `job monitor failed: ${caught.message?.slice(0, 200)}`);
+  }
+}
 /** Start all automator jobs */
 export function startAutomator() {
   info('automator', 'starting automator jobs');
@@ -112,4 +126,8 @@ export function startAutomator() {
   // Superteam monitor every 30 minutes
   setInterval(monitorSuperteam, MONITOR_INTERVAL).unref();
   monitorSuperteam().catch(() => {});
+
+  // Job platform monitor every 2 hours
+  setInterval(monitorJobs, 2 * 60 * 60 * 1000).unref();
+  monitorJobs().catch(() => {});
 }
