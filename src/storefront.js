@@ -5,12 +5,12 @@ import { db } from './db.js';
 const root = path.resolve(import.meta.dirname, '..');
 
 export const PRODUCTS = [
-  { id: '1', name: '📖 قاموس مصطلحات Web3 (250+ مصطلح، عربي/إنجليزي)', price: 15 },
-  { id: '2', name: '🎓 دورة أساسيات DePIN (5 محطات)', price: 25 },
-  { id: '3', name: '✍️ حزمة كتابة محتوى Web3 (10 قوالب)', price: 35 },
-  { id: '4', name: '🔐 شرح العقد الذكي للمبتدئين', price: 20 },
-  { id: '5', name: '🗂️ حزمة تقديم الوظائف Web3 (3 حزم)', price: 30 },
-  { id: '6', name: '📊 تحليل الأمن والاقتصاد الرمزي (عيّنة + منهجية)', price: 40 }
+  { id: '1', name: '📖 قاموس مصطلحات Web3 (250+ مصطلح، عربي/إنجليزي)', price: 15, stars: 750 },
+  { id: '2', name: '🎓 دورة أساسيات DePIN (5 محطات)', price: 25, stars: 1250 },
+  { id: '3', name: '✍️ حزمة كتابة محتوى Web3 (10 قوالب)', price: 35, stars: 1750 },
+  { id: '4', name: '🔐 شرح العقد الذكي للمبتدئين', price: 20, stars: 1000 },
+  { id: '5', name: '🗂️ حزمة تقديم الوظائف Web3 (3 حزم)', price: 30, stars: 1500 },
+  { id: '6', name: '📊 تحليل الأمن والاقتصاد الرمزي (عيّنة + منهجية)', price: 40, stars: 2000 }
 ];
 
 const USDT_ADDRESS = 'UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f';
@@ -112,4 +112,67 @@ export function ordersSummary() {
   const testCount = db.prepare(`SELECT COUNT(*) c FROM store_orders WHERE payment_note = 'TEST-RECORD-FOR-DEMO'`).get().c;
   return rows.map(r => `${r.status === 'awaiting_payment' ? '⏳ بانتظار الدفع' : r.status === 'paid' ? '✅ مدفوع' : r.status}: ${r.count} طلب — ${r.total}$`).join('\n')
     + `\n💰 إجمالي الإيراد الفعلي: ${realTotal}$` + (testCount ? `\n🧪 سجلات اختبار فقط: ${testCount}` : '');
+}
+
+/** Telegram Stars (XTR) payment — fully automated, no provider needed */
+export function starsPaymentInfo() {
+  return PRODUCTS.map(p => `${p.id}) ${p.name} — ${p.stars} ⭐`).join('\n');
+}
+
+export function sendInvoiceArgs(chatId, productId) {
+  const product = PRODUCTS.find(p => p.id === String(productId));
+  if (!product) return null;
+  return {
+    chat_id: chatId,
+    title: product.name.replace(/^[^\w\u0600-\u06FF]+\s*/, ''),
+    description: `منتج رقمي فوري — يُسلّم مباشرة بعد الدفع عبر النجوم ⭐`,
+    payload: JSON.stringify({ product_id: product.id, product_name: product.name }),
+    currency: 'XTR',
+    prices: [{ label: product.name.replace(/^[^\w\u0600-\u06FF]+\s*/, '').slice(0, 50), amount: product.stars }],
+    provider_token: '',
+    need_name: false,
+    need_email: false,
+    need_phone_number: false,
+    need_shipping_address: false,
+    send_email_to_provider: false,
+    is_flexible: false,
+    photo_url: 'https://mohammadassia993-jpg.github.io/aurora-bot-render/logo.png',
+    photo_width: 512,
+    photo_height: 512
+  };
+}
+
+export function handleSuccessfulPayment(payment, sender) {
+  let productId, productName;
+  try {
+    const payload = JSON.parse(payment.invoice_payload || '{}');
+    productId = payload.product_id;
+    productName = payload.product_name;
+  } catch {
+    return '❌ خطأ في تحليل الدفع.';
+  }
+  const product = PRODUCTS.find(p => p.id === productId);
+  if (!product) return '❌ منتج غير معروف.';
+  const stars = payment.total_amount;
+  
+  // Record the order
+  db.prepare(`
+    INSERT INTO store_orders(product_id, product_name, price, customer_name, customer_chat_id, status, txid, payment_note)
+    VALUES (?, ?, ?, ?, ?, 'paid', ?, 'TELEGRAM_STARS')
+  `).run(productId, productName, product.price, sender.username || sender.id || '', String(sender.id || ''), payment.telegram_payment_charge_id || 'XTR-' + Date.now());
+  
+  const packPath = deliveryPackPath(productId);
+  if (packPath) {
+    db.prepare("UPDATE store_orders SET status='delivered', delivered_file=?, updated_at=CURRENT_TIMESTAMP WHERE id=last_insert_rowid()").run(packPath);
+  }
+  
+  return [
+    '✅ تم الدفع بنجاح عبر النجوم ⭐!',
+    `📦 المنتج: ${product.name}`,
+    `💰 المبلغ: ${stars} ⭐`,
+    `🧾 رقم المعاملة: ${payment.telegram_payment_charge_id || '-'}`,
+    '',
+    '📥 جارٍ تجهيز الملفات...',
+    packPath ? '✅ جاهز! الملفات سترسل فوراً.' : '⏳ الملفات ستُجهّز وترسل خلال دقائق.'
+  ].join('\n');
 }

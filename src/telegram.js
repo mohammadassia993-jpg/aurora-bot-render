@@ -12,7 +12,7 @@ import { teamEvents } from './team.js';
 function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), ms))]);
 }
-import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary } from './storefront.js';
+import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary, sendInvoiceArgs, handleSuccessfulPayment } from './storefront.js';
 import { createTask, runTaskFlow, getTaskStatus, getTaskReport, isLeaderMessage, matchTaskCommand, matchReportCommand, matchStatusCommand } from './task-flow.js';
 import { runBrowserSubmissions } from './superteam-submit.js';
 
@@ -402,6 +402,23 @@ export async function handleTelegramUpdate(update) {
   const chatId = String(update.message?.chat?.id || update.edited_message?.chat?.id || update.callback_query?.message?.chat?.id || '');
   const fromId = String(update.message?.from?.id || update.edited_message?.from?.id || update.callback_query?.from?.id || '');
   const msgText = update.message?.text || update.edited_message?.text || update.callback_query?.data || '';
+  // Handle pre_checkout_query for Telegram Stars payments
+  if (update.pre_checkout_query) {
+    const pcq = update.pre_checkout_query;
+    const fromId = String(pcq.from?.id || '');
+    const isBlocked = config.telegramAllowedIds.length > 0 && !config.telegramAllowedIds.includes(fromId);
+    const { telegramRequest } = await import('./telegram-api.js');
+    await telegramRequest(config.telegramToken, 'answerPreCheckoutQuery', {
+      pre_checkout_query_id: pcq.id,
+      ok: !isBlocked,
+      error_message: isBlocked ? 'غير مصرح' : undefined
+    }, 10000).catch(e => warn('telegram', 'pre_checkout answer failed: ' + e.message));
+    if (!isBlocked) {
+      info('telegram', 'pre_checkout approved for ' + fromId);
+    }
+    return true;
+  }
+
   // Detailed diagnostic logging
   info('telegram', `INCOMING: chatId=${chatId} fromId=${fromId} text=${String(msgText).slice(0, 60)}`);
   info('telegram', `ALLOWLIST: parsed=${JSON.stringify(config.telegramAllowedIds)} len=${config.telegramAllowedIds.length}`);
@@ -428,6 +445,12 @@ export async function handleTelegramUpdate(update) {
   if (!config.telegramChatId && chatId && chatId !== discoveredChatId) {
     discoveredChatId = chatId;
     fs.writeFileSync(chatIdFile, chatId, { mode: 0o600 });
+  }
+  // Handle successful_payment for Telegram Stars
+  if (update.message?.successful_payment) {
+    const payResult = handleSuccessfulPayment(update.message.successful_payment, update.message.from || {});
+    sendMessageDetailed(payResult, chatId).catch(() => {});
+    info('telegram', 'stars_payment_received: ' + (update.message.successful_payment.total_amount || 0) + ' XTR from ' + fromId);
   }
   if (update.message?.text) {
     db.prepare("INSERT INTO messages(thread,sender,recipient,body) VALUES ('telegram',?,'team',?)")
@@ -496,7 +519,19 @@ async function handleCommand(message) {
       const list = pending.map(a => `#${a.id} [${a.kind}] ${a.title || 'مهمة'}\n  أرسل: /approve ${a.id} yes أو no`).join('\n');
       enqueueReply(null, replyChatId, '巴巴بات بانتظار موافقة القائد:\n' + list);
     }
+  } else if (resolved.startsWith('/pay ')) {
+    const payId = resolved.slice(5).trim();
+    const args = sendInvoiceArgs(chatId, payId);
+    if (!args) {
+      enqueueReply(null, replyChatId, '❌ رقم منتج غير صالح. استخدم /products لرؤية القائمة.');
+    } else {
+      const { telegramRequest } = await import('./telegram-api.js');
+      await telegramRequest(config.telegramToken, 'sendInvoice', args, 15000).catch(e => {
+        enqueueReply(null, replyChatId, '❌ خطأ في إرسال الفاتورة: ' + e.message);
+      });
+    }
   } else if (resolved === '/products' || resolved === '/store' || resolved === '/market' || resolved === '/shop' || resolved === '/buy') {
+    enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', '', productCatalogue(), '', '💰 الدفع بالنجوم ⭐: اكتب /pay <رقم المنتج>', '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» أو /pay <رقم> لإتمام الطلب.'].join('\n'));
     enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
   } else if (resolved === '/orders' || resolved === '/sales') {
     enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());  } else if (resolved === '/submit') {
