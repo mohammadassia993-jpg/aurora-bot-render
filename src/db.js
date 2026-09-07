@@ -235,6 +235,41 @@ CREATE TABLE IF NOT EXISTS operations_marketing (
   status TEXT DEFAULT 'queued',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS produced_products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  price REAL DEFAULT 0,
+  product_type TEXT DEFAULT 'guide',
+  content_md TEXT DEFAULT '',
+  file_path TEXT DEFAULT '',
+  catalog_id TEXT DEFAULT '',
+  publish_json TEXT DEFAULT '{}',
+  status TEXT DEFAULT 'pending_approval',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS production_catalog (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  catalog_id TEXT UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  price REAL DEFAULT 0,
+  product_type TEXT DEFAULT 'guide',
+  source_task_id INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'listed',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS production_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cycle TEXT UNIQUE,
+  type TEXT DEFAULT 'market',
+  summary_json TEXT DEFAULT '{}',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 `);
 
 try {

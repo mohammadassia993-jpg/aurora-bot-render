@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { getDelegationStatus, delegateTask, requestApproval, decideApproval, getDelegationCommands, getAgentList, getPendingApprovals, revokeAgentToken, getAgentDCTInfo, attenuateAgentToken, isDelegationReady } from './delegation.js';
 import { runFullWorkflow, getWorkflowStatus } from './workflow.js';
 import { getSubmissionStats, getOpsStatus, runTaskSubmissions, sendDailyOpsReport, runMarketingPublish, sendFollowups, getPlatformPolicy } from './operations.js';
+import { getPendingProducts, decideProductApproval, publishApprovedProduct, createProduct, autoProduce, buildCatalogFromTasks, buildProductionReport, getProductionStatus, runMarketAnalysis } from './production.js';
 import { generateDailyReport, getCommandCenterStatus, sendAlerts, getKeyMetrics } from './command-center.js';
 import { formatMemoryReport, getAgentContextWindow } from './memory.js';
 import { listAllAgents } from './agent-config.js';
@@ -668,6 +669,48 @@ async function handleCommand(message) {
       const p = getPlatformPolicy(platform);
       enqueueReply(null, replyChatId, `🛡️ سياسة المنصة ${platform}:\n${p.agentAllowed === true ? '✅ تسمح بالوكلاء' : p.agentAllowed === false ? '❌ تتطلب بشري' : '⚠️ غير معروفة'}\n📝 ${p.notes}`);
     }
+  } else if (resolved === '/factory') {
+    enqueueReply(null, replyChatId, buildProductionReport());
+  } else if (resolved === '/produce ') {
+    const topic = message.text.split(/\s+/).slice(1).join(' ');
+    if (!topic) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /produce <الموضوع>');
+    } else {
+      enqueueReply(null, replyChatId, `🏭 جارٍ إنتاج: "${topic}"...`);
+      autoProduce(1).then(r => {
+        const p = r.produced?.[0];
+        sendMessageDetailed(p ? `🏭 منتج جديد #${p.id}: ${p.topic} (بموافقة ${p.proofIssues} ملاحظة)\nراجعه: /approve-product ${p.id} yes|no` : '⚠️ فشل الإنتاج', effectiveChatId()).catch(() => {});
+      }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
+    }
+  } else if (resolved.startsWith('/approve-product ')) {
+    const parts = message.text.split(/\s+/);
+    const productId = Number(parts[1]);
+    const decision = parts[2];
+    if (!productId || !decision) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /approve-product <رقم> yes|no');
+    } else {
+      const result = decideProductApproval(productId, decision === 'yes');
+      if (result.error) {
+        enqueueReply(null, replyChatId, '❌ ' + result.error);
+      } else if (result.decision === 'rejected') {
+        enqueueReply(null, replyChatId, `❌ رُفض المنتج #${productId}.`);
+      } else {
+        enqueueReply(null, replyChatId, `✅ تمت الموافقة على المنتج #${productId}. جارٍ النشر...`);
+        publishApprovedProduct(productId).then(r => {
+          const ok = r.publishedOk || 0;
+          sendMessageDetailed(`🚀 تم نشر المنتج على ${ok} منصات`, effectiveChatId()).catch(() => {});
+        }).catch(e => sendMessageDetailed('❌ نشر فشل: ' + e.message, effectiveChatId()).catch(() => {}));
+      }
+    }
+  } else if (resolved === '/catalog') {
+    const result = buildCatalogFromTasks();
+    enqueueReply(null, replyChatId, [`📚 كتالوج المنتجات (من المهام)`, `━━━━━━━━━━━━`, '', `📦 منتجات: ${result.count}`, `🎁 الحزمة الشاملة: ${result.bundle.title}`, `💰 سعر الحزمة: $${result.bundle.price}`, `💎 القيمة الأصلية: $${result.bundle.originalValue}`, '', 'المنتجات جاهزة للبيع المتكرر عبر البوت والفواتير.'].join('\n'));
+  } else if (resolved === '/market') {
+    enqueueReply(null, replyChatId, '📡 جارٍ تحليل السوق الأسبوعي...');
+    runMarketAnalysis().then(r => {
+      const topics = (r.top_topics || []).map(t => `• ${t.topic} (${t.demand}) — ${t.monetization}`).join('\n');
+      sendMessageDetailed(`📊 تحليل السوق الأسبوعي\n━━━━━━━━━━━━\n${topics || 'لا توجد بيانات'}\n\n📈 الرائج الآن:\n${(r.trending_now || []).map(t => '• ' + t).join('\n') || '-'}`, effectiveChatId()).catch(() => {});
+    }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
   } else if (resolved.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];

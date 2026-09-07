@@ -10,6 +10,7 @@ import { startTunnelWatcher, writePublicLink } from './tunnel.js';
 import { startTelegram, dailyReport, sendMessageDetailed } from './telegram.js';
 import { initDelegation } from './delegation.js';
 import { startOperations } from './operations.js';
+import { startProductionMachine } from './production.js';
 import { publishDailyDigest } from './notifications.js';
 import { createBackupSnapshot, runMailQueue } from './backup.js';
 import { teamEvents } from './team.js';
@@ -72,6 +73,7 @@ startWalletMonitors();
 startTunnelWatcher();
 startAutomator();
 startOperations();
+startProductionMachine();
 if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
     try {
