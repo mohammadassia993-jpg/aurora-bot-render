@@ -16,6 +16,7 @@ import { readPublicLink } from './tunnel.js';
 import { audit } from './audit.js';
 import { backupDatabase, recordError } from './db.js';
 import { dashboardData } from './dashboard.js';
+import { securityHeaders, globalRateLimit, adminRateLimit, validateWebhookSecret, sanitizeObject, buildSecurityReport } from './security.js';
 import { performancePlan } from './performance.js';
 import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from './team.js';
 

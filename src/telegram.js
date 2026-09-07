@@ -24,6 +24,8 @@ import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentRecei
 import { createTask, runTaskFlow, getTaskStatus, getTaskReport, isLeaderMessage, matchTaskCommand, matchReportCommand, matchStatusCommand } from './task-flow.js';
 import { runBrowserSubmissions } from './superteam-submit.js';
 import { processNaturalMessage } from './natural-assistant.js';
+import { telegramRateLimit, detectAnomaly } from './security.js';
+import { buildSecurityReport, getIncidentResponsePlan, auditWalletSecurity, encryptData, decryptData } from './security.js';
 
 let offset = 0;
 let mode = 'disabled';
@@ -470,6 +472,15 @@ export async function handleTelegramUpdate(update) {
       if (!result.relayed && result.reason !== 'disabled') warn('telegram', `interface relay failed: ${result.error || 'unknown'}`);
     });
   }
+  // Layer 5: Rate limiting + anomaly detection
+  if (update.message?.from?.id) {
+    if (!telegramRateLimit(update.message.from.id)) {
+      info('telegram', `rate limited: user ${update.message.from.id}`);
+      return true;
+    }
+    detectAnomaly(update.message.from.id, update.message.text);
+  }
+
   if (update.message?.text && !update.message.text.startsWith('/')) {
     asyncContextualReply(update.update_id, chatId, update.message.text, update.message.from || {});
   }
@@ -737,6 +748,26 @@ async function handleCommand(message) {
     const opps = getAllOpportunities(true);
     const lines = opps.map(o => `  ${o.status === 'submitted' || o.status === 'done' ? '✅' : '⬜'} #${o.id}: ${o.title.slice(0, 50)}`).join('\n');
     enqueueReply(null, replyChatId, ['📨 حالة التقديم على الفرص', '━━━━━━━━━━━━', '', `📊 الإجمالي: ${s.total}`, `✅ مقدّم: ${s.submitted}`, `⬜ متبقي: ${s.remaining}`, '', lines].join('\n'));
+  } else if (resolved === '/security') {
+    enqueueReply(null, replyChatId, buildSecurityReport());
+  } else if (resolved === '/incident-plan') {
+    enqueueReply(null, replyChatId, getIncidentResponsePlan());
+  } else if (resolved === '/wallet-audit') {
+    const audit = auditWalletSecurity();
+    const lines = ['🔐 تدقيق المحافظ:', '', audit.passed ? '✅ آمن — لا مفاتيح خاصة على الخادم' : '⚠️ مشاكل:', ...(audit.issues || []).map(i => '  ❌ ' + i)].join('\n');
+    enqueueReply(null, replyChatId, lines);
+  } else if (resolved.startsWith('/encrypt ')) {
+    const plaintext = message.text.split(/\s+/).slice(1).join(' ');
+    if (!plaintext) { enqueueReply(null, replyChatId, 'الاستخدام: /encrypt <نص>'); } else {
+      const encrypted = encryptData(plaintext);
+      enqueueReply(null, replyChatId, '🔒 النص المشفر:\n' + encrypted);
+    }
+  } else if (resolved.startsWith('/decrypt ')) {
+    const ciphertext = message.text.split(/\s+/).slice(1).join(' ');
+    if (!ciphertext) { enqueueReply(null, replyChatId, 'الاستخدام: /decrypt <نص مشفر>'); } else {
+      try { const decrypted = decryptData(ciphertext); enqueueReply(null, replyChatId, '🔓 النص المفكوك:\n' + decrypted); }
+      catch { enqueueReply(null, replyChatId, '❌ فشل فك التشفير — تأكد من صحة النص.'); }
+    }
   } else if (resolved.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
