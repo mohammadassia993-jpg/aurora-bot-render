@@ -24,6 +24,7 @@ const ACTIONS = {
   market_analysis: { description: 'تحليل السوق', triggers: /(?:سوق|market|اتجاهات|trends|فرضص)/i },
   proofread: { description: 'تدقيق لغوي', triggers: /(?:تدقيق|proofread|تصحيح|أخطاء)/i },
   approve_product: { description: 'الموافقة على منتج', triggers: /(?: approve |同意|CONFIRM| accept |تمام|موافق|ACCEPT)/i },
+  approve_all: { description: 'الموافقة على كل المنتجات', triggers: /(?:الموافقة على كل|أوافق على الكل|موافقة جماعية|approval all|approve all|أوافق على جميع|موافقة على كل المنتجات)/i },
   help_natural: { description: 'مساعدة عامة', triggers: /(?:مساع|help|ماذا تستطيع|fähren|abilities|what can you| Options)/i }
 };
 
@@ -151,6 +152,17 @@ async function executeAction(action, params, isLeader, message) {
       const text = params.text || message || '';
       const result = await proofreadText(text);
       return `🔍 نتائج التدقيق:\n  • المشاكل: ${result.totalIssues}\n  • النظيف: ${result.clean ? '✅' : '❌'}\n  • اللغة: ${result.layers.languagetool?.issues || 0}\n  • AI: ${result.layers.ai?.issues || 0}\n  • المصطلحات: ${result.layers.glossary?.hits || 0}`;
+    }
+    case 'approve_all': {
+      const { approveAllProducts, publishAllApproved } = await import('./production.js');
+      const bulkResult = approveAllProducts();
+      // Auto-publish after bulk approval
+      let publishResult = { published: 0 };
+      try {
+        publishResult = await publishAllApproved();
+      } catch (e) { warn('natural-assistant', 'publish failed: ' + e.message); }
+      return `✅ تم الموافقة على ${bulkResult.approved} منتجات (${bulkResult.reviewed} مراجعة عشوائية)
+🚀 تم النشر: ${publishResult.published} منتجات على المنصات`;
     }
     case 'approve_product': {
       const { getPendingProducts, decideProductApproval } = await import('./production.js');

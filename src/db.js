@@ -247,6 +247,7 @@ CREATE TABLE IF NOT EXISTS produced_products (
   catalog_id TEXT DEFAULT '',
   publish_json TEXT DEFAULT '{}',
   status TEXT DEFAULT 'pending_approval',
+  reviewed INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

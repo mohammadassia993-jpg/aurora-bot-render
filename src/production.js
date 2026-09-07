@@ -545,6 +545,42 @@ export async function autoProduce(quantity = 1) {
   return { produced, marketTopics: pool.slice(0, 3) };
 }
 
+
+export function approveAllProducts() {
+  const pending = getPendingProducts();
+  const results = [];
+  for (const product of pending) {
+    // Random review: 1 in 10 gets full review, rest auto-approve
+    const needsReview = (product.id % 10 === 0);
+    const approved = true; // Bulk = approve all
+    db.prepare("UPDATE produced_products SET status = ?, reviewed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run('approved', needsReview ? 1 : 0, product.id);
+    audit('commander', 'bulk_approval', { productId: product.id, reviewed: needsReview });
+    results.push({ id: product.id, title: product.title, reviewed: needsReview });
+  }
+  info('production', `bulk approval: ${results.length} products approved (${results.filter(r => r.reviewed).length} reviewed)`);
+  return { approved: results.length, reviewed: results.filter(r => r.reviewed).length, products: results };
+}
+
+export async function publishAllApproved() {
+  const approved = db.prepare("SELECT * FROM produced_products WHERE status = 'approved' ORDER BY id ASC").all();
+  if (!approved.length) return { published: 0, message: 'لا توجد منتجات معتمدة للنشر' };
+  
+  const results = [];
+  for (const product of approved) {
+    try {
+      const pubResult = await publishApprovedProduct(product.id);
+      results.push({ id: product.id, title: product.title, ...pubResult });
+      // Small delay between publishes to avoid rate limits
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (e) {
+      warn('production', `publish failed for #${product.id}: ${e.message}`);
+      results.push({ id: product.id, title: product.title, error: e.message });
+    }
+  }
+  return { published: results.filter(r => !r.error).length, failed: results.filter(r => r.error).length, results };
+}
+
 // ── Status/reporting ──
 export function getProductionStatus() {
   const stats = {
@@ -577,22 +613,24 @@ export function buildProductionReport() {
 
 export function startProductionMachine() {
   const timers = [];
-  // Continuous production: generate 1 product every 3 hours, all go to leader approval
+  // Continuous production: 3 products every 30 minutes (max power)
   const t = setInterval(() => {
-    autoProduce(1).then(r => {
+    autoProduce(3).then(r => {
       if (r.produced?.length) {
+        const list = r.produced.map(p => `  #${p.id}: ${p.topic}`).join('\n');
         sendMessageDetailed([
-          `🏭 منتج جديد جاهز للموافقة:`,
+          `🏭 ${r.produced.length} منتجات جديدة جاهزة للموافقة:`,
           `━━━━━━━━━━━━`,
-          `#${r.produced[0].id}: ${r.produced[0].topic}`,
+          list,
           '',
-          `أرسل: /approve-product ${r.produced[0].id} yes|no`
+          `💬 أوافق على كل المنتجات` + ' \n' +
+          `أو: أرسل "موافقة على المنتج [رقم] yes"`
         ].join('\n'), config.telegramChatId).catch(() => {});
       }
     }).catch(e => warn('production', `production cycle failed: ${e.message}`));
-  }, 3 * 60 * 60_000);
+  }, 30 * 60_000); // every 30 minutes
   t.unref();
   timers.push(t);
-  info('production', 'production machine started (1 product / 3h → leader approval)');
+  info('production', 'production machine started (3 products / 30min → bulk approval)');
   return timers;
 }

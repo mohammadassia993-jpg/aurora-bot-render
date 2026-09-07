@@ -62,7 +62,7 @@ export function securityHeaders(request, response) {
 // Global rate limiter (in-memory, per IP)
 const rateLimitBuckets = new Map();
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX = 100;
+const RATE_LIMIT_MAX = 300;
 
 export function globalRateLimit(request, response) {
   const ip = getClientIp(request);
