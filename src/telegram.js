@@ -5,6 +5,7 @@ import { getDelegationStatus, delegateTask, requestApproval, decideApproval, get
 import { runFullWorkflow, getWorkflowStatus } from './workflow.js';
 import { getSubmissionStats, getOpsStatus, runTaskSubmissions, sendDailyOpsReport, runMarketingPublish, sendFollowups, getPlatformPolicy } from './operations.js';
 import { getPendingProducts, decideProductApproval, publishApprovedProduct, createProduct, autoProduce, buildCatalogFromTasks, buildProductionReport, getProductionStatus, runMarketAnalysis } from './production.js';
+import { submitAllOpportunities, applicationStatus, getAllOpportunities } from './job-applicant.js';
 import { generateDailyReport, getCommandCenterStatus, sendAlerts, getKeyMetrics } from './command-center.js';
 import { formatMemoryReport, getAgentContextWindow } from './memory.js';
 import { listAllAgents } from './agent-config.js';
@@ -711,6 +712,25 @@ async function handleCommand(message) {
       const topics = (r.top_topics || []).map(t => `• ${t.topic} (${t.demand}) — ${t.monetization}`).join('\n');
       sendMessageDetailed(`📊 تحليل السوق الأسبوعي\n━━━━━━━━━━━━\n${topics || 'لا توجد بيانات'}\n\n📈 الرائج الآن:\n${(r.trending_now || []).map(t => '• ' + t).join('\n') || '-'}`, effectiveChatId()).catch(() => {});
     }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
+  } else if (resolved === '/apply-all') {
+    enqueueReply(null, replyChatId, '📨 جارٍ التقديم على جميع فرص العمل... سيتم إرسال تقرير لكل طلب.');
+    submitAllOpportunities().then(result => {
+      sendMessageDetailed([
+        `📨 تقرير التقديم الشامل`,
+        `━━━━━━━━━━━`,
+        `✅ تم التقديم: ${result.submitted.length}`,
+        `⏭️ تجاوز (مقدّم سابقاً): ${result.skipped.length}`,
+        `❌ أخطاء: ${result.errors.length}`,
+        result.flush ? `📬 البريد المرسل: ${result.flush.delivered || 0}` : '',
+        ``,
+        `📊 الإجمالي: ${result.submitted.length + result.skipped.length + result.errors.length} فرصة`
+      ].filter(Boolean).join('\n'), effectiveChatId()).catch(() => {});
+    }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
+  } else if (resolved === '/apply-status') {
+    const s = applicationStatus();
+    const opps = getAllOpportunities(true);
+    const lines = opps.map(o => `  ${o.status === 'submitted' || o.status === 'done' ? '✅' : '⬜'} #${o.id}: ${o.title.slice(0, 50)}`).join('\n');
+    enqueueReply(null, replyChatId, ['📨 حالة التقديم على الفرص', '━━━━━━━━━━━━', '', `📊 الإجمالي: ${s.total}`, `✅ مقدّم: ${s.submitted}`, `⬜ متبقي: ${s.remaining}`, '', lines].join('\n'));
   } else if (resolved.startsWith('/delegate ')) {
     const parts = message.text.split(/\s+/);
     const agentName = parts[1];
