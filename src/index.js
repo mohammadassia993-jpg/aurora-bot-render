@@ -15,6 +15,7 @@ import { publishDailyDigest } from './notifications.js';
 import { createBackupSnapshot, runMailQueue } from './backup.js';
 import { teamEvents } from './team.js';
 import { startAutomator } from './automator.js';
+import { startOpportunityMonitor } from './job-applicant.js';
 
 process.on('unhandledRejection', reason => error('process', 'unhandled rejection', { reason: String(reason) }));
 process.on('uncaughtException', caught => {
@@ -72,6 +73,7 @@ cronInterval(async () => {
 startWalletMonitors();
 startTunnelWatcher();
 startAutomator();
+startOpportunityMonitor();
 startOperations();
 startProductionMachine();
 if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {

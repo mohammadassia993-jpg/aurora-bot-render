@@ -549,17 +549,53 @@ export async function autoProduce(quantity = 1) {
 export function approveAllProducts() {
   const pending = getPendingProducts();
   const results = [];
+  let qualityFailed = false;
+  const QUALITY_THRESHOLD = 85;
+
   for (const product of pending) {
-    // Random review: 1 in 10 gets full review, rest auto-approve
+    // Random review: 1 in 10 gets full quality check
     const needsReview = (product.id % 10 === 0);
-    const approved = true; // Bulk = approve all
-    db.prepare("UPDATE produced_products SET status = ?, reviewed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .run('approved', needsReview ? 1 : 0, product.id);
-    audit('commander', 'bulk_approval', { productId: product.id, reviewed: needsReview });
-    results.push({ id: product.id, title: product.title, reviewed: needsReview });
+    
+    if (needsReview) {
+      // Full quality review: check content length, proofreading score, structure
+      const content = product.content_md || '';
+      const hasTitle = content.includes('#');
+      const hasSections = (content.match(/##/g) || []).length >= 3;
+      const hasContent = content.length > 500;
+      const qualityScore = (hasTitle ? 30 : 0) + (hasSections ? 30 : 0) + (hasContent ? 40 : 0);
+      
+      if (qualityScore < QUALITY_THRESHOLD) {
+        qualityFailed = true;
+        db.prepare("UPDATE produced_products SET status = 'needs_review', reviewed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+          .run(product.id);
+        warn('production', `quality check FAILED for #${product.id}: ${qualityScore}% < ${QUALITY_THRESHOLD}%`);
+      } else {
+        db.prepare("UPDATE produced_products SET status = 'approved', reviewed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+          .run(product.id);
+      }
+      results.push({ id: product.id, title: product.title, reviewed: true, qualityScore, passed: qualityScore >= QUALITY_THRESHOLD });
+    } else {
+      // Auto-approve (no review needed)
+      db.prepare("UPDATE produced_products SET status = 'approved', reviewed = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .run(product.id);
+      results.push({ id: product.id, title: product.title, reviewed: false, passed: true });
+    }
+    audit('commander', 'bulk_approval', { productId: product.id, reviewed: needsReview, qualityFailed });
   }
+
+  // If quality check failed, pause production
+  if (qualityFailed) {
+    warn('production', 'QUALITY THRESHOLD BREACHED — pausing production for manual review');
+    audit('commander', 'production_paused', { reason: 'quality_threshold_breach', pendingCount: pending.length });
+  }
+
   info('production', `bulk approval: ${results.length} products approved (${results.filter(r => r.reviewed).length} reviewed)`);
-  return { approved: results.length, reviewed: results.filter(r => r.reviewed).length, products: results };
+  return { 
+    approved: results.filter(r => r.passed).length, 
+    reviewed: results.filter(r => r.reviewed).length, 
+    qualityFailed,
+    products: results 
+  };
 }
 
 export async function publishAllApproved() {

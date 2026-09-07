@@ -159,9 +159,12 @@ export async function submitAllOpportunities() {
   const results = { submitted: [], skipped: [], errors: [] };
 
   for (const task of opportunities) {
-    if (task.status === 'submitted' || task.status === 'done') {
-      results.skipped.push({ id: task.id, title: task.title, reason: 'already_submitted' });
-      continue;
+    // Comprehensive: submit to ALL opportunities (no filtering)
+    // Old opportunities get re-applied with updated cover letter
+    const isResubmit = task.status === 'submitted' || task.status === 'done';
+    if (isResubmit) {
+      // Mark as re-apply attempt
+      db.prepare("UPDATE tasks SET status = 'reapplying', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(task.id);
     }
     try {
       const res = await submitApplication(task);
@@ -199,4 +202,89 @@ export function applicationStatus() {
     "SELECT COUNT(*) c FROM tasks WHERE source IN ('jobs','opportunity') AND status IN ('submitted','done')"
   ).get().c;
   return { total, submitted, remaining: total - submitted };
+}
+
+
+// ── Daily old opportunity review + re-apply + lesson learning ──
+export async function reApplyOldOpportunities() {
+  // Find all opportunities older than 2 days that haven't been updated recently
+  const oldOpps = db.prepare(`
+    SELECT * FROM tasks 
+    WHERE source IN ('jobs', 'opportunity') 
+    AND id != 3
+    AND status NOT IN ('archived', 'expired', 'won_by_others')
+    AND updated_at <= datetime('now', '-2 days')
+    ORDER BY updated_at ASC
+    LIMIT 50
+  `).all();
+
+  if (!oldOpps.length) {
+    info('job-applicant', 'no old opportunities to re-apply');
+    return { reviewed: 0, reApplied: 0, closed: 0 };
+  }
+
+  const results = { reviewed: 0, reApplied: 0, closed: 0, lessons: [] };
+
+  for (const opp of oldOpps) {
+    results.reviewed++;
+    
+    // Try to re-apply (the opportunity may still be open)
+    try {
+      const res = await submitApplication(opp);
+      if (res.submitted) {
+        results.reApplied++;
+        db.prepare("UPDATE tasks SET status = 'reapplied', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(opp.id);
+        info('job-applicant', `re-applied to #${opp.id}: ${opp.title}`);
+      }
+    } catch (e) {
+      // If submission fails, mark as potentially closed
+      if (e.message.includes('closed') || e.message.includes('expired') || e.message.includes('not found') || e.message.includes('404')) {
+        db.prepare("UPDATE tasks SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(opp.id);
+        results.closed++;
+        results.lessons.push({ id: opp.id, title: opp.title, reason: e.message.slice(0, 100) });
+        info('job-applicant', `opportunity #${opp.id} appears closed: ${opp.title}`);
+      } else {
+        warn('job-applicant', `re-apply failed for #${opp.id}: ${e.message}`);
+      }
+    }
+    
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  // Log lessons learned
+  if (results.lessons.length) {
+    audit('executor', 'old_opportunity_review', {
+      reviewed: results.reviewed,
+      reApplied: results.reApplied,
+      closed: results.closed,
+      lessons: results.lessons
+    });
+  }
+
+  // Report via bot
+  if (results.reviewed > 0) {
+    sendMessageDetailed([
+      `📋 مراجعة يومية للفرص القديمة`,
+      `━━━━━━━━━━━━━━`,
+      `🔍 تم مراجعة: ${results.reviewed} فرصة`,
+      `🔄 أُعيد التقديم: ${results.reApplied}`,
+      `❌ منتهية/مغلقة: ${results.closed}`,
+      results.lessons.length ? "\n📝 دروس مستفادة:" : '',
+      ...results.lessons.map(l => `  • ${l.title}: ${l.reason}`)
+    ].filter(Boolean).join('\n'), config.telegramChatId).catch(() => {});
+  }
+
+  info('job-applicant', `old opportunity review: ${results.reviewed} reviewed, ${results.reApplied} re-applied, ${results.closed} closed`);
+  return results;
+}
+
+// ── Start daily old-opportunity monitor ──
+export function startOpportunityMonitor() {
+  // Run every 24 hours
+  const t = setInterval(() => {
+    reApplyOldOpportunities().catch(e => warn('job-applicant', `old opp review failed: ${e.message}`));
+  }, 24 * 60 * 60 * 1000);
+  t.unref();
+  info('job-applicant', 'old opportunity monitor started (daily)');
+  return t;
 }
