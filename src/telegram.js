@@ -23,6 +23,7 @@ function withTimeout(promise, ms) {
 import { PRODUCTS, productCatalogue, paymentInfo, orderPromptReply, paymentReceiptReply, ordersSummary, sendInvoiceArgs, handleSuccessfulPayment, subscriptionInfo, SUBSCRIPTION } from './storefront.js';
 import { createTask, runTaskFlow, getTaskStatus, getTaskReport, isLeaderMessage, matchTaskCommand, matchReportCommand, matchStatusCommand } from './task-flow.js';
 import { runBrowserSubmissions } from './superteam-submit.js';
+import { processNaturalMessage } from './natural-assistant.js';
 
 let offset = 0;
 let mode = 'disabled';
@@ -396,13 +397,12 @@ function enqueueReply(updateId, chatId, text, replyToMessageId = null) {
 // smart Arabic reply asynchronously so a slow local-LLM never blocks the polling loop.
 async function asyncContextualReply(updateId, chatId, text, sender) {
   try {
-    const reply = await contextualReply(text, sender);
+    const reply = await processNaturalMessage(text, sender);
     if (reply) {
-      // أرسل مباشرة عبر Telegram بدلاً من الطابور (لضمان الوصول الفوري)
       await sendMessageDetailed(reply, chatId);
     }
   } catch (caught) {
-    warn('telegram', `background reply failed: ${caught.message}`);
+    warn('telegram', `natural reply failed: ${caught.message}`);
   }
 }
 
@@ -484,12 +484,18 @@ export async function handleTelegramUpdate(update) {
 
 async function handleCommand(message) {
   const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
+  const replyChatId = effectiveChatId() || message.chat.id;
 
   // Command aliases
   const aliases = { '/update': '/sync', '/help': '/start', '/menu': '/start', '/info': '/status', '/stats': '/report', '/مهام': '/tasks', '/حالة': '/status', '/تقرير': '/report' };
   const resolved = aliases[command] || command;
-  // Use resolved command for matching
-  const replyChatId = effectiveChatId() || message.chat.id;
+
+  // NON-ESSENTIAL COMMANDS → route to natural language brain
+  if (resolved && !['/start', '/help', '/products', '/store', '/market', '/shop', '/buy', '/pay', '/approve-product'].includes(resolved) && !resolved.startsWith('/approve ') && !resolved.startsWith('/task ')) {
+    const naturalReply = await processNaturalMessage(message.text, message.from || {});
+    if (naturalReply) enqueueReply(null, replyChatId, naturalReply);
+    return;
+  }
   if (resolved === '/start') {
     enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
   } else if (resolved === '/help') {
