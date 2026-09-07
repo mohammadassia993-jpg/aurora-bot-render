@@ -322,3 +322,70 @@ export function startOperations() {
   info('operations', 'operations orchestrator started', { tracks: Object.keys(TRACK_INTERVALS).length });
   return timers;
 }
+
+
+// ── Prizes & Bounties Daily Report ──
+export function getPrizesReport() {
+  // Get all bounty/prize submissions
+  const submitted = db.prepare(`
+    SELECT * FROM operations_submissions 
+    WHERE type IN ('task', 'bounty', 'prize') 
+    AND status = 'submitted'
+    ORDER BY created_at DESC
+  `).all();
+
+  // Get all opportunities that look like prizes/bounties
+  const prizes = db.prepare(`
+    SELECT * FROM tasks 
+    WHERE source IN ('jobs', 'opportunity')
+    AND (title LIKE '%bounty%' OR title LIKE '%prize%' OR title LIKE '%reward%'
+         OR title LIKE '%جوائز%' OR title LIKE '%مسابقة%' OR title LIKE '%جائزة%'
+         OR title LIKE '%grant%' OR title LIKE '%fund%' OR title LIKE '%retro%')
+    AND status != 'archived'
+    ORDER BY created_at DESC
+  `).all();
+
+  const openPrizes = prizes.filter(p => p.status !== 'expired' && p.status !== 'done');
+  const expiredPrizes = prizes.filter(p => p.status === 'expired' || p.status === 'done');
+
+  const lines = [
+    '🏆 تقرير الجوائز والمسابقات — يومي',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    `📊 الإجمالي: ${prizes.length} فرصة`,
+    `🟢 مفتوحة: ${openPrizes.length}`,
+    `🔴 منتهية: ${expiredPrizes.length}`,
+    `📨 مقدّمة: ${submitted.length}`,
+    '',
+  ];
+
+  if (openPrizes.length) {
+    lines.push('🟢 فرص مفتوحة:');
+    openPrizes.slice(0, 10).forEach(p => {
+      lines.push(`  • #${p.id}: ${(p.title || '').slice(0, 60)} [${p.status}]`);
+    });
+  }
+
+  if (expiredPrizes.length) {
+    lines.push('', '🔴 فرص منتهية:');
+    expiredPrizes.slice(0, 5).forEach(p => {
+      lines.push(`  • #${p.id}: ${(p.title || '').slice(0, 60)}`);
+    });
+  }
+
+  return lines.join('\n');
+}
+
+// ── Start daily prizes report ──
+export function startPrizesReport() {
+  const t = setInterval(() => {
+    const { sendMessageDetailed } = await import('./telegram.js').catch(() => ({}));
+    if (sendMessageDetailed) {
+      const report = getPrizesReport();
+      sendMessageDetailed(report, require('./config.js').config.telegramChatId).catch(() => {});
+    }
+  }, 24 * 60 * 60 * 1000);
+  t.unref();
+  info('operations', 'prizes report started (daily)');
+  return t;
+}

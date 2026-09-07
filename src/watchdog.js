@@ -10,7 +10,7 @@ import { telegramRequest, telegramTokenHealth } from './telegram-api.js';
 
 const STATE_FILE = path.join(config.root, 'data', 'health-state.json');
 const ALERT_COOLDOWN_MIN = 15;
-const EMAIL_STALE_MIN = 12;
+const EMAIL_STALE_MIN = 55; // 1 hour (was 12 min)
 
 function loadState() {
   try {

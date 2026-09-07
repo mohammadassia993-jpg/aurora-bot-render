@@ -3,13 +3,13 @@ import { config } from './config.js';
 import { backupDatabase } from './db.js';
 import { info, error } from './logger.js';
 import { startServer } from './server.js';
-import { runWatchdog } from './watchdog.js';
+import { runWatchdog, checkEmail } from './watchdog.js';
 import { runConnectors } from './connectors.js';
 import { startWalletMonitors } from './wallets.js';
 import { startTunnelWatcher, writePublicLink } from './tunnel.js';
 import { startTelegram, dailyReport, sendMessageDetailed } from './telegram.js';
 import { initDelegation } from './delegation.js';
-import { startOperations } from './operations.js';
+import { startOperations, startPrizesReport } from './operations.js';
 import { startProductionMachine } from './production.js';
 import { publishDailyDigest } from './notifications.js';
 import { createBackupSnapshot, runMailQueue } from './backup.js';
@@ -29,6 +29,15 @@ info('platform', `dashboard listening on port ${config.port}`);
 setInterval(async () => {
   try {
     await runWatchdog();
+
+// Hourly email check (dedicated interval, supplements watchdog)
+setInterval(async () => {
+  try {
+    await checkEmail();
+  } catch (caught) {
+    error('email_hourly', caught.message);
+  }
+}, 60 * 60 * 1000); // every 60 minutes
   } catch (caught) {
     error('watchdog', caught.message);
   }
@@ -75,6 +84,7 @@ startTunnelWatcher();
 startAutomator();
 startOpportunityMonitor();
 startOperations();
+startPrizesReport();
 startProductionMachine();
 if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
