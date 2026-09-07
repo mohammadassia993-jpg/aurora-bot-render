@@ -86,6 +86,27 @@ startOpportunityMonitor();
 startOperations();
 startPrizesReport();
 startProductionMachine();
+// Daily security report + platform discovery (lazy-loaded)
+setInterval(async () => {
+  try {
+    const { buildSecurityReport, auditWalletSecurity } = await import('./security.js');
+    const report = buildSecurityReport();
+    const wallet = auditWalletSecurity();
+    const walletLine = wallet.passed ? 'ok' : 'issues: ' + (wallet.issues || []).join(', ');
+    await sendMessageDetailed(report + '\n\nWallet: ' + walletLine, config.telegramChatId);
+  } catch (e) { error('daily_security', e.message); }
+}, 24 * 60 * 60 * 1000);
+setInterval(async () => {
+  try {
+    const { callModel } = await import('./ai.js');
+    const resp = await callModel('scout', 'List 3 new digital product selling platforms with API support. JSON: {platforms:[{name,url,api,language}]}');
+    const match = String(resp).match(/\{[\s\S]*platforms[\s\S]*\}/);
+    if (match) {
+      const p = JSON.parse(match[0]);
+      if (p.platforms?.length) await sendMessageDetailed('New platforms: ' + p.platforms.map(x => x.name + ' ' + x.url).join(', '), config.telegramChatId);
+    }
+  } catch (e) { error('platform_discovery', e.message); }
+}, 24 * 60 * 60 * 1000);
 if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
     try {

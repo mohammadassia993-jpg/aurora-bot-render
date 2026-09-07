@@ -28,7 +28,9 @@ const TRACK_INTERVALS = {
   followups: 12 * 60 * 60 * 1000,  // every 12h: send follow-ups after 48h
   reports: 24 * 60 * 60 * 1000,    // daily report
   research: 12 * 60 * 60 * 1000,   // every 12h: discover new opportunities
-  policy: 24 * 60 * 60 * 1000      // daily: verify platform agent policies
+  policy: 24 * 60 * 60 * 1000,      // daily: verify platform agent policies
+  security: 24 * 60 * 60 * 1000,    // daily: security report
+  platforms: 24 * 60 * 60 * 1000    // daily: discover new selling platforms
 };
 
 const PLATFORM_POLICIES = {
@@ -312,6 +314,8 @@ export function startOperations() {
   schedule(sendFollowups, TRACK_INTERVALS.followups, 'followups');
   schedule(runOpportunityDiscovery, TRACK_INTERVALS.research, 'opportunity_discovery');
   schedule(runPolicyCheck, TRACK_INTERVALS.policy, 'policy_check');
+    schedule(sendSecurityReport, TRACK_INTERVALS.security, 'security_report');
+    schedule(discoverNewPlatforms, TRACK_INTERVALS.platforms, 'platform_discovery');
   schedule(sendDailyOpsReport, TRACK_INTERVALS.reports, 'daily_ops_report');
 
   // Immediate first runs (non-blocking)
@@ -390,4 +394,60 @@ export function startPrizesReport() {
   t.unref();
   info('operations', 'prizes report started (daily)');
   return t;
+}
+
+// ── Daily Security Report ──
+async function sendSecurityReport() {
+  try {
+    const { buildSecurityReport, auditWalletSecurity } = await import('./security.js');
+    const report = buildSecurityReport();
+    const wallet = auditWalletSecurity();
+    const walletLines = wallet.passed ? 'المحافظ آمنة' : 'مشاكل: ' + (wallet.issues || []).join(', ');
+    const fullReport = report + '\n\n' + 'تدقيق المحافظ:\n' + walletLines;
+    await sendMessageDetailed(fullReport, config.telegramChatId);
+    audit('aurora', 'daily_security_report', { walletOk: wallet.passed });
+    info('operations', 'daily security report sent');
+  } catch (e) {
+    warn('operations', 'daily security report failed: ' + e.message);
+  }
+}
+
+// ── Platform Discovery (new selling platforms) ──
+async function discoverNewPlatforms() {
+  try {
+    const { callModel } = await import('./ai.js');
+    const prompt = 'Research 3-5 new digital product selling platforms (Arabic or international) that: support digital products, free registration, have API or automation, target Web3/tech audience. Return JSON: {"platforms":[{"name":"...","url":"...","api":"yes/no","language":"arabic/english","digital_products":"yes","free_registration":"yes"}]}';
+    const response = await callModel('scout', prompt);
+    const clean = String(response).replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*"platforms"[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      const platforms = parsed.platforms || [];
+      if (platforms.length) {
+        const lines = ['منصات بيع جديدة مكتشفة:', '', ...platforms.map(p =>
+          p.name + ' - ' + p.url + ' | API: ' + (p.api || 'no') + ' | Lang: ' + (p.language || '?')
+        )];
+        await sendMessageDetailed(lines.join('\n'), config.telegramChatId);
+        audit('scout', 'platforms_discovered', { count: platforms.length, platforms: platforms.map(p => p.name) });
+      }
+    }
+  } catch (e) {
+    warn('operations', 'platform discovery failed: ' + e.message);
+  }
+}
+
+// ── Selling Platform Tracker ──
+const KNOWN_PLATFORMS = [
+  { name: 'Payhip', url: 'https://payhip.com', status: 'active', api: true },
+  { name: 'Gumroad', url: 'https://gumroad.com', status: 'active', api: true },
+  { name: 'Telegram Stars', url: 'https://t.me', status: 'active', api: true },
+  { name: 'Etsy', url: 'https://etsy.com', status: 'pending', api: true },
+];
+
+export function getSellingPlatforms() {
+  return KNOWN_PLATFORMS.map(p => {
+    const envKey = p.name.replace(/\s/g, '_').toUpperCase() + '_API_KEY';
+    const configured = Boolean(process.env[envKey]);
+    return { ...p, configured };
+  });
 }

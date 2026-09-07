@@ -487,6 +487,8 @@ export async function publishApprovedProduct(id) {
   const gumroad = await publishToGumroad(p);
   results.push(gumroad);
   const stars = await publishToTelegramStars({ ...p, title: product.title, price: product.price });
+  const etsy = await publishToEtsy(p);
+  results.push(etsy);
 
   const okCount = results.filter(r => r.success).length;
   db.prepare("UPDATE produced_products SET status = 'published', file_path = ?, publish_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -669,4 +671,40 @@ export function startProductionMachine() {
   timers.push(t);
   info('production', 'production machine started (3 products / 30min → bulk approval)');
   return timers;
+}
+
+// ── Etsy Publisher (digital products) ──
+export async function publishToEtsy(product) {
+  const apiKey = process.env.ETSY_API_KEY;
+  if (!apiKey) return { platform: 'etsy', success: false, error: 'ETSY_API_KEY_NOT_SET', product };
+  try {
+    const listingData = {
+      title: String(product.title).slice(0, 140),
+      description: String(product.description || product.title).slice(0, 5000),
+      price: { amount: product.price * 100, divisor: 100, currency_code: 'USD' },
+      quantity: 999,
+      taxonomy_id: 69150436,
+      who_made: 'i_did',
+      when_made: 'made_to_order',
+      is_supply: false,
+      shipping_profile_id: 0,
+      type: 'download',
+      tags: ['web3', 'template', 'digital', 'crypto', 'blockchain', 'productivity']
+    };
+    const res = await fetch('https://openapi.etsy.com/v3/application/listings', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(listingData),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      return { platform: 'etsy', success: false, error: 'HTTP_' + res.status + ': ' + err.slice(0, 200), product };
+    }
+    const data = await res.json();
+    const listingId = data.listing_id || data.id;
+    return { platform: 'etsy', success: true, listingId, productUrl: 'https://www.etsy.com/listing/' + listingId, product };
+  } catch (e) {
+    return { platform: 'etsy', success: false, error: e.message, product };
+  }
 }
