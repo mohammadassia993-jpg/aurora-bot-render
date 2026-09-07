@@ -89,6 +89,9 @@ async function serveFile(response, absolutePath, downloadName = '', cacheControl
 export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
+    // Layer 1+3: Security headers + global rate limiting
+    securityHeaders(request, response);
+    if (!globalRateLimit(request, response)) return;
     try {
       if (url.pathname === '/submit' && request.method === 'POST') {
         const sync = url.searchParams.get('sync') === '1';

@@ -159,8 +159,69 @@ async function executeAction(action, params, isLeader, message) {
       const lines = pending.map(p => `• #${p.id}: ${p.title} ($${p.price})`).join('\n');
       return `📦 منتجات بانتظار موافقتك:\n${lines}\n\n💬 اكتب "موافق على المنتج 1" أو "رفض المنتج 2"}`;
     }
+    case 'security_report': {
+      const { buildSecurityReport } = await import('./security.js');
+      return buildSecurityReport();
+    }
+    case 'wallet_audit': {
+      const { auditWalletSecurity } = await import('./security.js');
+      const audit = auditWalletSecurity();
+      const lines = ['🔐 تدقيق المحافظ:', '', audit.passed ? '✅ آمن — لا مفاتيح خاصة على الخادم' : '⚠️ مشاكل:', ...(audit.issues || []).map(i => '  ❌ ' + i)].join('\n');
+      return lines;
+    }
+    case 'incident_plan': {
+      const { getIncidentResponsePlan } = await import('./security.js');
+      return getIncidentResponsePlan();
+    }
+    case 'encrypt': {
+      const { encryptData } = await import('./security.js');
+      return '🔒 ' + encryptData(params.text || message || '');
+    }
+    case 'decrypt': {
+      const { decryptData } = await import('./security.js');
+      try { return '🔓 ' + decryptData(params.text || message || ''); }
+      catch { return '❌ فشل فك التشفير.'; }
+    }
+    case 'delegate_task': {
+      const { delegateTask } = await import('./delegation.js');
+      const parts = (params.agent ? params.agent + ' ' + params.task : message || '').split(/\s+/);
+      const agent = parts[0] || 'executor';
+      const task = parts.slice(1).join(' ');
+      if (!task) return '💡 اكتب "فوّض <وكيل> <مهمة>" مثل "فوّض executor كتابة مقال"';
+      const r = delegateTask(agent, task);
+      if (r.error) return '❌ ' + r.error;
+      return `✅ تم تفويض المهمة لـ ${r.agent} (رقم #${r.taskId})`;
+    }
+    case 'ops_status': {
+      const { getOpsStatus } = await import('./operations.js');
+      return getOpsStatus();
+    }
+    case 'ops_report': {
+      const { sendDailyOpsReport } = await import('./operations.js');
+      await sendDailyOpsReport();
+      return '📊 تم إرسال تقرير العمليات اليومي.';
+    }
+    case 'apply_all': {
+      const { submitAllOpportunities } = await import('./job-applicant.js');
+      const result = await submitAllOpportunities();
+      return `📨 تم التقديم: ${result.submitted.length} | تجاوز: ${result.skipped.length} | أخطاء: ${result.errors.length}`;
+    }
+    case 'apply_status': {
+      const { applicationStatus, getAllOpportunities } = await import('./job-applicant.js');
+      const s = applicationStatus();
+      return `📊 التقديم: ${s.submitted}/${s.total} مقدّم، ${s.remaining} متبقي`;
+    }
+    case 'metrics': {
+      const { getKeyMetrics } = await import('./command-center.js');
+      return getKeyMetrics();
+    }
+    case 'task_list': {
+      const rows = db.prepare('SELECT id, title, status FROM tasks ORDER BY id DESC LIMIT 10').all();
+      if (!rows.length) return '📋 لا توجد مهام.';
+      return '📋 آخر المهام:\n' + rows.map(r => `  #${r.id}: ${r.title?.slice(0, 40)} [${r.status}]`).join('\n');
+    }
     case 'help_natural': {
-      return ['✨ أهلاً! أنا أورورا، مساعدتك الذكية.', '', 'يمكنني أن أساعدك في:', '  • عرض وشراء المنتجات الرقمية', '  • إنشاء وتنفيذ المهام', '  • التقديم على الوظائف', '  • فحص حالة النظام والبريد', '  • تقارير يومية وأسبوعية', '  • تحليل السوق والportuniteés', '  • تدقيق النصوص', '  • متابعة التفويض والإنتاج', '', '💬 اكتب ما تحتاجه بالعربية الطبيعية!'].join('\n');
+      return ['✨ أهلاً! أنا أورورا، مساعدتك الذكية.', '', 'يمكنني أن أساعدك في:', '  • عرض وشراء المنتجات الرقمية', '  • إنشاء وتنفيذ المهام', '  • التقديم على الوظائف', '  • فحص حالة النظام والبريد', '  • تقارير يومية وأسبوعية', '  • تحليل السوق', '  • تدقيق النصوص', '  • متابعة التفويض والإنتاج', '  • الأمان (تقرير أمني، تدقيق محافظ)', '  • إدارة العمليات', '', '💬 اكتب ما تحتاجه بالعربية الطبيعية!'].join('\n');
     }
     default:
       return null;

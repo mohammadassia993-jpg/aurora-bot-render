@@ -497,323 +497,70 @@ async function handleCommand(message) {
   const command = message.text?.split(/\s+/)[0].replace(/@.*$/, '') || '';
   const replyChatId = effectiveChatId() || message.chat.id;
 
-  // Command aliases
-  const aliases = { '/update': '/sync', '/help': '/start', '/menu': '/start', '/info': '/status', '/stats': '/report', '/مهام': '/tasks', '/حالة': '/status', '/تقرير': '/report' };
+  // Only 4 essential commands remain as slash commands
+  const aliases = { '/help': '/start', '/menu': '/start', '/start-2fa': '/start' };
   const resolved = aliases[command] || command;
 
-  // NON-ESSENTIAL COMMANDS → route to natural language brain
-  if (resolved && !['/start', '/help', '/products', '/store', '/market', '/shop', '/buy', '/pay', '/approve-product'].includes(resolved) && !resolved.startsWith('/approve ') && !resolved.startsWith('/task ')) {
-    const naturalReply = await processNaturalMessage(message.text, message.from || {});
-    if (naturalReply) enqueueReply(null, replyChatId, naturalReply);
+  // ALL OTHER COMMANDS → natural language brain
+  if (resolved && !['/start', '/products', '/pay', '/approve-product'].includes(resolved)) {
+    try {
+      const naturalReply = await processNaturalMessage(message.text, message.from || {});
+      if (naturalReply) enqueueReply(null, replyChatId, naturalReply);
+    } catch (e) {
+      enqueueReply(null, replyChatId, 'عذراً، حدث خطأ. حاول مرة أخرى 💡');
+    }
     return;
   }
+
   if (resolved === '/start') {
-    enqueueReply(null, replyChatId, ['مرحباً بك في متجر عمالقة الصمت! 🛒', '', 'منتجات رقمية احترافية بالعربية (Web3):', '📖 قاموس Web3 — 15$', '🎓 دورة DePIN — 25$', '✍️ حزمة كتابة — 35$', '🔐 شرح عقد ذكي — 20$', '🗂️ حزمة وظائف — 30$', '📊 تحليل أمن — 40$', '', 'للشراء: اكتب «اشتري <رقم>»', 'لرؤية كل المنتجات: /products', 'لطرق الدفع: /shop', '', 'الدفع: USDT/USDC — تسليم خلال ساعة ✓'].join('\n'));
-  } else if (resolved === '/help') {
-    enqueueReply(null, replyChatId, ['الأوامر المتاحة:', '/start — ترحيب المتجر', '/products — منتجات المتجر', '/shop — دليل الشراء', '/orders — حالة الطلبات', '/status — حالة النظام', '/report — التقرير اليومي', '/tasks — تقرير المهام\n/submit — التقديم على Superteam Earn', '/task <عنوان> — تنفيذ مهمة جديدة', '/sync — تحديث المسارات', '/approve رقم yes|no — الموافقات (للقائد)'].join('\n'));
-  } else if (resolved === '/status') {
-    enqueueReply(null, replyChatId, statusText());
-  } else if (resolved === '/report') {
-    enqueueReply(null, replyChatId, dailyReport());
-  } else if (resolved === '/sync') {
-    const result = await runConnectors();
-    enqueueReply(null, replyChatId, ['تم تحديث المسارات:', `دي ورك: ${result.dework ? 'تم' : 'متوقف'}`, `تيتان: ${result.titan ? 'تم' : 'متوقف'}`, `الوظائف: ${result.jobs ? 'تم' : 'متوقف'}`, `الفرص: ${result.opportunities ? 'تم' : 'متوقف'}`].join('\n'));
-  } else if (resolved.startsWith('/approve ')) {
-    const parts = message.text.split(/\s+/);
-    const approvalId = Number(parts[1]);
-    const decision = parts[2];
-    if (!approvalId || !decision) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /approve <رقم> yes|no');
-    } else {
-      const result = decideApproval(approvalId, decision === 'yes');
-      if (result.error) {
-        enqueueReply(null, replyChatId, '❌ ' + result.error);
-      } else {
-        enqueueReply(null, replyChatId, `قرار الموافقة رقم ${approvalId}: ${decision === 'yes' ? '✅ مقبول' : '❌ مرفوض'}.`);
-      }
+    enqueueReply(null, replyChatId, [
+      'مرحباً بك في متجر عمالقة الصمت! 🛒',
+      '',
+      '💬 اكتب ما تحتاجه بالعربية الطبيعية!',
+      '• "أريد منتجات المتجر" — عرض المنتجات',
+      '• "اكتب لي مقالاً" — إنشاء مهمة',
+      '• "قدّم على وظيفة" — التقديم على فرص عمل',
+      '• "تقرير يومي" — ملخص الأداء',
+      '• "حالة النظام" — فحص صحة النظام',
+      '',
+      '🛒 للشراء: اكتب «اشتري <رقم>»',
+      '📊 الدفع: USDT/USDC — تسليم خلال ساعة ✓'
+    ].join('\n'));
+  } else if (resolved === '/products') {
+    const { PRODUCTS, productCatalogue, paymentInfo } = await import('./storefront.js');
+    const lines = ['🛒 متجر عمالقة الصمت:', ''];
+    for (const p of PRODUCTS) {
+      lines.push(`  ${p.name} — $${p.price} (أو ${p.stars} نجمة)`);
     }
-  } else if (resolved === '/delegation' || resolved === '/team') {
-    enqueueReply(null, replyChatId, getDelegationStatus());
-  } else if (resolved === '/agents') {
-    enqueueReply(null, replyChatId, getAgentList());
-  } else if (resolved === '/pending') {
-    const pending = getPendingApprovals();
-    if (pending.length === 0) {
-      enqueueReply(null, replyChatId, '✅ لا توجد巴巴بات بانتظار الموافقة.');
-    } else {
-      const list = pending.map(a => `#${a.id} [${a.kind}] ${a.title || 'مهمة'}\n  أرسل: /approve ${a.id} yes أو no`).join('\n');
-      enqueueReply(null, replyChatId, '巴巴بات بانتظار موافقة القائد:\n' + list);
-    }
+    lines.push('', paymentInfo());
+    lines.push('', '💬 اكتب «اشتري <رقم>» للشراء!');
+    enqueueReply(null, replyChatId, lines.join('\n'));
   } else if (resolved.startsWith('/pay ')) {
     const payId = resolved.slice(5).trim();
     const args = sendInvoiceArgs(chatId, payId);
     if (!args) {
-      enqueueReply(null, replyChatId, '❌ رقم منتج غير صالح. استخدم /products لرؤية القائمة.');
+      enqueueReply(null, replyChatId, '❌ رقم منتج غير صالح. اكتب "منتجات المتجر" لرؤية القائمة.');
     } else {
       const { telegramRequest } = await import('./telegram-api.js');
-      await telegramRequest(config.telegramToken, 'sendInvoice', args, 15000).catch(e => {
-        enqueueReply(null, replyChatId, '❌ خطأ في إرسال الفاتورة: ' + e.message);
-      });
-    }
-  } else if (resolved === '/products' || resolved === '/store' || resolved === '/market' || resolved === '/shop' || resolved === '/buy') {
-    enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', '', productCatalogue(), '', '💰 الدفع بالنجوم ⭐: اكتب /pay <رقم المنتج>', '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» أو /pay <رقم> لإتمام الطلب.'].join('\n'));
-    enqueueReply(null, replyChatId, ['🛒 منتجاتنا الجاهزة للطلب الفوري:', productCatalogue(), '', paymentInfo(), '', 'اكتب: «اشتري <رقم>» لإتمام الطلب.'].join('\n'));
-  } else if (resolved === '/orders' || resolved === '/sales') {
-    enqueueReply(null, replyChatId, '📦 حالة الطلبات:\n' + ordersSummary());  } else if (resolved === '/submit') {
-    enqueueReply(null, replyChatId, '🚀 جارٍ بدء التقديم على Superteam عبر المتصفح...\n⏳ قد يستغرق هذا بضع دقائق.\nسأبلغك بالنتيجة فور الانتهاء.');
-    runBrowserSubmissions().then(result => {
-      if (result.error) {
-        sendMessageDetailed('❌ خطأ في التقديم: ' + result.error, effectiveChatId());
-      } else {
-        const summary = result.output.slice(-2000) || 'لا يوجد مخرجات';
-        const status = result.code === 0 ? '✅' : '⚠️';
-        sendMessageDetailed(status + ' انتهى التقديم (كود: ' + result.code + ')\n\n' + summary, effectiveChatId());
-      }
-    }).catch(err => {
-      sendMessageDetailed('❌ خطأ غير متوقع: ' + err.message, effectiveChatId());
-    });
-  } else if (resolved === '/tasks' || resolved === '/مهام') {
-    enqueueReply(null, replyChatId, getTaskReport());
-  } else if (resolved.startsWith('/task ')) {
-    const taskTitle = message.text.slice(6).trim();
-    if (!taskTitle) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /task <عنوان المهمة>');
-    } else {
-      const taskId = createTask(taskTitle, 'leader');
-      enqueueReply(null, replyChatId, `✅ تم استلام المهمة #${taskId}: "${taskTitle}"\n\n🔄 جارٍ تنفيذ التدفق الكامل:\n1. 📋 المخطط يحلل المهمة...\n2. ⚙️ المنفذ ينفّذ...\n3. 🔍 المراجع يراجع الجودة...\n\n⏳ سأبلغك بالنتيجة فور الانتهاء.`);
-      // Execute task flow in background
-      runTaskFlow(taskId).then(results => {
-        const summary = [
-          `✅ تم تسليم المهمة #${taskId}: "${taskTitle}"`,
-          '',
-          '📋 خطوات التنفيذ:',
-          results.planner ? `• المخطط: ${String(results.planner).slice(0, 200)}` : '',
-          results.executor ? `• المنفذ: ${String(results.executor).slice(0, 200)}` : '',
-          results.reviewer ? `• المراجع: ${String(results.reviewer).slice(0, 200)}` : '',
-          '',
-          '📊 المهمة مكتملة وجاهزة للمراجعة.'
-        ].filter(Boolean).join('\n');
-        sendMessageDetailed(summary, effectiveChatId());
-      }).catch(err => {
-        sendMessageDetailed(`❌ خطأ في المهمة #${taskId}: ${err.message}`, effectiveChatId());
-      });
-    }
-  } else if (resolved.startsWith('/revoke ')) {
-    const agentName = message.text.split(/\s+/)[1]?.trim();
-    if (!agentName) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /revoke <وكيل>\nالوكلاء: aurora, planner, executor, reviewer, scout');
-    } else {
-      const result = revokeAgentToken(agentName);
-      if (result.error) {
-        enqueueReply(null, replyChatId, '❌ ' + result.error);
-      } else {
-        enqueueReply(null, replyChatId, `🚫 تم إلغاء تفويض ${result.agent}\nعدد الرموز الموقفة: ${result.revokedIds.length}`);
-      }
-    }
-  } else if (resolved.startsWith('/dct ')) {
-    const agentName = message.text.split(/\s+/)[1]?.trim();
-    if (!agentName) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /dct <وكيل>\nالوكلاء: aurora, planner, executor, reviewer, scout');
-    } else {
-      enqueueReply(null, replyChatId, getAgentDCTInfo(agentName));
-    }
-  } else if (resolved === '/workflow') {
-    const status = getWorkflowStatus();
-    const stats = status.stats.map(s => `  • ${s.status}: ${s.count}`).join('\n');
-    const recent = status.recent.map(t => `  • #${t.id}: ${t.title.slice(0, 40)} [${t.status}]`).join('\n');
-    enqueueReply(null, replyChatId, ['🔄 حالة سير العمل', '━━━━━━━━━━━━', '', '📊 الإحصائيات:', stats || '  لا توجد بيانات', '', '📋 آخر المهام:', recent || '  لا توجد مهام'].join('\n'));
-  } else if (resolved === '/runflow ') {
-    const taskId = Number(message.text.split(/\s+/)[1]);
-    if (!taskId) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /runflow <رقم المهمة>');
-    } else {
-      enqueueReply(null, replyChatId, `🔄 بدء سير العمل الكامل للمهمة #${taskId}...`);
-      runFullWorkflow(taskId).then(result => {
-        sendMessageDetailed(result.error ? '❌ ' + result.error : '✅ سير العمل مكتمل', effectiveChatId());
-      }).catch(err => sendMessageDetailed('❌ ' + err.message, effectiveChatId()));
-    }
-  } else if (resolved === '/daily') {
-    enqueueReply(null, replyChatId, generateDailyReport());
-  } else if (resolved === '/metrics') {
-    const m = getKeyMetrics();
-    enqueueReply(null, replyChatId, ['📈 المقاييس الرئيسية', '━━━━━━━━━━━━', '', '📊 معدل الإنجاز: ' + m.successRate + '%', '📋 المهام: ' + m.taskStats.total + ' (مكتملة: ' + m.taskStats.completed + ')', '⭐ متوسط الجودة: ' + m.taskStats.avgScore + '/100', '🤖 تشغيلات الوكلاء: ' + m.runStats.totalRuns, '🛡️ التدخل البشري: ' + m.humanInterventionRate + '%', '🔴 الأخطاء: ' + m.errors].join('\n'));
-  } else if (resolved === '/alerts') {
-    const alerts = sendAlerts();
-    enqueueReply(null, replyChatId, alerts.sent ? '🚨 ' + alerts.sent + ' تنبيهات مرسلة' : '✅ لا توجد تنبيهات');
-  } else if (resolved === '/memory') {
-    enqueueReply(null, replyChatId, formatMemoryReport());
-  } else if (resolved === '/memctx ') {
-    const agent = message.text.split(/\s+/)[1]?.trim();
-    if (!agent) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /memctx <وكيل>');
-    } else {
-      const ctx = getAgentContextWindow(agent);
-      enqueueReply(null, replyChatId, ctx.summary);
-    }
-  } else if (resolved === '/tools') {
-    const tools = getExecutorToolset();
-    enqueueReply(null, replyChatId, ['🔧 أدوات المنفذ', '━━━━━━━━━━━━', '', '🔓 CAPTCHA: ' + (process.env.CAPSOLVER_API_KEY ? 'متاح' : 'غير متاح'), '🔑 OTP: متاح', '🌐 Proxy: ' + (process.env.PROXY_LIST ? 'متاح' : 'غير متاح'), '📱 SMS: ' + (process.env.SMS_VERIFY_API_KEY ? 'متاح' : 'غير متاح'), '📧 Email: متاح', '📚 الحلول: متاح'].join('\n'));
-  } else if (resolved === '/cmdcenter') {
-    const status = getCommandCenterStatus();
-    enqueueReply(null, replyChatId, ['🎯 مركز القيادة', '━━━━━━━━━━━━', '', '🏥 صحة النظام: ' + (status.systemHealth === 'healthy' ? '✅ سليمة' : '⚠️ متضررة'), '🚨 تنبيهات: ' + status.alerts.length, '', '📈 المقاييس:', '  • الإنجاز: ' + status.metrics.successRate + '%', '  • الجودة: ' + status.metrics.taskStats.avgScore + '/100', '  • الثقة: ' + Object.entries(status.metrics.trustScores).map(([k,v]) => k + ':' + Math.round(v.avgTrust)).join(', ')].join('\n'));
-  } else if (resolved === '/ops') {
-    const status = getOpsStatus();
-    const byType = (status.submissions.byType || []).map(t => `  • ${t.type}: ${t.c} ($${Math.round(t.v)})`).join('\n');
-    enqueueReply(null, replyChatId, ['⚙️ العمليات التشغيلية', '━━━━━━━━━━━━', '', `📦 التقديمات (30 يوم): ${status.submissions.total}`, byType || '  لا توجد', '', `📬 متابعات معلقة: ${status.followupsPending}`, `📊 النشر: ${status.marketingActive ? 'نشط' : 'غير نشط'}`, `🛡️ المنصات المراقبة: ${status.policies}`].join('\n'));
-  } else if (resolved === '/ops-report') {
-    sendDailyOpsReport().then(() => console.log('ops report sent'));
-    enqueueReply(null, replyChatId, '📊 جارٍ إرسال التقرير التشغيلي اليومي...');
-  } else if (resolved === '/submit-tasks') {
-    runTaskSubmissions().then(result => {
-      const txt = result.submitted?.length ? `✅ تم تقديم ${result.submitted.length} مهام` : 'ℹ️ لا توجد مهام مؤهلة للتقديم الآن';
-      sendMessageDetailed(txt, effectiveChatId()).catch(() => {});
-    });
-    enqueueReply(null, replyChatId, '🔄 جارٍ تقديم المهام المؤهلة...');
-  } else if (resolved === '/publish-now') {
-    runMarketingPublish().then(result => {
-      sendMessageDetailed(`✅ تم نشر ${result.published} منشورات على القناة`, effectiveChatId()).catch(() => {});
-    });
-    enqueueReply(null, replyChatId, '🔄 جارٍ النشر على القناة...');
-  } else if (resolved === '/followups') {
-    sendFollowups().then(result => {
-      sendMessageDetailed(`✅ تم إرسال ${result.sent} رسائل متابعة`, effectiveChatId()).catch(() => {});
-    });
-    enqueueReply(null, replyChatId, '🔄 جارٍ إرسال رسائل المتابعة...');
-  } else if (resolved === '/policy ') {
-    const platform = message.text.split(/\s+/)[1]?.trim();
-    if (!platform) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /policy <منصة>');
-    } else {
-      const p = getPlatformPolicy(platform);
-      enqueueReply(null, replyChatId, `🛡️ سياسة المنصة ${platform}:\n${p.agentAllowed === true ? '✅ تسمح بالوكلاء' : p.agentAllowed === false ? '❌ تتطلب بشري' : '⚠️ غير معروفة'}\n📝 ${p.notes}`);
-    }
-  } else if (resolved === '/factory') {
-    enqueueReply(null, replyChatId, buildProductionReport());
-  } else if (resolved === '/produce ') {
-    const topic = message.text.split(/\s+/).slice(1).join(' ');
-    if (!topic) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /produce <الموضوع>');
-    } else {
-      enqueueReply(null, replyChatId, `🏭 جارٍ إنتاج: "${topic}"...`);
-      autoProduce(1).then(r => {
-        const p = r.produced?.[0];
-        sendMessageDetailed(p ? `🏭 منتج جديد #${p.id}: ${p.topic} (بموافقة ${p.proofIssues} ملاحظة)\nراجعه: /approve-product ${p.id} yes|no` : '⚠️ فشل الإنتاج', effectiveChatId()).catch(() => {});
-      }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
+      await telegramRequest('sendInvoice', args);
     }
   } else if (resolved.startsWith('/approve-product ')) {
     const parts = message.text.split(/\s+/);
     const productId = Number(parts[1]);
     const decision = parts[2];
-    if (!productId || !decision) {
+    if (!productId || !decision || !['yes', 'no'].includes(decision)) {
       enqueueReply(null, replyChatId, 'الاستخدام: /approve-product <رقم> yes|no');
     } else {
+      const { decideProductApproval } = await import('./production.js');
       const result = decideProductApproval(productId, decision === 'yes');
       if (result.error) {
         enqueueReply(null, replyChatId, '❌ ' + result.error);
-      } else if (result.decision === 'rejected') {
-        enqueueReply(null, replyChatId, `❌ رُفض المنتج #${productId}.`);
       } else {
-        enqueueReply(null, replyChatId, `✅ تمت الموافقة على المنتج #${productId}. جارٍ النشر...`);
-        publishApprovedProduct(productId).then(r => {
-          const ok = r.publishedOk || 0;
-          sendMessageDetailed(`🚀 تم نشر المنتج على ${ok} منصات`, effectiveChatId()).catch(() => {});
-        }).catch(e => sendMessageDetailed('❌ نشر فشل: ' + e.message, effectiveChatId()).catch(() => {}));
+        enqueueReply(null, replyChatId, decision === 'yes'
+          ? `✅ تم موافقة على المنتج #${productId} ونشره.`
+          : `❌ تم رفض المنتج #${productId}.`);
       }
     }
-  } else if (resolved === '/catalog') {
-    const result = buildCatalogFromTasks();
-    enqueueReply(null, replyChatId, [`📚 كتالوج المنتجات (من المهام)`, `━━━━━━━━━━━━`, '', `📦 منتجات: ${result.count}`, `🎁 الحزمة الشاملة: ${result.bundle.title}`, `💰 سعر الحزمة: $${result.bundle.price}`, `💎 القيمة الأصلية: $${result.bundle.originalValue}`, '', 'المنتجات جاهزة للبيع المتكرر عبر البوت والفواتير.'].join('\n'));
-  } else if (resolved === '/market') {
-    enqueueReply(null, replyChatId, '📡 جارٍ تحليل السوق الأسبوعي...');
-    runMarketAnalysis().then(r => {
-      const topics = (r.top_topics || []).map(t => `• ${t.topic} (${t.demand}) — ${t.monetization}`).join('\n');
-      sendMessageDetailed(`📊 تحليل السوق الأسبوعي\n━━━━━━━━━━━━\n${topics || 'لا توجد بيانات'}\n\n📈 الرائج الآن:\n${(r.trending_now || []).map(t => '• ' + t).join('\n') || '-'}`, effectiveChatId()).catch(() => {});
-    }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
-  } else if (resolved === '/apply-all') {
-    enqueueReply(null, replyChatId, '📨 جارٍ التقديم على جميع فرص العمل... سيتم إرسال تقرير لكل طلب.');
-    submitAllOpportunities().then(result => {
-      sendMessageDetailed([
-        `📨 تقرير التقديم الشامل`,
-        `━━━━━━━━━━━`,
-        `✅ تم التقديم: ${result.submitted.length}`,
-        `⏭️ تجاوز (مقدّم سابقاً): ${result.skipped.length}`,
-        `❌ أخطاء: ${result.errors.length}`,
-        result.flush ? `📬 البريد المرسل: ${result.flush.delivered || 0}` : '',
-        ``,
-        `📊 الإجمالي: ${result.submitted.length + result.skipped.length + result.errors.length} فرصة`
-      ].filter(Boolean).join('\n'), effectiveChatId()).catch(() => {});
-    }).catch(e => sendMessageDetailed('❌ ' + e.message, effectiveChatId()).catch(() => {}));
-  } else if (resolved === '/apply-status') {
-    const s = applicationStatus();
-    const opps = getAllOpportunities(true);
-    const lines = opps.map(o => `  ${o.status === 'submitted' || o.status === 'done' ? '✅' : '⬜'} #${o.id}: ${o.title.slice(0, 50)}`).join('\n');
-    enqueueReply(null, replyChatId, ['📨 حالة التقديم على الفرص', '━━━━━━━━━━━━', '', `📊 الإجمالي: ${s.total}`, `✅ مقدّم: ${s.submitted}`, `⬜ متبقي: ${s.remaining}`, '', lines].join('\n'));
-  } else if (resolved === '/security') {
-    enqueueReply(null, replyChatId, buildSecurityReport());
-  } else if (resolved === '/incident-plan') {
-    enqueueReply(null, replyChatId, getIncidentResponsePlan());
-  } else if (resolved === '/wallet-audit') {
-    const audit = auditWalletSecurity();
-    const lines = ['🔐 تدقيق المحافظ:', '', audit.passed ? '✅ آمن — لا مفاتيح خاصة على الخادم' : '⚠️ مشاكل:', ...(audit.issues || []).map(i => '  ❌ ' + i)].join('\n');
-    enqueueReply(null, replyChatId, lines);
-  } else if (resolved.startsWith('/encrypt ')) {
-    const plaintext = message.text.split(/\s+/).slice(1).join(' ');
-    if (!plaintext) { enqueueReply(null, replyChatId, 'الاستخدام: /encrypt <نص>'); } else {
-      const encrypted = encryptData(plaintext);
-      enqueueReply(null, replyChatId, '🔒 النص المشفر:\n' + encrypted);
-    }
-  } else if (resolved.startsWith('/decrypt ')) {
-    const ciphertext = message.text.split(/\s+/).slice(1).join(' ');
-    if (!ciphertext) { enqueueReply(null, replyChatId, 'الاستخدام: /decrypt <نص مشفر>'); } else {
-      try { const decrypted = decryptData(ciphertext); enqueueReply(null, replyChatId, '🔓 النص المفكوك:\n' + decrypted); }
-      catch { enqueueReply(null, replyChatId, '❌ فشل فك التشفير — تأكد من صحة النص.'); }
-    }
-  } else if (resolved.startsWith('/delegate ')) {
-    const parts = message.text.split(/\s+/);
-    const agentName = parts[1];
-    const taskTitle = parts.slice(2).join(' ');
-    if (!agentName || !taskTitle) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /delegate <وكيل> <مهمة>\nالوكلاء: aurora, planner, executor, reviewer, scout');
-    } else {
-      const result = delegateTask(agentName, taskTitle);
-      if (result.error) {
-        enqueueReply(null, replyChatId, '❌ ' + result.error);
-      } else {
-        enqueueReply(null, replyChatId, `✅ تم تفويض المهمة لـ ${result.agent}\nرقم المهمة: #${result.taskId}\nالأولوية: ${result.priority}`);
-      }
-    }
-  } else if (resolved.startsWith('/2fa ')) {
-    const code = message.text.slice(5).trim();
-    if (!code || !/^\d{6}$/.test(code)) {
-      enqueueReply(null, replyChatId, 'الاستخدام: /2fa <رقم ستّي>\nمثال: /2fa 123456');
-    } else {
-      enqueueReply(null, replyChatId, '✅ تم استلام الرمز: ' + code + '\n\n🔄 جارٍ تفعيل 2FA على Twitter...');
-      const { spawn } = await import('node:child_process');
-      const scriptPath = path.join(config.root, 'scripts', 'complete-twitter-2fa.js');
-      const child = spawn('node', [scriptPath, code], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-      let output = '';
-      child.stdout.on('data', d => output += d.toString());
-      child.stderr.on('data', d => output += d.toString());
-      child.on('close', () => {
-        const result = output.includes('success') ? '✅ تم تفعيل 2FA بنجاح!' : '❌ فشل التفعيل — يرجى المحاولة مرة أخرى';
-        sendMessageDetailed(result, effectiveChatId());
-      });
-    }
-  } else if (resolved === '/2fa-status') {
-    try {
-      const statusPath = path.join(config.root, 'data', 'twitter-2fa-status.json');
-      const data = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
-      enqueueReply(null, replyChatId, '🔐 حالة 2FA:\n• الحالة: ' + data.status + '\n• التاريخ: ' + data.timestamp);
-    } catch {
-      enqueueReply(null, replyChatId, 'لم يتم بدء عملية 2FA بعد. أرسل /start-2fa لبدء.');
-    }
-  } else if (resolved === '/start-2fa') {
-    enqueueReply(null, replyChatId, '🔐 بدء عملية تفعيل 2FA على Twitter...');
-    const { spawn } = await import('node:child_process');
-    const scriptPath = path.join(config.root, 'scripts', 'twitter-2fa-qr-capture.js');
-    const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.on('close', () => { log('2FA QR capture finished'); });
-    enqueueReply(null, replyChatId, '⏳ جاري فتح Twitter والبحث عن رمز QR...\nسأرسل لك الرمز خلال دقائق.');
   }
 }
 
