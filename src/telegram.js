@@ -88,7 +88,7 @@ export async function sendMessageDetailed(text, chatId = effectiveChatId(), repl
     }
     return { delivered: true, messageId: response.data.result.message_id };
   } catch (caught) {
-    warn('telegram', `send failed: ${caught.message}`);
+    warn('telegram', `send FAILED (${chatId}): ${caught.message} text=${String(text).slice(0,50)}`);
     return { delivered: false, error: caught.message };
   }
 }
@@ -399,12 +399,19 @@ function enqueueReply(updateId, chatId, text, replyToMessageId = null) {
 // smart Arabic reply asynchronously so a slow local-LLM never blocks the polling loop.
 async function asyncContextualReply(updateId, chatId, text, sender) {
   try {
+    info('telegram', `async-reply: processing text=${String(text).slice(0,40)} chat=${chatId}`);
     const reply = await processNaturalMessage(text, sender);
-    if (reply) {
-      await sendMessageDetailed(reply, chatId);
+    info('telegram', `async-reply: got ${reply ? reply.length : 0} chars for chat=${chatId}`);
+    const finalReply = reply || 'عذراً، حدث خطأ مؤقت. حاول مرة أخرى أو اكتب «مساعدة» 💡';
+    const result = await sendMessageDetailed(finalReply, chatId);
+    if (!result.delivered) {
+      warn('telegram', `async-reply DELIVERY FAILED: ${result.error} chat=${chatId}`);
+      // Retry via outbox as last resort
+      enqueueReply(updateId, chatId, finalReply);
     }
   } catch (caught) {
-    warn('telegram', `natural reply failed: ${caught.message}`);
+    warn('telegram', `async-reply FAILED: ${caught.message} chat=${chatId}`);
+    try { enqueueReply(updateId, chatId, 'عذراً، حدث خطأ مؤقت. حاول مرة أخرى 💡'); } catch {}
   }
 }
 
@@ -430,7 +437,7 @@ export async function handleTelegramUpdate(update) {
   }
 
   // Detailed diagnostic logging
-  info('telegram', `INCOMING: chatId=${chatId} fromId=${fromId} text=${String(msgText).slice(0, 60)}`);
+  info('telegram', `INCOMING: chatId=${chatId} fromId=${fromId} text=${String(msgText).slice(0, 60)} mode=${mode}`);
   info('telegram', `ALLOWLIST: parsed=${JSON.stringify(config.telegramAllowedIds)} len=${config.telegramAllowedIds.length}`);
   info('telegram', `CHATID_ALLOWED=${config.telegramAllowedIds.includes(chatId)} FROMID_ALLOWED=${config.telegramAllowedIds.includes(fromId)}`);
   // Allowlist check (use either chatId or fromId for maximum compatibility)
@@ -482,6 +489,7 @@ export async function handleTelegramUpdate(update) {
   }
 
   if (update.message?.text && !update.message.text.startsWith('/')) {
+    info('telegram', `DISPATCH async: chatId=${chatId} text=${String(update.message.text).slice(0,50)}`);
     asyncContextualReply(update.update_id, chatId, update.message.text, update.message.from || {});
   }
   if (update.message) await handleCommand(update.message);
