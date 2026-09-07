@@ -378,12 +378,14 @@ export function getPrizesReport() {
 
 // ── Start daily prizes report ──
 export function startPrizesReport() {
-  const t = setInterval(() => {
-    const { sendMessageDetailed } = await import('./telegram.js').catch(() => ({}));
-    if (sendMessageDetailed) {
-      const report = getPrizesReport();
-      sendMessageDetailed(report, require('./config.js').config.telegramChatId).catch(() => {});
-    }
+  const t = setInterval(async () => {
+    try {
+      const mod = await import('./telegram.js');
+      if (mod?.sendMessageDetailed) {
+        const report = getPrizesReport();
+        await mod.sendMessageDetailed(report, config.telegramChatId);
+      }
+    } catch (e) { warn('operations', 'prizes report failed: ' + e.message); }
   }, 24 * 60 * 60 * 1000);
   t.unref();
   info('operations', 'prizes report started (daily)');
