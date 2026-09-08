@@ -16,6 +16,11 @@ import { createBackupSnapshot, runMailQueue } from './backup.js';
 import { teamEvents } from './team.js';
 import { startAutomator } from './automator.js';
 import { startOpportunityMonitor } from './job-applicant.js';
+import { startScheduler } from './scheduler.js';
+import { initiator } from './initiator.js';
+import { reporter } from './reporter.js';
+import { eventBus, EVENTS } from './event-bus.js';
+import { PersistentMemory } from './persistent-memory.js';
 
 process.on('unhandledRejection', reason => error('process', 'unhandled rejection', { reason: String(reason) }));
 process.on('uncaughtException', caught => {
@@ -86,6 +91,14 @@ startOpportunityMonitor();
 startOperations();
 startPrizesReport();
 startProductionMachine();
+
+// ── Kimi Plan: Autonomous Agent System ──
+info('platform', '🚀 Starting autonomous agent system (Kimi Plan)...');
+startScheduler();
+eventBus.on(EVENTS.TASK_SUCCESS, (payload) => {
+  initiator.learnFromSuccess(payload.taskId);
+});
+info('platform', '✅ Scheduler + Initiator + Reporter + EventBus active');
 // Daily security report + platform discovery (lazy-loaded)
 setInterval(async () => {
   try {

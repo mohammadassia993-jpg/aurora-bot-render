@@ -313,6 +313,44 @@ export async function startServer() {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
       }
 
+      // ── Kimi Plan: Agent System Status ──
+      if (url.pathname === '/agents/status') {
+        try {
+          const { getSchedulerStatus } = await import('./scheduler.js');
+          const { initiator } = await import('./initiator.js');
+          const { reporter } = await import('./reporter.js');
+          const { eventBus } = await import('./event-bus.js');
+          const { PersistentMemory } = await import('./persistent-memory.js');
+          return json(response, 200, {
+            scheduler: getSchedulerStatus(),
+            initiator: initiator.getStats(),
+            reporter: reporter.getStats(),
+            eventBus: eventBus.getStats(),
+            memory: PersistentMemory.getContext()
+          });
+        } catch (e) {
+          return json(response, 500, { error: e.message });
+        }
+      }
+
+      if (url.pathname === '/agents/memory') {
+        try {
+          const { PersistentMemory } = await import('./persistent-memory.js');
+          return json(response, 200, PersistentMemory.getContext());
+        } catch (e) {
+          return json(response, 500, { error: e.message });
+        }
+      }
+
+      if (url.pathname === '/agents/events') {
+        try {
+          const { eventBus } = await import('./event-bus.js');
+          return json(response, 200, { events: eventBus.getLog(30) });
+        } catch (e) {
+          return json(response, 500, { error: e.message });
+        }
+      }
+
       if (url.pathname === '/status') {
         return json(response, 200, {
           telegram: { mode: telegramMode(), tokenValidated: Boolean(config.telegramToken), webhookConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_URL) },
