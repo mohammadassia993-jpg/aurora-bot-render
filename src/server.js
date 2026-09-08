@@ -382,6 +382,27 @@ export async function startServer() {
         }
       }
 
+      if (url.pathname === '/debug-natural') {
+        const msg = url.searchParams.get('msg') || 'مرحبا';
+        try {
+          const { processNaturalMessage } = await import('./natural-assistant.js');
+          const started = Date.now();
+          const reply = await Promise.race([
+            processNaturalMessage(msg, { id: String(config.telegramChatId), username: 'Mohammadabbas891' }),
+            new Promise((_, r) => setTimeout(() => r(new Error('AI_TIMEOUT')), 30000))
+          ]);
+          return json(response, 200, {
+            input: msg,
+            reply: String(reply || '(empty)').slice(0, 500),
+            length: String(reply || '').length,
+            timeMs: Date.now() - started,
+            success: Boolean(reply)
+          });
+        } catch (e) {
+          return json(response, 500, { error: e.message, code: e.code });
+        }
+      }
+
       if (url.pathname === '/telegram/webhook') {
         if (request.method === 'GET') { return json(response, 200, { ok: true }); }
         if (request.method !== 'POST') { return; }
