@@ -16,3 +16,7 @@ service-pids.json
 agent_workspace/
 __pycache__/
 
+
+# Auth sessions (never commit)
+auth/
+
