@@ -87,6 +87,36 @@ export function startScheduler() {
     } catch (e) { /* silent */ }
   }, { timezone: 'UTC' }));
 
+  // ── 8. Prize & competition scan (every hour) ──
+  jobs.push(cron.schedule('0 * * * *', async () => {
+    info('scheduler', '🏆 Hourly prize scan...');
+    try {
+      const { default: prizeScanner } = await import('./prize-scanner.js');
+      await prizeScanner.scanPrizes();
+    } catch (e) { errLog('scheduler', `Prize scan failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── 9. New platform discovery (every 6 hours) ──
+  jobs.push(cron.schedule('0 */6 * * *', async () => {
+    info('scheduler', '🔍 Platform discovery scan...');
+    try {
+      const { default: platformDiscovery } = await import('./platform-discovery.js');
+      await platformDiscovery.discoverPlatforms();
+    } catch (e) { errLog('scheduler', `Platform discovery failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── 10. Continuous production (every 30 minutes for fast category) ──
+  jobs.push(cron.schedule('*/30 * * * *', async () => {
+    info('scheduler', '🏭 Production cycle (fast category)...');
+    try {
+      const { default: continuousProd } = await import('./continuous-production.js');
+      const stats = continuousProd.getProductionStats();
+      if (stats.total < 50) {
+        await continuousProd.startContinuousProduction();
+      }
+    } catch (e) { errLog('scheduler', `Production cycle failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
   // ── Record scheduler start in memory ──
   EpisodicMemory.record('system_start', 'scheduler', null, 'Scheduler Agent Started', `Active jobs: ${jobs.length}`, 'success', { jobCount: jobs.length });
 

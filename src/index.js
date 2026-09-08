@@ -20,6 +20,10 @@ import { startScheduler } from './scheduler.js';
 import { initiator } from './initiator.js';
 import { reporter } from './reporter.js';
 import { eventBus, EVENTS } from './event-bus.js';
+import { startContinuousProduction } from './continuous-production.js';
+import { publishToAllPlatforms } from './multi-publisher.js';
+import { scanPrizes } from './prize-scanner.js';
+import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
 
 process.on('unhandledRejection', reason => error('process', 'unhandled rejection', { reason: String(reason) }));
@@ -99,6 +103,21 @@ eventBus.on(EVENTS.TASK_SUCCESS, (payload) => {
   initiator.learnFromSuccess(payload.taskId);
 });
 info('platform', '✅ Scheduler + Initiator + Reporter + EventBus active');
+
+// ── Kimi Plan: Continuous Production (start after 2 min delay) ──
+setTimeout(async () => {
+  try {
+    await startContinuousProduction();
+  } catch (e) { error('production', `Continuous production error: ${e.message}`); }
+}, 2 * 60 * 1000);
+
+// ── Kimi Plan: Hourly prize scan + platform discovery ──
+setTimeout(async () => {
+  try {
+    await scanPrizes();
+    await discoverPlatforms();
+  } catch (e) { error('scanner', `Initial scan error: ${e.message}`); }
+}, 5 * 60 * 1000);
 // Daily security report + platform discovery (lazy-loaded)
 setInterval(async () => {
   try {
