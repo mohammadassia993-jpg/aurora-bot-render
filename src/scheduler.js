@@ -38,7 +38,7 @@ export function startScheduler() {
   }, { timezone: 'UTC' }));
 
   // ── 2a. Morning report (every day at 07:00 UTC) ──
-  jobs.push(cron.schedule('0 7 * * *', async () => {
+  jobs.push(cron.schedule('0 8 * * *', async () => {
     info('scheduler', '🌅 Morning report generation...');
     try {
       const { default: reporter } = await import('./reporter.js');
