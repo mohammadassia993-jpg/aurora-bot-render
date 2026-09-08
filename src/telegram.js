@@ -491,8 +491,9 @@ export async function handleTelegramUpdate(update) {
   if (update.message?.text && !update.message.text.startsWith('/')) {
     info('telegram', `DISPATCH async: chatId=${chatId} text=${String(update.message.text).slice(0,50)}`);
     asyncContextualReply(update.update_id, chatId, update.message.text, update.message.from || {});
+  } else if (update.message?.text?.startsWith('/')) {
+    await handleCommand(update.message);
   }
-  if (update.message) await handleCommand(update.message);
   if (update.update_id) {
     db.prepare("UPDATE telegram_updates SET status='processed', processed_at=CURRENT_TIMESTAMP WHERE update_id=?")
       .run(update.update_id);
@@ -648,7 +649,6 @@ export async function pollTelegramOnce() {
 
     for (const update of response.data?.result || []) {
       await handleTelegramUpdate(update);
-      await processTelegramOutbox();
       offset = Math.max(offset, update.update_id + 1);
     }
   } catch (caught) {
