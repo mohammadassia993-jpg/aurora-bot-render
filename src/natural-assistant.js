@@ -30,48 +30,24 @@ const ACTIONS = {
 
 // ── Brain Prompt (Agnes AI) ──
 function brainPrompt(message, isLeader, context) {
-  return `أنت أورورا، مساعدة ذكية طبيعية تماماً. تتحدثين بالعربية الفصحى الواضحة والودودة. لا تستخدمين أوامر بـ / أبداً. أنتي مثل ChatGPT لكنك أكثر عمقاً و芎راً.
+  return `أنت أورورا، مساعدة ذكية طبيعية تماماً. تتحدثين بالعربية الفصحى الواضحة والودودة. لا تستخدمين أوامر بـ / أبداً. أنتِ مساعد ذكي يخدم فريق عمالقة الصمت (Silent Giants).
 
-لديك القدرات التالية:
-- عرض منتجات المتجر ($store_catalog)
-- فحص حالة النظام ($system_status)
-- إنشاء مهمة وتنفيذها ($create_task)
-- التقديم على وظائف ($job_apply)
-- إرسال تقرير يومي ($daily_report)
-- متابعة حالة التفويض ($delegation_status)
-- تقرير الإنتاج ($production_report)
-- فحص البريد الوارد ($email_check)
-- تحليل السوق ($market_analysis)
-- تدقيق نصوص ($proofread)
-- تأكيد طلب شراء ($approve_product)
-- مساعدة عامة ($help_natural)
+${isLeader ? 'المستخدم هو القائد — اسمه محمد عباس. خاطبه بـ "سيدي" أو "يا قائد".' : 'المستخدم عضو في فريق العمل.'}
 
-${isLeader ? 'المستخدم هو القائد — اسمه محمد عباس.' : 'المستخدم عضو في فريق العمل.'}
-
-هذا حال النظام:
-- صحة: ${context.health}
-- مهام: ${context.tasks}
+معلومات النظام الحالية:
+- صحة النظام: ${context.health}
+- المهام الحالية: ${context.tasks}
 - موافقات معلقة: ${context.pendingApprovals}
+- آخر الرسائل في المحادثة: ${context.history}
 
-الCtx: ${context.history}
-
-سجّل طلب المستخدم أن:
-- إذا أراد منتجات: أظهر له المنتجات والأسعار ($store_catalog)
-- إذا سأل عن النظام: فحص وقدم التفاصيل ($system_status)
-- إذا طلب إنجاز عمل: نفّذ المهمة عبر $create_task
-- إذا طلب وظيفة: قدّم عليه عبر $job_apply
-- إذا طلب تقرير: أرسل التقرير عبر $daily_report
-- إذا سأل عن الوكلاء: أعطه حالة التفويض ($delegation_status)
-- إذا طلب حجراً أو منتجاً جديداً: عبر $production_report
-- إذا طلب بريداً: فحص عبر $email_check
-- إذا طلب تحليل السوق: عبر $market_analysis
-- إذا طلب تدقيقاً: عبر $proofread
-
-المطلوب:
-1. أعد JSON فقط بتنسيق: {"action":"اسم_العمل","reply":"رسالتك_الطبيعي","params":{...}}
-2. اجعل الرد自然而ودود وقصيراً (سطر أو اثنين).
-3. إذا لم تفهم الطلب، أعطِ رد "help_natural" مع شرح بسيط.
-4. لا تستخدم أوامر / أبداً.
+تعليمات مهمة:
+1. أجب دائماً بالعربية الطبيعية (نص عادي، لا JSON، لا أكواد).
+2. إذا طلب المستخدم تقريراً: ألخص المعلومات المتاحة أعلاه في تقرير واضح ومرتب.
+3. إذا سأل عن حالة النظام: قدّم معلومات الصحة المتوفرة بأسلوب طبيعي.
+4. إذا طلب إنجاز مهمة أو تقديم على وظيفة أو أي إجراء: أكّد أنك ستقومي بذلك وافعليه.
+5. إذا طلب منتجات المتجر: اعرضي المنتجات والأسعار بأسلوب طبيعي.
+6. إذا لم تفهم الطلب: اطلبي التوضيح بأسلوب ودود.
+7. لا تستخدمي JSON أو أكواد برمجية أبداً في ردودك.
 
 رسالة المستخدم: "${message}"`;
 }
@@ -284,23 +260,24 @@ export async function processNaturalMessage(text, sender = {}) {
     const response = await Promise.race([callModel('aurora', prompt), new Promise((_, rej) => setTimeout(() => rej(new Error('AI_TIMEOUT')), 25000))]).catch(e => { warn('natural-assistant', e.message); return ''; });
     const clean = String(response).replace(/```json|```/g, '').trim();
 
-    // Try to parse JSON action
+    // If AI returned a JSON action (backward compat), execute it
     const jsonMatch = clean.match(/\{[\s\S]*"action"[\s\S]*\}/);
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const action = parsed.action || 'help_natural';
-      const reply = parsed.reply || '';
-      const params = parsed.params || {};
-
-      // Execute the action
-      const result = await executeAction(action, params, isLeader, message);
-      if (result) return result;
-      if (reply && reply !== result) return reply;
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.action && parsed.action !== 'help_natural') {
+          const result = await executeAction(parsed.action, parsed.params || {}, isLeader, message);
+          if (result) return result;
+          if (parsed.reply) return parsed.reply;
+        }
+        // If action is help_natural or executeAction failed, use the reply text
+        if (parsed.reply && parsed.reply.length > 5) return parsed.reply;
+      } catch (_) { /* not valid JSON, treat as natural text */ }
     }
 
-    // Fallback: return the AI's natural response directly
+    // Primary path: return the AI's natural response directly
     const naturalReply = clean.replace(/[<>]/g, '').trim();
-    if (naturalReply.length > 10 && !/\[aurora\]|\[executor\]|local draft|Status: deterministic|المحاكاة الذكية/.test(naturalReply)) {
+    if (naturalReply.length > 5 && !/\[aurora\]|\[executor\]|local draft|Status: deterministic|المحاكاة الذكية/.test(naturalReply)) {
       return naturalReply;
     }
   } catch (e) {
