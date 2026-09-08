@@ -85,7 +85,7 @@ export function startScheduler() {
 
   // ── 2c. Marketing cycle (every 4 hours) ──
   jobs.push(cron.schedule('0 */4 * * *', async () => {
-    info('scheduler', '⏭ Marketing DISABLED (Silent Hunter mode)'); return;
+    info('scheduler', '📣 Marketing cycle...');
     try {
       const { default: marketing } = await import('./marketing-engine.js');
       await marketing.runMarketingCycle();
@@ -162,7 +162,7 @@ export function startScheduler() {
 
   // ── 10. Continuous production (every 30 minutes for fast category) ──
   jobs.push(cron.schedule('*/30 * * * *', async () => {
-    info('scheduler', '⏭ Production DISABLED (Silent Hunter mode)'); return;
+    info('scheduler', '🏭 Production cycle (fast category)...');
     try {
       const { default: continuousProd } = await import('./continuous-production.js');
       const stats = continuousProd.getProductionStats();
