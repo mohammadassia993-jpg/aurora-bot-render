@@ -259,8 +259,16 @@ export async function processNaturalMessage(text, sender = {}) {
   const history = db.prepare(`SELECT sender, body FROM messages WHERE thread='telegram' ORDER BY id DESC LIMIT 6`).all().reverse();
   const histStr = history.slice(-3).map(r => `${r.sender}: ${r.body?.slice(0, 60)}`).join(' | ');
 
-  // Quick regex match first (faster, no AI needed)
-  if (/(cat|catalogue|المنتجات|متجر|اسعار|الأسعار|اكتب «اشتري|كم سعر)/i.test(message)) {
+  // Fast greetings path (no AI needed)
+  if (/^(مرحبا|السلام|أهلا|أهلاً|هاي|هلا|hello|hi|صباح الخير|مساء الخير)/i.test(message.trim())) {
+    return 'مرحباً وسهلاً! 🌟 أنا أورورا، مساعدتكم الذكية من فريق عمالقة الصمت. كيف يمكنني مساعدتك اليوم؟';
+  }
+  if (/^(شكرا|شكراً|تمام|ممتاز|thanks)/i.test(message.trim())) {
+    return 'الشكر لله! 🙏 أنا هنا إذا تحتاج أي شيء.';
+  }
+
+  // Quick regex match first (faster, no AI needed) - ONLY for explicit product requests
+  if (/(منتجات المتجر|متجرنا|أسعار المنتجات|اعرض المنتجات|عرض المنتجات|ما هي المنتجات|المنتجات للبيع)/i.test(message)) {
     return await executeAction('store_catalog', {}, isLeader, message);
   }
 
