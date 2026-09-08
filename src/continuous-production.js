@@ -116,7 +116,8 @@ function getNextIdea() {
 function loadCatalog() {
   try {
     if (fs.existsSync(CATALOG_FILE)) {
-      return JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8'));
+      const raw = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8'));
+      return Array.isArray(raw) ? raw : (raw.catalog || raw.products || []);
     }
   } catch {}
   return [];
