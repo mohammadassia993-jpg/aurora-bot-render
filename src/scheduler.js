@@ -46,7 +46,35 @@ export function startScheduler() {
     } catch (e) { errLog('scheduler', `Morning report failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
-  // ── 2b. Evening report (every day at 20:00 UTC) ──
+  // ── 2b. Accountability reports every 6 hours ──
+  jobs.push(cron.schedule('0 */6 * * *', async () => {
+    info('scheduler', '📊 6-hour accountability report...');
+    try {
+      const { default: reporter } = await import('./reporter.js');
+      const { db } = await import('./db.js');
+      const contacts = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source = 'lead'").get().c;
+      const sent = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source = 'outreach'").get().c;
+      const applied = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job_apply','prize_scan') AND status = 'applied'").get().c;
+      const revenue = db.prepare("SELECT COALESCE(SUM(reward),0) c FROM tasks WHERE status='done' AND reward>0").get().c;
+      const { sendMessageDetailed } = await import('./telegram.js');
+      const { config } = await import('./config.js');
+      const msg = [
+        '📊 تقرير المساءلة (كل 6 ساعات)',
+        '',
+        '🎯 الهدف: 1000$ خلال 7 أيام',
+        '',
+        '  📞 عملاء متواصل معهم: ' + contacts + '/100',
+        '  📩 رسائل مرسلة: ' + sent + '/50',
+        '  📝 تقديمات (وظائف/جوائز): ' + applied + '/40',
+        '  💰 إيرادات: \$' + revenue + '/1000',
+        '',
+        revenue >= 1000 ? '✅ تم تحقيق الهدف!' : '⚡ لم يتحقق الهدف بعد — مواصلة العمل'
+      ].join('\n');
+      await sendMessageDetailed(msg, config.telegramChatId);
+    } catch (e) {}
+  }, { timezone: 'UTC' }));
+
+  // ── 2c. Evening report (every day at 20:00 UTC) ──
   jobs.push(cron.schedule('0 20 * * *', async () => {
     info('scheduler', '🌙 Evening report generation...');
     try {
@@ -57,7 +85,7 @@ export function startScheduler() {
 
   // ── 2c. Marketing cycle (every 4 hours) ──
   jobs.push(cron.schedule('0 */4 * * *', async () => {
-    info('scheduler', '📣 Marketing cycle...');
+    info('scheduler', '⏭ Marketing DISABLED (Silent Hunter mode)'); return;
     try {
       const { default: marketing } = await import('./marketing-engine.js');
       await marketing.runMarketingCycle();
@@ -134,7 +162,7 @@ export function startScheduler() {
 
   // ── 10. Continuous production (every 30 minutes for fast category) ──
   jobs.push(cron.schedule('*/30 * * * *', async () => {
-    info('scheduler', '🏭 Production cycle (fast category)...');
+    info('scheduler', '⏭ Production DISABLED (Silent Hunter mode)'); return;
     try {
       const { default: continuousProd } = await import('./continuous-production.js');
       const stats = continuousProd.getProductionStats();
