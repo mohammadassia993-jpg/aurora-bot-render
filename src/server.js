@@ -360,6 +360,28 @@ export async function startServer() {
         });
       }
 
+      if (url.pathname === '/debug-ai') {
+        const msg = url.searchParams.get('msg') || 'مرحبا كيف حالك';
+        try {
+          const { callModel } = await import('./ai.js');
+          const result = await Promise.race([
+            callModel('aurora', msg),
+            new Promise((_, r) => setTimeout(() => r(new Error('TIMEOUT')), 20000))
+          ]);
+          return json(response, 200, {
+            model: 'agnes',
+            agnesKeySet: Boolean(config.agnesKey),
+            agnesModel: config.agnesModel,
+            simulationMode: process.env.AI_SIMULATION_MODE,
+            aiPrimaryModel: process.env.AI_PRIMARY_MODEL,
+            result: String(result).slice(0, 500),
+            length: String(result).length
+          });
+        } catch (e) {
+          return json(response, 500, { error: e.message, code: e.code });
+        }
+      }
+
       if (url.pathname === '/telegram/webhook') {
         if (request.method === 'GET') { return json(response, 200, { ok: true }); }
         if (request.method !== 'POST') { return; }
