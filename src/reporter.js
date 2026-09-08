@@ -244,6 +244,77 @@ ${reportData.lessons}
   getStats() {
     return { reportsSent: this.reportsSent };
   }
+
+  async sendReport(type = 'morning') {
+    if (type === 'morning') return this.sendMorningReport();
+    if (type === 'evening') return this.sendEveningReport();
+    return this.sendDailyReport();
+  }
+
+  async sendMorningReport() {
+    return this._sendReport('صباحي', 'morning');
+  }
+
+  async sendEveningReport() {
+    return this._sendReport('مسائي', 'evening');
+  }
+
+  async _sendReport(typeLabel, type) {
+    info('reporter', `📊 Generating ${typeLabel} report...`);
+
+    const tasksToday = db.prepare("SELECT COUNT(*) c FROM tasks WHERE date(created_at) = date('now')").get();
+    const tasksCompleted = db.prepare("SELECT COUNT(*) c FROM tasks WHERE date(updated_at) = date('now') AND status = 'done'").get();
+    const totalTasks = db.prepare('SELECT COUNT(*) c FROM tasks').get();
+    const pendingTasks = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status NOT IN ('done', 'cancelled')").get();
+    const prodStats = getProductionStats();
+    const prizeStats = getPrizeStats();
+    const discStats = getDiscoveryStats();
+    const pubStats = getPublisherStats();
+    const revenue = db.prepare("SELECT COALESCE(SUM(reward),0) c FROM tasks WHERE status='done' AND reward>0").get().c;
+
+    const morningPrompt = `أنشئ تقريراً مботاً كاملاً لفريق عمالقة الصمت بالعربية. 
+التقرير صباحي (07:00 صباحاً). حدد: ملخص إنجازات الأمس + المنتجات المنشورة + العقود والجوائز + الوظائف + الإيرادات + الدروس + خطة اليوم.
+
+بيانات اليوم:
+- مهام جديدة: ${tasksToday.c} | منجزة: ${tasksCompleted.c} | إجمالي: ${totalTasks.c} | معلقة: ${pendingTasks.c}
+- منتجات: ${prodStats.total} (جاهزة: ${prodStats.approved}, منشورة: ${prodStats.published})
+- جوائز: ${prizeStats.total} (مكتشفة: ${prizeStats.discovered}, تم التقديم: ${prizeStats.applied}, فوز: ${prizeStats.won})
+- منصات: ${discStats.total} مكتشفة، نشر: ${pubStats.queued}
+- الإيرادات: \$${revenue}
+
+لا JSON، لا أكواد. رد عربي طبيعى بأسلوب احترافى.`;
+
+    const eveningPrompt = `أنشئ تقريراً م-botaaً مسائياً لفريق عمالقة الصمت بالعربية. 
+التقرير مسائي (20:00 مساءً). حدد: كل ما هو جديد اليوم + تفاعلات العملاء + إيرادات جديدة + تحديات + خطة الغد.
+
+بيانات اليوم:
+- مهام جديدة: ${tasksToday.c} | منجزة: ${tasksCompleted.c} | إجمالي: ${totalTasks.c} | معلقة: ${pendingTasks.c}
+- منتجات: ${prodStats.total} (جاهزة: ${prodStats.approved}, منشورة: ${prodStats.published})
+- جوائز: ${prizeStats.total} (مكتشفة: ${prizeStats.discovered}, تم التقديم: ${prizeStats.applied}, فوز: ${prizeStats.won})
+- منصات: ${discStats.total} مكتشفة، نشر: ${pubStats.queued}
+- الإيرادات: \$${revenue}
+
+لا JSON، لا أكواد. رد عربي طبيعى بأسلوب احترافى.`;
+
+    const prompt = type === 'morning' ? morningPrompt : eveningPrompt;
+
+    try {
+      const response = await callModel('reporter', prompt);
+      const reportText = String(response).trim();
+
+      if (reportText.length > 50) {
+        const prefix = type === 'morning' ? '🌅 التقرير الصباحي' : '🌙 التقرير المسائي';
+        const full = prefix + '\n\n' + reportText;
+        const delivered = await sendMessageDetailed(full, config.telegramChatId);
+        info('reporter', `✅ ${typeLabel} report sent (${full.length} chars)`);
+        this.reportsSent++;
+        return { success: true, delivered };
+      }
+    } catch (e) {
+      warn('reporter', `${typeLabel} report failed: ${e.message}`);
+    }
+    return { success: false };
+  }
 }
 
 export const reporter = new ReporterAgent();

@@ -153,4 +153,61 @@ eventBus.on(EVENTS.LESSON_LEARNED, async (payload) => {
   }
 });
 
+
+// ── Instant Alert Handlers ──
+// When a sale happens → alert the leader immediately
+eventBus.on(EVENTS.PAYMENT_RECEIVED, async (payload) => {
+  try {
+    const { sendMessageDetailed } = await import('./telegram.js');
+    const { config } = await import('./config.js');
+    const msg = [
+      '💰 تقرير فوري — عملية بيع جديدة!',
+      '',
+      `  📦 المنتج: ${payload.product || 'غير معروف'}`,
+      `  💵 المبلغ: $${payload.amount || '0'}`,
+      `  🔗 المنصة: ${payload.platform || 'غير معروف'}`,
+      `  ⏰ الوقت: ${new Date().toLocaleString('ar-EG')}`,
+    ].join('\n');
+    await sendMessageDetailed(msg, config.telegramChatId);
+  } catch (e) { /* silent */ }
+});
+
+// When a prize is won → alert immediately
+eventBus.on(EVENTS.TASK_SUCCESS, async (payload) => {
+  if (payload.source === 'prize_scan' || payload.isPrize) {
+    try {
+      const { sendMessageDetailed } = await import('./telegram.js');
+      const { config } = await import('./config.js');
+      const msg = [
+        '🎉 تقرير فوري — فوز بجائزة/عقد!',
+        '',
+        `  🏆 الجائزة: ${payload.title || 'غير معروف'}`,
+        `  💵 المكافأة: ${payload.reward || 'غير معروف'}`,
+        `  🔗 المنصة: ${payload.platform || 'غير معروف'}`,
+        `  ⏰ الوقت: ${new Date().toLocaleString('ar-EG')}`,
+      ].join('\n');
+      await sendMessageDetailed(msg, config.telegramChatId);
+    } catch (e) { /* silent */ }
+  }
+});
+
+// When a contract is signed → alert immediately
+eventBus.on(EVENTS.OPPORTUNITY_APPLIED, async (payload) => {
+  if (payload.type === 'contract') {
+    try {
+      const { sendMessageDetailed } = await import('./telegram.js');
+      const { config } = await import('./config.js');
+      const msg = [
+        '📝 تقرير فوري — توقيع عقد جديد!',
+        '',
+        `  📄 العقد: ${payload.title || 'غير معروف'}`,
+        `  💵 القيمة: ${payload.value || 'غير معروف'}`,
+        `  🔗 الجهة: ${payload.entity || 'غير معروف'}`,
+        `  ⏰ الوقت: ${new Date().toLocaleString('ar-EG')}`,
+      ].join('\n');
+      await sendMessageDetailed(msg, config.telegramChatId);
+    } catch (e) { /* silent */ }
+  }
+});
+
 export default eventBus;

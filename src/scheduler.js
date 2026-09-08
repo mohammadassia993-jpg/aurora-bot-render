@@ -18,6 +18,15 @@ const jobs = [];
 export function startScheduler() {
   info('scheduler', '🚀 Starting scheduler agent...');
 
+  // ── 0. Bundle 92-tasks generation (daily at 05:00 UTC) ──
+  jobs.push(cron.schedule('0 5 * * *', async () => {
+    info('scheduler', '📦 Generating 92-tasks bundle...');
+    try {
+      const { default: tasksToProducts } = await import('./tasks-to-products.js');
+      await tasksToProducts.generateBundle();
+    } catch (e) { errLog('scheduler', `Bundle generation failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
   // ── 1. Daily opportunity scan (every day at 06:00 UTC) ──
   jobs.push(cron.schedule('0 6 * * *', async () => {
     info('scheduler', '🌅 Morning opportunity scan starting...');
@@ -28,13 +37,31 @@ export function startScheduler() {
     } catch (e) { errLog('scheduler', `Morning scan failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
-  // ── 2. Daily report (every day at 08:00 UTC) ──
-  jobs.push(cron.schedule('0 8 * * *', async () => {
-    info('scheduler', '📊 Daily report generation...');
+  // ── 2a. Morning report (every day at 07:00 UTC) ──
+  jobs.push(cron.schedule('0 7 * * *', async () => {
+    info('scheduler', '🌅 Morning report generation...');
     try {
       const { default: reporter } = await import('./reporter.js');
-      await reporter.sendDailyReport();
-    } catch (e) { errLog('scheduler', `Daily report failed: ${e.message}`); }
+      await reporter.sendReport('morning');
+    } catch (e) { errLog('scheduler', `Morning report failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── 2b. Evening report (every day at 20:00 UTC) ──
+  jobs.push(cron.schedule('0 20 * * *', async () => {
+    info('scheduler', '🌙 Evening report generation...');
+    try {
+      const { default: reporter } = await import('./reporter.js');
+      await reporter.sendReport('evening');
+    } catch (e) { errLog('scheduler', `Evening report failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── 2c. Marketing cycle (every 4 hours) ──
+  jobs.push(cron.schedule('0 */4 * * *', async () => {
+    info('scheduler', '📣 Marketing cycle...');
+    try {
+      const { default: marketing } = await import('./marketing-engine.js');
+      await marketing.runMarketingCycle();
+    } catch (e) { errLog('scheduler', `Marketing failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
   // ── 3. Competition & contract registration (every 2 hours) ──
