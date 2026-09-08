@@ -36,6 +36,27 @@ class ReporterAgent {
     const totalTasks = db.prepare('SELECT COUNT(*) c FROM tasks').get();
     const pendingTasks = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status NOT IN ('done', 'cancelled')").get();
 
+    // 92 Tasks (bounty/task submissions)
+    const tasks92Total = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('superteam', 'dework', 'gitcoin', 'bounty', 'prize_scan')").get().c;
+    const tasks92Completed = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('superteam', 'dework', 'gitcoin', 'bounty', 'prize_scan') AND status = 'done'").get().c;
+    const tasks92Submitted = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('superteam', 'dework', 'gitcoin', 'bounty', 'prize_scan') AND status IN ('submitted', 'done')").get().c;
+
+    // Store Products
+    const storeProducts = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('store', 'production')").get().c;
+    const storePublished = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('store', 'production') AND status = 'done'").get().c;
+
+    // Contracts
+    const contractsTotal = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source = 'contract' OR title LIKE '%عقد%'").get().c;
+    const contractsActive = db.prepare("SELECT COUNT(*) c FROM tasks WHERE (source = 'contract' OR title LIKE '%عقد%') AND status NOT IN ('done', 'cancelled')").get().c;
+
+    // Jobs & Opportunities
+    const jobsTotal = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job', 'job_apply', 'job_scan')").get().c;
+    const jobsApplied = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job', 'job_apply', 'job_scan') AND status IN ('applied', 'submitted', 'done')").get().c;
+    const jobsSuccess = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job', 'job_apply', 'job_scan') AND status = 'done'").get().c;
+
+    // Revenue
+    const revenue = db.prepare("SELECT COALESCE(SUM(reward), 0) c FROM tasks WHERE status = 'done' AND reward > 0").get().c;
+
     const prodStats = getProductionStats();
     const prizeStats = getPrizeStats();
     const discoveryStats = getDiscoveryStats();
@@ -54,6 +75,11 @@ class ReporterAgent {
       prizes: prizeStats,
       platforms: discoveryStats,
       publisher: publisherStats,
+      tasks92: { total: tasks92Total, completed: tasks92Completed, submitted: tasks92Submitted },
+      store: { total: storeProducts, published: storePublished },
+      contracts: { total: contractsTotal, active: contractsActive },
+      jobs: { total: jobsTotal, applied: jobsApplied, success: jobsSuccess },
+      revenue,
       recentActivity: recentEpisodes.map(e => `${e.event_type}: ${e.title} [${e.outcome}]`).join('\n') || 'لا يوجد نشاط',
       lessons: lessons.map(l => `- ${l.topic}: ${l.content.slice(0, 80)}`).join('\n') || 'لا توجد دروس جديدة',
       memoryContext: memoryCtx
@@ -81,6 +107,27 @@ class ReporterAgent {
 - تم التقديم: ${prizeStats.applied}
 - فوز: ${prizeStats.won}
 
+--- المهام الـ 92 (منتجات رقمية) ---
+- إجمالي المهام: ${tasks92Total}
+- مهام منجزة: ${tasks92Completed}
+- تم تقديمها: ${tasks92Submitted}
+
+--- المتجر ---
+- إجمالي المنتجات: ${storeProducts}
+- منشورة: ${storePublished}
+
+--- العقود ---
+- إجمالي العقود: ${contractsTotal}
+- عقود نشطة: ${contractsActive}
+
+--- الوظائف ---
+- إجمالي الفرص: ${jobsTotal}
+- تم التقديم: ${jobsApplied}
+- نجاح: ${jobsSuccess}
+
+--- الإيرادات ---
+- إجمالي الإيرادات: $${revenue}
+
 --- المنصات ---
 - منصات مكتشفة: ${discoveryStats.total}
 - مسجلة: ${discoveryStats.registered}
@@ -94,10 +141,11 @@ ${reportData.lessons}
 
 التعليمات:
 1. اكتب تقريراً واضحاً ومرتباً بالعربية الطبيعية.
-2. ابدأ بملخص تنفيذي.
-3. اذكر الإنجازات والتحديات.
-4. اختم بخطة الغد.
-5. لا تستخدم JSON أو أكواد.`;
+2. ابدأ بملخص تنفيذي شامل.
+3. اذكر كل بند بالتفصيل: المهام الـ 92، المتجر، العقود، الوظائف، الجوائز، الإنتاج، المنصات، الإيرادات.
+4. اذكر أي عوائق أو مشاكل.
+5. اختم بخطة الغد.
+6. لا تستخدم JSON أو أكواد.`;
 
     try {
       const response = await callModel('reporter', prompt);
@@ -180,6 +228,11 @@ ${reportData.lessons}
         lessons: context.lessons,
         tasksCreated: 0, tasksCompleted: 0,
         totalTasks: 0, pendingTasks: 0,
+        tasks92: { total: 0, completed: 0, submitted: 0 },
+        store: { total: 6, published: 0 },
+        contracts: { total: 0, active: 0 },
+        jobs: { total: 0, applied: 0, success: 0 },
+        revenue: 0,
         production: { total: 0, approved: 0, pending: 0, published: 0, running: false },
         prizes: { total: 0, discovered: 0, applied: 0, won: 0 },
         platforms: { total: 0, registered: 0 },
