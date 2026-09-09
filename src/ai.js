@@ -20,7 +20,8 @@ export function availableModels() {
   const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey || config.agnesKey || config.gensparkKey);
   if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
-    config.agnesKey && { id: "agnes", label: "Agnes AI (agnes-2.0-flash)", priority: 0 },
+    config.kimiKey && { id: 'kimi-k3', label: 'Kimi K3 (moonshotai/kimi-k3)', priority: 0 },
+    config.agnesKey && { id: 'agnes', label: "Agnes AI (agnes-2.0-flash)", priority: 0 },
     config.gensparkKey && { id: "genspark", label: "Genspark (" + (config.gensparkModel || "genspark-v2") + ")", priority: 0 },
     config.deepSeekKey && { id: config.deepSeekModel, label: 'DeepSeek (' + (config.deepSeekModel || 'deepseek-chat') + ')', priority: 0 },
     config.siliconFlowKey && { id: config.siliconFlowModel, label: 'SiliconFlow (' + (config.siliconFlowModel || 'deepseek') + ')', priority: 1 },
@@ -186,6 +187,19 @@ export async function callModel(agent, prompt, taskId = null) {
       output = await response.text();
       output = output.replace(/^data:image\/[^;]+;base64,.*$/, '').trim();
       if (!output) throw Object.assign(new Error('Pollinations empty response'), { code: 'AI_EMPTY_RESPONSE' });
+    } else if (model === 'kimi-k3' && config.kimiKey) {
+      const response = await postJson(config.kimiUrl + '/chat/completions', {
+        model: config.kimiModel || 'kimi-k3',
+        messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+        max_tokens: 4096,
+        temperature: 0.7,
+        stream: false
+      }, { authorization: 'Bearer ' + config.kimiKey }, 'kimi');
+      if (!response.ok) throw Object.assign(new Error('Kimi K3 HTTP ' + response.status), { code: 'AI_PROVIDER' });
+      const data = await response.json();
+      output = data.choices?.[0]?.message?.content || '';
+      if (!output) throw Object.assign(new Error('Kimi K3 returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+
     } else if (model === 'agnes' && config.agnesKey) {
       const response = await postJson(config.agnesUrl + '/chat/completions', {
         model: config.agnesModel,
