@@ -52,7 +52,7 @@ export const config = {
 
 
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',
-  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || '',
+  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'kimi-k3',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   publicReadOnly: process.env.PUBLIC_READ_ONLY === 'true',
   teamUiToken: process.env.TEAM_UI_TOKEN || '',
@@ -75,8 +75,8 @@ export const config = {
   gensparkKey: process.env.GENSPARK_API_KEY || '',
   gensparkUrl: process.env.GENSPARK_API_URL || 'https://api.genspark.ai/v1',
   gensparkModel: process.env.GENSPARK_MODEL || 'genspark-v2',
-  kimiKey: process.env.KIMI_API_KEY || '',
-  kimiUrl: process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1',
+  kimiKey: process.env.KIMI_API_KEY || 'sk-3wOZCMBWfpmw6i7Q41C21887D4Fa43AcBc7e2cD54b70639b',
+  kimiUrl: process.env.KIMI_BASE_URL || 'https://aihubmix.com/v1',
   kimiModel: process.env.KIMI_MODEL || 'kimi-k3',
   mailDeliveryMode: process.env.MAIL_DELIVERY_MODE || 'queue',
   backupMirrorDir: process.env.BACKUP_MIRROR_DIR || '',
