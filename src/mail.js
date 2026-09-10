@@ -4,6 +4,11 @@ import { config } from './config.js';
 import { db } from './db.js';
 import { audit } from './audit.js';
 
+// ── Commander limits (2026-09-10) ──
+const MAX_PER_HOUR = 10;
+const MAX_PER_DAY = 50;
+const MIN_GAP_MS = 60 * 1000; // 1 minute
+
 class SmtpError extends Error {
   constructor(status, response) {
     super(`SMTP_${status}: ${response.replace(/\s+/g, ' ').slice(0, 500)}`);
@@ -177,11 +182,22 @@ export async function runMailQueue(limit = 25) {
   if (!config.smtpHost || !config.smtpUser || !config.smtpPass) {
     return { mode: config.mailDeliveryMode, skipped: true, reason: 'SMTP credentials incomplete', ...mailQueueStats() };
   }
-  const pending = db.prepare("SELECT * FROM mail_queue WHERE status IN ('queued','failed') ORDER BY id LIMIT ?").all(Math.min(Number(limit) || 25, 100));
+  // Rate limiting: hourly + daily caps per Commander order
+  const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const sentLastHour = db.prepare("SELECT COUNT(*) c FROM mail_queue WHERE status='sent' AND updated_at >= ?").get(hourAgo).c;
+  const sentToday = db.prepare("SELECT COUNT(*) c FROM mail_queue WHERE status='sent' AND updated_at >= ?").get(dayAgo).c;
+  if (sentLastHour >= MAX_PER_HOUR || sentToday >= MAX_PER_DAY) {
+    return { mode: 'live', skipped: true, reason: `rate limit: ${sentLastHour}/${MAX_PER_HOUR} per hour, ${sentToday}/${MAX_PER_DAY} per day`, ...mailQueueStats() };
+  }
+  const remainingHour = MAX_PER_HOUR - sentLastHour;
+  const remainingDay = MAX_PER_DAY - sentToday;
+  const pending = db.prepare("SELECT * FROM mail_queue WHERE status IN ('queued','failed') ORDER BY id LIMIT ?").all(Math.min(Number(limit) || 25, remainingHour, remainingDay));
   let delivered = 0;
   let failed = 0;
   for (const item of pending) {
     try {
+      if (delivered > 0) await new Promise(r => setTimeout(r, MIN_GAP_MS));
       await deliverMail({ to: item.to_address, subject: item.subject, text: item.body });
       db.prepare("UPDATE mail_queue SET status='sent', attempts=attempts+1, last_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(item.id);
       delivered++;
@@ -192,4 +208,23 @@ export async function runMailQueue(limit = 25) {
     }
   }
   return { mode: 'live', processed: pending.length, delivered, failed, ...mailQueueStats() };
+}
+
+// ── Free email verification (Disify, no API key) ──
+export async function verifyEmail(address) {
+  try {
+    const resp = await fetch(`https://disify.com/api/email/${encodeURIComponent(address)}`, {
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!resp.ok) return { valid: false, reason: `HTTP ${resp.status}` };
+    const data = await resp.json();
+    return {
+      valid: data.format === true && data.disposable === false,
+      format: data.format,
+      disposable: data.disposable,
+      reason: data.disposable ? 'disposable' : !data.format ? 'invalid_format' : 'valid'
+    };
+  } catch (e) {
+    return { valid: false, reason: e.message };
+  }
 }
