@@ -121,3 +121,32 @@
 
 ### Status: Email system fully operational
 ### Next step: Resume job applications (5/day max)
+
+## 2026-09-10 — Phase 2: Job Applications + Immunefi Analysis
+
+### Job Applications (5 emails sent and verified):
+All verified via Disify API before sending:
+1. Helium (info@helium.com) ✅ VALID → 250 OK
+2. Filecoin (team@filecoin.io) ✅ VALID → 250 OK
+3. Render Network (hello@rendernetwork.com) ✅ VALID → 250 OK
+4. Arweave (partnerships@arweave.org) ✅ VALID → 250 OK
+5. Solana (content@solana.com) ✅ VALID → 250 OK
+
+Rate limiting: 60-second gap between each email (within 10/hour limit)
+Email content: Partnership outreach with Silent Giants portfolio (92+ tasks)
+
+### Immunefi Analysis:
+- Slither analysis of SimpleToken.sol: 3 findings (solc-version, constable-states, immutable-states)
+- Manual code review: 7 categories assessed
+- Selected bounty programs: ENS, Aave, Wormhole
+- Full analysis report: deliverables/immunefi-simpletoken-analysis.md
+
+### Bounty Platforms Status:
+- Layer3: Requires wallet-connected login (automatable after account setup)
+- Bountycaster: Requires Farcaster account (social login)
+- Dework: GraphQL API available but requires auth token
+- Note: All three need initial manual account setup, then can be automated
+
+### Git:
+- Commit: b95e952
+- Pushed to GitHub
