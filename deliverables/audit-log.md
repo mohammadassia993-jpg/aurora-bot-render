@@ -65,3 +65,23 @@
 - solc native binary cannot run on ARM64 (wrapper workaround applied)
 - Immunefi detailed bounty info requires headless browser (Playwright timeout on ARM64)
 - Docker not available for cross-compilation
+
+## 2026-09-10 — Email Fix Phase (Commander order: unify on auroraalmada4@gmail.com)
+
+### Actions:
+- Changed SMTP_USER from Mohammadassia993@gmail.com → auroraalmada4@gmail.com
+- Added MAIL_FROM=auroraalmada4@gmail.com and MAIL_REPLY_TO=auroraalmada4@gmail.com
+- Added mailFrom + mailReplyTo to src/config.js (reads MAIL_FROM, MAIL_REPLY_TO env vars)
+- Updated src/mail.js: MAIL FROM + From: header use mailFrom; added Reply-To header
+- Committed and pushed (30de520), Render deploy LIVE
+
+### Test result:
+- SMTP test with auroraalmada4@gmail.com + smsusatmgawyndfp → **535 Bad Credentials**
+- Confirmed: current app password belongs to Mohammadassia993@gmail.com only
+- Blocked: need new Gmail App Password for auroraalmada4@gmail.com
+  (myaccount.google.com/apppasswords — the Commander must create it, no automated alternative exists for Gmail SMTP)
+
+### Remaining (blocked on app password):
+- 3 test emails (to aurora, Mohammadassia993, external)
+- Hunter.io address verification (no API key found — will use free verifier or provider-level verification)
+- Resume job applications (5/day max)
