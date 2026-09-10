@@ -3,11 +3,11 @@
 
 | # | المنصة | الدور | الحالة | التاريخ | ملاحظات |
 |---|--------|-------|--------|---------|---------|
-| 1 | CryptoJobsList | Arabic Web3 Content Writer | ⏳ جاهز | - | |
-| 2 | CryptoJobsList | Blockchain Translator (EN→AR) | ⏳ جاهز | - | |
-| 3 | Web3.career | DeFi Content Creator | ⏳ جاهز | - | |
-| 4 | Web3.career | Crypto Community Manager | ⏳ جاهز | - | |
-| 5 | Remote3 | Web3 Technical Writer | ⏳ جاهز | - | |
+| 1 | Email Direct | Helium Content Services | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 2 | Email Direct | Filecoin Content Services | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 3 | Email Direct | Render Network Content | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 4 | Email Direct | Arweave Partnership | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 5 | Email Direct | Solana Content Services | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
 | 6 | Remote3 | Blockchain Content Specialist | ⏳ جاهز | - | |
 | 7 | CryptocurrencyJobs | Crypto News Writer (Arabic) | ⏳ جاهز | - | |
 | 8 | CryptocurrencyJobs | DePIN Content Analyst | ⏳ جاهز | - | |
@@ -25,8 +25,8 @@
 | 20 | Email Direct | Web3 Content Services | ⏳ جاهز | - | |
 
 ## ملخص الأداء
-- **إجمالي الطلبات**: 0/20
-- **المقبولة**: 0
+- **إجمالي الطلبات**: 5/20
+- **المقبولة**: 0 (بانتظار الرد)
 - **المرفوضة**: 0
-- **قيد المراجعة**: 0
+- **قيد المراجعة**: 5
 - **الردود**: 0
