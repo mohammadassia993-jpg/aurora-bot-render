@@ -8,11 +8,11 @@
 | 3 | Email Direct | Render Network Content | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
 | 4 | Email Direct | Arweave Partnership | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
 | 5 | Email Direct | Solana Content Services | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
-| 6 | Remote3 | Blockchain Content Specialist | ⏳ جاهز | - | |
-| 7 | CryptocurrencyJobs | Crypto News Writer (Arabic) | ⏳ جاهز | - | |
-| 8 | CryptocurrencyJobs | DePIN Content Analyst | ⏳ جاهز | - | |
-| 9 | LinkedIn | Web3 Content Marketing | ⏳ جاهز | - | |
-| 10 | LinkedIn | Crypto Copywriter | ⏳ جاهز | - | |
+| 6 | Email Direct | Avalanche Content | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 7 | Email Direct | Polygon Content | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 8 | Email Direct | Algorand Content | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 9 | Email Direct | NEAR Protocol Content | ✅ مُرسل | 2026-09-10 | Verified + Delivered | |
+| 10 | Email Direct | Celo Content | ❌ فشل التحقق | 2026-09-10 | Email invalid | |
 | 11 | Upwork | Web3 Article Writing | ⏳ جاهز | - | |
 | 12 | Upwork | Crypto Translation (EN→AR) | ⏳ جاهز | - | |
 | 13 | Upwork | Blockchain Documentation | ⏳ جاهز | - | |
@@ -25,8 +25,8 @@
 | 20 | Email Direct | Web3 Content Services | ⏳ جاهز | - | |
 
 ## ملخص الأداء
-- **إجمالي الطلبات**: 5/20
+- **إجمالي الطلبات**: 9/20
 - **المقبولة**: 0 (بانتظار الرد)
 - **المرفوضة**: 0
-- **قيد المراجعة**: 5
+- **قيد المراجعة**: 9
 - **الردود**: 0
