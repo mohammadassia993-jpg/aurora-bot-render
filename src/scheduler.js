@@ -189,3 +189,12 @@ export function getSchedulerStatus() {
 }
 
 export default { startScheduler, stopScheduler, getSchedulerStatus };
+
+  // ── 11. Followup cycle (every 6 hours) ──
+  jobs.push(cron.schedule('0 */6 * * *', async () => {
+    info('scheduler', '🔄 Followup cycle...');
+    try {
+      const { default: followup } = await import('./automation/followup-scheduler.js');
+      await followup.runFollowupCycle();
+    } catch (e) { errLog('scheduler', `Followup cycle failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));

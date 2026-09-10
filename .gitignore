@@ -20,3 +20,4 @@ __pycache__/
 # Auth sessions (never commit)
 auth/
 
+aave-v3-core/
