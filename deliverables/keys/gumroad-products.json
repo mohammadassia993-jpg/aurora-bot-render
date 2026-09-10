@@ -1,0 +1,13 @@
+{
+  "gumroad_store": "auroradreams65.gumroad.com",
+  "products": [
+    {"name": "قاموس مصطلحات Web3 (عربي/إنجليزي)", "slug": "jckjlt", "price": 9.99, "url": "auroradreams65.gumroad.com/l/jckjlt", "status": "created_unpublished"},
+    {"name": "دورة أساسيات DePIN - 5 محطات", "slug": "kenlat", "price": 14.99, "url": "auroradreams65.gumroad.com/l/kenlat", "status": "created_unpublished"},
+    {"name": "حزمة كتابة محتوى Web3 - 10 قوالب", "slug": "llunpk", "price": 12.99, "url": "auroradreams65.gumroad.com/l/llunpk", "status": "created_unpublished"},
+    {"name": "شرح العقد الذكي للمبتدئين", "slug": "izcdtl", "price": 7.99, "url": "auroradreams65.gumroad.com/l/izcdtl", "status": "created_unpublished"},
+    {"name": "حزمة تقديم الوظائف Web3", "slug": "gtnthl", "price": 11.99, "url": "auroradreams65.gumroad.com/l/gtnthl", "status": "created_unpublished"},
+    {"name": "تحليل الأمن والاقتصاد الرمزي", "slug": "rgwzjh", "price": 19.99, "url": "auroradreams65.gumroad.com/l/rgwzjh", "status": "created_unpublished"},
+    {"name": "حزمة 92 مهمة Web3 شاملة", "slug": "dkckfm", "price": 29.99, "url": "auroradreams65.gumroad.com/l/dkckfm", "status": "created_unpublished"}
+  ],
+  "blocker": "Gumroad requires payout method to publish products"
+}
