@@ -211,3 +211,58 @@ eventBus.on(EVENTS.OPPORTUNITY_APPLIED, async (payload) => {
 });
 
 export default eventBus;
+
+// ── FEEDBACK LOOP: task:success → create follow-up task ──
+eventBus.on(EVENTS.TASK_SUCCESS, async (payload) => {
+  // When a task succeeds, create a follow-up task automatically
+  if (payload.followUpTask) {
+    try {
+      const { db } = await import('./db.js');
+      db.prepare(`
+        INSERT INTO tasks (title, description, source, status, priority, created_at)
+        VALUES (?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP)
+      `).run(payload.followUpTask.title, payload.followUpTask.description || '', payload.followUpTask.source || 'feedback_loop', payload.followUpTask.priority || 'medium');
+      info('event-bus', `feedback loop: created follow-up task "${payload.followUpTask.title}"`);
+    } catch (e) {
+      warn('event-bus', `feedback loop failed: ${e.message}`);
+    }
+  }
+});
+
+// ── FEEDBACK LOOP: product:published → create marketing task ──
+eventBus.on(EVENTS.PRODUCT_PUBLISHED, async (payload) => {
+  try {
+    const { db } = await import('./db.js');
+    db.prepare(`
+      INSERT INTO tasks (title, description, source, status, priority, created_at)
+      VALUES (?, ?, 'feedback_loop', 'pending', 'medium', CURRENT_TIMESTAMP)
+    `).run(
+      `تسويق المنتج: ${payload.name || 'منتج جديد'}`,
+      `تم نشر المنتج "${payload.name || 'منتج جديد'}" على ${payload.platform || 'منصة'}. المطلوب: إنشاء منشورات تسويقية وتغريدات.`
+    );
+    info('event-bus', `feedback loop: created marketing task for "${payload.name}"`);
+  } catch (e) {
+    warn('event-bus', `marketing feedback loop failed: ${e.message}`);
+  }
+});
+
+// ── FEEDBACK LOOP: opportunity:discovered → create application task ──
+eventBus.on(EVENTS.OPPORTUNITY_DISCOVERED, async (payload) => {
+  if (payload.autoApply) {
+    try {
+      const { db } = await import('./db.js');
+      db.prepare(`
+        INSERT INTO tasks (title, description, source, status, priority, created_at)
+        VALUES (?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP)
+      `).run(
+        `التقديم على: ${payload.title || 'فرصة جديدة'}`,
+        payload.description || '',
+        'auto_apply',
+        payload.priority || 'medium'
+      );
+      info('event-bus', `feedback loop: created application task for "${payload.title}"`);
+    } catch (e) {
+      warn('event-bus', `application feedback loop failed: ${e.message}`);
+    }
+  }
+});
