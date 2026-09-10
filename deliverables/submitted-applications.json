@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-09-10T07:29:22.113Z",
+  "total": 3,
+  "submitted": 0,
+  "results": [
+    {
+      "title": "Freelance Writer",
+      "company": "IAPWE",
+      "url": "https://iapwe.org/remotive",
+      "email": "auroraalmada4@gmail.com",
+      "status": "error",
+      "error": "elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b"
+    },
+    {
+      "title": "Freelance Copywriter",
+      "company": "Coalition Technologies",
+      "url": "https://app.testedrecruits.com/posting/16720",
+      "email": "auroraalmada4@gmail.com",
+      "status": "error",
+      "error": "elementHandle.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m    - fill(\"Silent Giants\")\u001b[22m\n\u001b[2m  - attempting fill action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and editable\u001b[22"
+    },
+    {
+      "title": "Content Reviewer",
+      "company": "TELUS Digital",
+      "url": "https://www.telusinternational.ai/cmp/contributor/jobs/available/128949?utm_source=Remotive&utm_medium=Ads&utm_campaign=SHTArlyn_AMERICAS_Paid+Site_Remotive_Ads_128949_",
+      "email": "auroraalmada4@gmail.com",
+      "status": "no_submit_button",
+      "fields": []
+    }
+  ]
+}

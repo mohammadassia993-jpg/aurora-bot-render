@@ -181,7 +181,7 @@ export async function runMailQueue(limit = 25) {
   let failed = 0;
   for (const item of pending) {
     try {
-      await deliverMail(item);
+      await deliverMail({ to: item.to_address, subject: item.subject, text: item.body });
       db.prepare("UPDATE mail_queue SET status='sent', attempts=attempts+1, last_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(item.id);
       delivered++;
     } catch (error) {

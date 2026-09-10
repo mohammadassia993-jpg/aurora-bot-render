@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-09-10T07:24:28.575Z",
+  "total": 6,
+  "submitted": 0,
+  "email_found": 0,
+  "external": 0,
+  "errors": 6,
+  "results": [
+    {
+      "title": "Freelance Writer",
+      "company": "IAPWE",
+      "url": "https://remotive.com/remote-jobs/writing/freelance-writer-1185979",
+      "source": "remotive",
+      "status": "error",
+      "error": "elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b"
+    },
+    {
+      "title": "Freelance Copywriter",
+      "company": "Coalition Technologies",
+      "url": "https://remotive.com/remote-jobs/writing/freelance-copywriter-1749306",
+      "source": "remotive",
+      "status": "error",
+      "error": "elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b"
+    },
+    {
+      "title": "AI Response Analyst",
+      "company": "iMerit Technology",
+      "url": "https://remoteOK.com/remote-jobs/remote-ai-response-analyst-imerit-technology-11",
+      "source": "remoteok",
+      "status": "error",
+      "error": "elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b"
+    },
+    {
+      "title": "Social Comms",
+      "company": "NOPE",
+      "url": "https://remoteOK.com/remote-jobs/remote-social-comms-nope-1137314",
+      "source": "remoteok",
+      "status": "error",
+      "error": "elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b"
+    },
+    {
+      "title": "Head of Marketing & Communications",
+      "company": "garden3d",
+      "url": "https://remotive.com/remote-jobs/marketing/head-of-marketing-communications-2091",
+      "source": "remotive",
+      "status": "error",
+      "error": "elementHandle.click: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - e"
+    },
+    {
+      "title": "Course Writer and Editor",
+      "company": "Interaction Design Foundation",
+      "url": "https://remoteOK.com/remote-jobs/remote-course-writer-and-editor-ux-ui",
+      "source": "remoteok",
+      "status": "error",
+      "error": "page.goto: Target page, context or browser has been closed"
+    }
+  ]
+}
