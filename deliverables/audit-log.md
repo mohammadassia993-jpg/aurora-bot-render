@@ -85,3 +85,14 @@
 - 3 test emails (to aurora, Mohammadassia993, external)
 - Hunter.io address verification (no API key found — will use free verifier or provider-level verification)
 - Resume job applications (5/day max)
+
+### Follow-up actions (automated, while waiting for app password):
+- Added rate limiting: MAX_PER_HOUR=10, MAX_PER_DAY=50, MIN_GAP_MS=60000
+- Added verifyEmail() via Disify API (free, no key needed)
+- Both committed and pushed (78e31d3), Render deploy live
+
+### Remaining (blocked on app password):
+- 3 test emails to auroraalmada4, Mohammadassia993, external
+- Address verification with Disify (automated, ready)
+- Job applications (5/day)
+- Hunter.io: no API key available — using Disify as free alternative
