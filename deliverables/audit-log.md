@@ -38,3 +38,30 @@
 | Payhip | reCAPTCHA v2 | ❌ Need CAPTCHA service |
 | Sellfy | reCAPTCHA + Google OAuth | ❌ Need CAPTCHA service |
 | Etsy | Region sanctions | ❌ Need VPN/proxy |
+
+## 2026-09-10 — Phase 1: Immunefi + Slither Setup
+
+### Actions:
+- Created `/usr/local/bin/solc` wrapper (Node.js-based) to run Slither on ARM64
+  - Problem: Native solc binary is x86_64, incompatible with ARM64
+  - Solution: solcjs wrapper translates --combined-json args to standard-json format
+  - Slither successfully runs with the wrapper
+- Ran Slither on contracts/SimpleToken.sol
+  - 3 findings: solc-version, constable-states, immutable-states
+  - Results saved to deliverables/slither-simpletoken.json
+- Updated src/scheduler.js with 4 fixed daily reports:
+  - 10:00 UTC (morning), 16:00 UTC (afternoon), 22:00 UTC (evening), 04:00 UTC (night)
+  - Removed redundant 6-hour accountability report
+- Browsed Immunefi bounties: 150+ active programs found
+  - Selected 3 for initial focus: ENS, Aave, Wormhole
+  - Note: Immunefi is client-side rendered (Next.js), curl can get program list but not detailed rewards
+
+### Tools Installed:
+- Slither v0.11.6 ✅
+- solcjs v0.8.20 ✅
+- solc wrapper (ARM64 compatible) ✅
+
+### Blockers:
+- solc native binary cannot run on ARM64 (wrapper workaround applied)
+- Immunefi detailed bounty info requires headless browser (Playwright timeout on ARM64)
+- Docker not available for cross-compilation

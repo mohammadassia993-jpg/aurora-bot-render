@@ -38,45 +38,35 @@ export function startScheduler() {
   }, { timezone: 'UTC' }));
 
   // ── 2a. Morning report (every day at 07:00 UTC) ──
-  jobs.push(cron.schedule('0 8 * * *', async () => {
-    info('scheduler', '🌅 Morning report generation...');
+  jobs.push(cron.schedule('0 10 * * *', async () => {
+    info('scheduler', '🌅 Morning report (10:00 UTC)...');
     try {
       const { default: reporter } = await import('./reporter.js');
       await reporter.sendReport('morning');
     } catch (e) { errLog('scheduler', `Morning report failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
-  // ── 2b. Accountability reports every 6 hours ──
-  jobs.push(cron.schedule('0 */6 * * *', async () => {
-    info('scheduler', '📊 6-hour accountability report...');
+  // ── 2b. Afternoon report (16:00 UTC) ──
+  jobs.push(cron.schedule('0 16 * * *', async () => {
+    info('scheduler', '📊 Afternoon report (16:00 UTC)...');
     try {
       const { default: reporter } = await import('./reporter.js');
-      const { db } = await import('./db.js');
-      const contacts = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source = 'lead'").get().c;
-      const sent = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source = 'outreach'").get().c;
-      const applied = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job_apply','prize_scan') AND status = 'applied'").get().c;
-      const revenue = db.prepare("SELECT COALESCE(SUM(reward),0) c FROM tasks WHERE status='done' AND reward>0").get().c;
-      const { sendMessageDetailed } = await import('./telegram.js');
-      const { config } = await import('./config.js');
-      const msg = [
-        '📊 تقرير المساءلة (كل 6 ساعات)',
-        '',
-        '🎯 الهدف: 1000$ خلال 7 أيام',
-        '',
-        '  📞 عملاء متواصل معهم: ' + contacts + '/100',
-        '  📩 رسائل مرسلة: ' + sent + '/50',
-        '  📝 تقديمات (وظائف/جوائز): ' + applied + '/40',
-        '  💰 إيرادات: \$' + revenue + '/1000',
-        '',
-        revenue >= 1000 ? '✅ تم تحقيق الهدف!' : '⚡ لم يتحقق الهدف بعد — مواصلة العمل'
-      ].join('\n');
-      await sendMessageDetailed(msg, config.telegramChatId);
-    } catch (e) {}
+      await reporter.sendReport('afternoon');
+    } catch (e) { errLog('scheduler', `Afternoon report failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── 2d. Night report (04:00 UTC) ──
+  jobs.push(cron.schedule('0 4 * * *', async () => {
+    info('scheduler', '🌙 Night report (04:00 UTC)...');
+    try {
+      const { default: reporter } = await import('./reporter.js');
+      await reporter.sendReport('night');
+    } catch (e) { errLog('scheduler', `Night report failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
   // ── 2c. Evening report (every day at 20:00 UTC) ──
-  jobs.push(cron.schedule('0 20 * * *', async () => {
-    info('scheduler', '🌙 Evening report generation...');
+  jobs.push(cron.schedule('0 22 * * *', async () => {
+    info('scheduler', '🌙 Evening report (22:00 UTC)...');
     try {
       const { default: reporter } = await import('./reporter.js');
       await reporter.sendReport('evening');
