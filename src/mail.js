@@ -122,14 +122,15 @@ export async function deliverMail({ to, subject, text }) {
     await smtpCommand(socket, 'AUTH LOGIN', '334');
     await smtpCommand(socket, Buffer.from(config.smtpUser).toString('base64'), '334');
     await smtpCommand(socket, Buffer.from(config.smtpPass).toString('base64'), '235');
-    await smtpCommand(socket, `MAIL FROM:<${config.smtpUser}>`, '250');
+    await smtpCommand(socket, `MAIL FROM:<${config.mailFrom || config.smtpUser}>`, '250');
     await smtpCommand(socket, `RCPT TO:<${to}>`, '250');
     await smtpCommand(socket, 'DATA', '354');
 
     const encodedSubject = `=?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
     const safeBody = String(text).replace(/\r?\n/g, '\r\n').replace(/^\./gm, '..');
     const message = [
-      `From: Aurora <${config.smtpUser}>`,
+      `From: Aurora <${config.mailFrom || config.smtpUser}>`,
+      `Reply-To: ${config.mailReplyTo || config.mailFrom || config.smtpUser}`,
       `To: <${to}>`,
       `Subject: ${encodedSubject}`,
       `Date: ${new Date().toUTCString()}`,
