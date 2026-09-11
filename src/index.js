@@ -162,6 +162,11 @@ if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
   }, 7 * 24 * 60 * 60_000).unref();
 }
 
+// Render keepalive: self-ping every 10 minutes to prevent sleep
+setInterval(() => {
+  fetch("https://aurora-bot-render.onrender.com/health").catch(() => {});
+}, 10 * 60 * 1000);
+
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     info('platform', `${signal} received; stopping`);
