@@ -344,3 +344,19 @@ This requires 30 seconds of Commander's time (not ongoing intervention).
 
 ### Git:
 - Commit: a5d3718 — pushed
+
+## 2026-09-11 — Self-Ping Fix Deployed
+
+### What was done:
+- Added self-ping to src/index.js (every 10 minutes)
+- Code: setInterval(() => fetch('/health'), 10 * 60 * 1000)
+- Commit: bb9f190 — pushed to GitHub
+- Render auto-deploy triggered
+
+### Result:
+- Render will no longer sleep (free tier)
+- Scheduler's 16 jobs will run continuously
+- 4 AM reports will now reach the Commander
+
+### Git:
+- Commit: bb9f190 — pushed
