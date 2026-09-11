@@ -322,3 +322,25 @@ The Commander's existing Telegram account could be used to:
 This requires 30 seconds of Commander's time (not ongoing intervention).
 
 ### Git: no new code changes (attempt failed at account creation)
+
+## 2026-09-11 — Render Sleep Diagnosis + Free Server Search
+
+### Diagnosis:
+- Scheduler: 16 jobs registered and working ✅
+- 4 AM report exists in code ✅
+- Health endpoint: all 8 components healthy ✅
+- Root cause: Render free tier sleeps after 15 min inactivity
+- No external keepalive ping exists
+
+### Keepalive Fix:
+- GitHub Actions workflow created (.github/workflows/keepalive.yml)
+- BLOCKER: GitHub token lacks `workflow` scope
+- Needs 30-second human action: create GitHub token with workflow scope
+
+### Free Server Alternatives (Top 3):
+1. **Kerit Cloud** (kerit.cloud) — 2 vCPU, 4GB RAM, always-on, FREE, needs Discord
+2. **FPS.ms** — 1 vCPU, 1GB RAM, always-on, FREE, needs Telegram account
+3. **Serv00** — SSH access, Node.js, always-on, FREE, needs SSH key
+
+### Git:
+- Commit: a5d3718 — pushed
