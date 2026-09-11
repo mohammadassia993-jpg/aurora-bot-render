@@ -75,6 +75,7 @@ export function startScheduler() {
 
   // ── 2c. Marketing cycle (every 4 hours) ──
   jobs.push(cron.schedule('0 */4 * * *', async () => {
+    if (process.env.CONTINUOUS_PRODUCTION_ENABLED === 'false') { info('scheduler', 'Production DISABLED by leader instruction'); return; }
     info('scheduler', '📣 Marketing cycle...');
     try {
       const { default: marketing } = await import('./marketing-engine.js');
@@ -103,6 +104,7 @@ export function startScheduler() {
 
   // ── 5. Product production cycle (every 4 hours) ──
   jobs.push(cron.schedule('0 */4 * * *', async () => {
+    if (process.env.CONTINUOUS_PRODUCTION_ENABLED === 'false') { info('scheduler', 'Production DISABLED by leader instruction'); return; }
     info('scheduler', '🏭 Production cycle starting...');
     try {
       const { default: production } = await import('./production.js');
@@ -150,8 +152,9 @@ export function startScheduler() {
     } catch (e) { errLog('scheduler', `Platform discovery failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
-  // ── 10. Continuous production (every 30 minutes for fast category) ──
+  // ── 10. Continuous production (DISABLED by leader) ──
   jobs.push(cron.schedule('*/30 * * * *', async () => {
+    if (process.env.AUTO_PRODUCTION === 'false') { info('scheduler', 'Auto-production DISABLED by leader instruction'); return; }
     info('scheduler', '🏭 Production cycle (fast category)...');
     try {
       const { default: continuousProd } = await import('./continuous-production.js');

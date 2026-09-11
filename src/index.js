@@ -107,7 +107,7 @@ info('platform', '✅ Scheduler + Initiator + Reporter + EventBus active');
 // ── Kimi Plan: Continuous Production (start after 2 min delay) ──
 setTimeout(async () => {
   try {
-    await startContinuousProduction();
+    if (process.env.CONTINUOUS_PRODUCTION_ENABLED !== 'false') { await startContinuousProduction(); } else { info('production', 'Continuous production DISABLED by leader instruction'); }
   } catch (e) { error('production', `Continuous production error: ${e.message}`); }
 }, 2 * 60 * 1000);
 
