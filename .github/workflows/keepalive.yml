@@ -1,0 +1,21 @@
+name: Render Keep-Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render
+        run: |
+          echo "Pinging Render at $(date -u)"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://aurora-bot-render.onrender.com/health" --max-time 30)
+          echo "Health status: $STATUS"
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Render is alive"
+          else
+            echo "⚠️ Render returned $STATUS"
+          fi
