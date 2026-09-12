@@ -162,6 +162,21 @@ if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
   }, 7 * 24 * 60 * 60_000).unref();
 }
 
+
+// SQLite maintenance: weekly VACUUM + integrity check to keep DB small
+setInterval(async () => {
+  try {
+    const { db } = await import('./db.js');
+    const integrity = db.prepare('PRAGMA integrity_check').get();
+    info('maintenance', `SQLite integrity: ${integrity?.integrity_check || ''}`);
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    db.exec('VACUUM;');
+    info('maintenance', 'SQLite VACUUM completed');
+  } catch (caught) {
+    error('maintenance', caught.message);
+  }
+}, 7 * 24 * 60 * 60_000).unref();
+
 // Render keepalive: self-ping every 10 minutes to prevent sleep
 setInterval(() => {
   fetch("https://aurora-bot-render.onrender.com/health").catch(() => {});

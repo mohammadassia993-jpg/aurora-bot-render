@@ -9,6 +9,7 @@ fs.mkdirSync(path.join(config.root, 'backups'), { recursive: true });
 
 export const db = new DatabaseSync(path.join(config.root, 'data', 'platform.db'));
 db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA auto_vacuum = INCREMENTAL;');
 db.exec('PRAGMA busy_timeout = 5000;');
 
 db.exec(`

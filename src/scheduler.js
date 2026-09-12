@@ -18,8 +18,9 @@ const jobs = [];
 export function startScheduler() {
   info('scheduler', '🚀 Starting scheduler agent...');
 
-  // ── 0. Bundle 92-tasks generation (daily at 05:00 UTC) ──
+  // ── 0. Bundle 92-tasks generation (daily at 05:00 UTC, ONLY if enabled) ──
   jobs.push(cron.schedule('0 5 * * *', async () => {
+    if (process.env.CONTINUOUS_PRODUCTION_ENABLED !== 'true') { info('scheduler', 'Bundle generation disabled (CONTINUOUS_PRODUCTION_ENABLED != true)'); return; }
     info('scheduler', '📦 Generating 92-tasks bundle...');
     try {
       const { default: tasksToProducts } = await import('./tasks-to-products.js');
@@ -84,7 +85,7 @@ export function startScheduler() {
   }, { timezone: 'UTC' }));
 
   // ── 3. Competition & contract registration (every 2 hours) ──
-  jobs.push(cron.schedule('0 */2 * * *', async () => {
+  jobs.push(cron.schedule('0 */6 * * *', async () => {
     info('scheduler', '🏆 Checking competitions & contracts...');
     try {
       const { default: initiator } = await import('./initiator.js');
@@ -94,7 +95,7 @@ export function startScheduler() {
   }, { timezone: 'UTC' }));
 
   // ── 4. Health check (every 15 minutes) ──
-  jobs.push(cron.schedule('*/15 * * * *', async () => {
+  jobs.push(cron.schedule('*/30 * * * *', async () => {
     try {
       const { default: watchdog } = await import('./watchdog.js');
       await watchdog.runWatchdog?.() || watchdog.default?.();
