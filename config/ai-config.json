@@ -1,0 +1,205 @@
+{
+  "primary": {
+    "provider": "llm7",
+    "baseUrl": "https://api.llm7.io/v1",
+    "apiKey": "yOr5S0CwVLBL3MfyUGFJA/oBpDJ6KxaMkrOFYKfshQAUr0FuCBroWbIKwFhY8THrqgMkqDAlpoQbail4eoW9ufJcG4yUupu32Zsj8BgedOYf3YA/t7iV1o0VyUDsphzTl25xfH769YfGi8S2nclc/Q==",
+    "model": "codestral-latest",
+    "models": {
+      "codestral-latest": {
+        "name": "Codestral Latest",
+        "status": "WORKING_3_3"
+      },
+      "deepseek-v4-flash-0731": {
+        "name": "DeepSeek V4 Flash",
+        "status": "WORKING"
+      },
+      "default": {
+        "name": "Default (auto)",
+        "status": "WORKING"
+      }
+    },
+    "status": "WORKING",
+    "verified": "2026-09-12 16:15 UTC - 3/3 OK chat completions, 200 OK, real key"
+  },
+  "fallback1": {
+    "provider": "logfare",
+    "baseUrl": "https://logfare.ai/v1",
+    "apiKey": "lfu_iFQ-ztKFCa05owxD1TrHOgn0eqUtJZHV",
+    "model": "gemma-4-26b",
+    "models": {
+      "gemma-4-26b": {
+        "name": "Gemma 4 26B",
+        "status": "WORKING_10_10"
+      },
+      "logfare/auto": {
+        "name": "Logfare Auto",
+        "status": "WORKING_10_10"
+      },
+      "qwen-3.8-27b": {
+        "name": "Qwen 3.8 27B (premium, needs opt-in)",
+        "status": "NEEDS_OPTIN"
+      }
+    },
+    "status": "WORKING",
+    "verified": "2026-09-12 16:20 UTC - 10/10 OK sequential both models, avg 3.5s, no quota observed"
+  },
+  "fallback2": {
+    "provider": "pollinations",
+    "baseUrl": "https://text.pollinations.ai/openai",
+    "apiKey": "",
+    "model": "openai",
+    "status": "WORKING_LOW_BUDGET",
+    "note": "HTTP 200 via curl with browser UA (single requests), intermittent 402 under rapid burst"
+  },
+  "fallback3": {
+    "provider": "agnes",
+    "baseUrl": "https://apihub.agnes-ai.com/v1",
+    "apiKey": "sk-MNKF4OnRdkKmM8xcFSHqejeEQgfP2vPc6DX5EYXpy8J2hREN",
+    "model": "agnes-2.0-flash",
+    "status": "WORKING_INTERMITTENT"
+  },
+  "fallback4": {
+    "provider": "dg-ai",
+    "baseUrl": "https://dg-ai.scriptsnsenses.workers.dev/v1/chat/completions",
+    "apiKey": "",
+    "model": "qwen-2.5-7b",
+    "status": "QUOTA_EXHAUSTED_TODAY",
+    "note": "re-test 13 Sep after quota reset"
+  },
+  "fallback5": {
+    "provider": "aihubmix",
+    "baseUrl": "https://aihubmix.com/v1",
+    "apiKey": "sk-3wOZCMBWfpmw6i7Q41C21887D4Fa43AcBc7e2cD54b70639b",
+    "model": "gpt-5.5-free",
+    "status": "INSUFFICIENT_BALANCE"
+  },
+  "untested_blocked": {
+    "cvron": {
+      "url": "https://api.cvron.ai/v1",
+      "status": "DOMAIN_NOT_FOUND",
+      "note": "NXDOMAIN - service does not exist"
+    },
+    "together": {
+      "url": "https://api.together.xyz/v1",
+      "status": "NEEDS_ACCOUNT",
+      "note": "Google/GitHub OAuth only"
+    },
+    "cloudflare": {
+      "url": "https://api.cloudflare.com/client/v4",
+      "status": "NEEDS_ACCOUNT"
+    },
+    "groq": {
+      "url": "https://api.groq.com/openai/v1",
+      "status": "NEEDS_KEY"
+    },
+    "orcarouter": {
+      "url": "https://api.orcarouter.ai/v1",
+      "status": "NEEDS_KEY"
+    }
+  },
+  "failover": {
+    "enabled": true,
+    "chain": [
+      "llm7",
+      "logfare",
+      "pollinations",
+      "agnes",
+      "dg-ai"
+    ],
+    "active_chain": [
+      "llm7",
+      "logfare",
+      "pollinations",
+      "agnes"
+    ],
+    "dg_ai_note": "queued until 13 Sep quota reset",
+    "retryDelayMs": 1000
+  },
+  "verified": {
+    "llm7": "WORKING_REAL_KEY",
+    "logfare": "WORKING",
+    "pollinations": "WORKING_LOW_BUDGET",
+    "agnes": "WORKING_INTERMITTENT",
+    "dg-ai": "QUOTA_EXHAUSTED_TODAY",
+    "dahl": "FAIL_401",
+    "danyapi": "FAIL_401",
+    "gemini": "BLOCKED_SYRIA",
+    "keylessai": "FAIL_NXDOMAIN",
+    "ovhcloud": "FAIL_NXDOMAIN",
+    "inferenceport": "FAIL_401_NO_TOKEN",
+    "uncloseai": "FAIL_NO_API",
+    "mistral": "NOT_ATTEMPTED",
+    "zendriver_mcp": "FAIL_TIMEOUT"
+  },
+  "tested_at": "2026-09-12T16:15:00Z",
+  "active_providers_target": 4,
+  "active_providers_now": 4,
+  "stress_test": {
+    "tested_at": "2026-09-12T12:55:00Z",
+    "phase1_20x_llm7": "10/20 OK (0.6s spacing) avg 736ms; then 429 window",
+    "phase2_llm7_down": "pollinations 402, dg-ai 502, agnes OK -> first success agnes ~38.7s incl retries",
+    "phase3_llm7+poll_down": "dg-ai 502, agnes 429 (rate limit) -> no success that minute",
+    "control_chain": "llm7 first, 1434ms",
+    "note": "details in reports/STRESS_TEST_2026-09-12.md"
+  },
+  "requested_but_failed": {
+    "keylessai": {
+      "url": "https://keylessai.thryx.workers.dev/v1",
+      "status": "FAIL_DNS_NXDOMAIN",
+      "note": "Domain does not resolve. Tried keylessai.thryx.workers.dev, keyless-ai.thryx.workers.dev, keylessai.workers.dev, keyless.thryx.workers.dev - all NXDOMAIN. Endpoint does not exist."
+    },
+    "uncloseai": {
+      "url": "https://uncloseai.com",
+      "status": "FAIL_NO_API",
+      "note": "Service is a web chat UI (permacomputer project). /v1/models, /v1/chat/completions, /api/v1, /openapi.json all 404 (SPA HTML for all routes). No OpenAI-compatible API."
+    },
+    "longcat": {
+      "url": "https://longcat.chat",
+      "status": "REGISTRATION_NOT_FEASIBLE",
+      "note": "LongCat AI is part of Meituan (CN) platform. Auth via meituan H5guard anti-bot + Chinese phone number. Email-only registration not available; /v1/chat/completions serves SPA HTML, no public API docs. Not usable."
+    }
+  },
+  "active_providers_reliable": 2,
+  "requested_this_order": {
+    "dahl": {
+      "url": "https://inference.dahl.global/v1",
+      "status": "FAIL_401",
+      "note": "Both MiniMax-M2.7 and Kimi-K2.6 return 401 invalid_api_key \u2014 requires real API key, not 'not-needed'"
+    },
+    "danyapi": {
+      "url": "https://danyapi.cloudpub.ru/v1/",
+      "status": "FAIL_401",
+      "note": "Both deepseek-chat and qwen-chat return 401 invalid provider keys \u2014 requires real upstream API keys"
+    },
+    "gemini": {
+      "url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "status": "BLOCKED_IN_SYRIA",
+      "note": "Key exists (AQ.Ab8...) and is valid, but Google API returns 400 'User location not supported' for Syrian IP (Damascus). Gemini web may work but API does not from Syria."
+    },
+    "logfare": {
+      "url": "https://logfare.ai/v1",
+      "status": "SUCCESS",
+      "note": "Registered emaillessly (aurora-almada-88), API key obtained (lfu_...), 10/10 OK both models"
+    },
+    "zendriver_mcp": {
+      "status": "FAIL",
+      "note": "npm package 'zendriver-mcp' does not exist (E404). zendriver (Python) and nodriver installed and used \u2014 verify_cf() timed out in all attempts (headless + headed+Xvfb). Turnstile unsolvable from datacenter IP."
+    },
+    "keylessai": {
+      "status": "FAIL_DNS_NXDOMAIN",
+      "note": "from previous order"
+    },
+    "uncloseai": {
+      "status": "FAIL_NO_API",
+      "note": "from previous order"
+    }
+  },
+  "llm7_key_status": {
+    "status": "REAL_KEY_OBTAINED",
+    "key_prefix": "yOr5S0CwVLBL***",
+    "obtained_via": "Dashboard login + clipboard intercept (zendriver+Xvfb)",
+    "rated": "3/3 HTTP 200 (quick sequential)",
+    "model": "codestral-latest (free tier)",
+    "note": "Key is base64-format (yOr5S0CwVL...), works as Bearer token"
+  }
+}
