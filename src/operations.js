@@ -170,6 +170,7 @@ export async function runJobApplications() {
 
 export async function runMarketingPublish() {
   const channelId = config.telegramChannelId;
+  if (!channelId) { warn('operations', 'TELEGRAM_CHANNEL_ID not configured — skipping channel publish'); return { published: 0 }; }
   const published = [];
   const now = new Date();
 

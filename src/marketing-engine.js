@@ -43,8 +43,8 @@ async function generatePost(topic, product) {
 
 /** Publish to Telegram channel */
 async function publishToTelegram(post) {
-  const channelId = config.telegramChannelId || config.telegramChatId;
-  if (!channelId) return false;
+  const channelId = config.telegramChannelId;
+  if (!channelId) { warn('marketing', 'TELEGRAM_CHANNEL_ID not configured — skipping channel publish'); return false; }
   try {
     await sendMessageDetailed(post, channelId);
     info('marketing', '📣 Post published to Telegram channel');

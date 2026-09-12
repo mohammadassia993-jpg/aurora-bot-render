@@ -339,7 +339,7 @@ export async function publishToTelegramStars(product) {
   return {
     platform: 'telegram_stars',
     success: !!args,
-    productUrl: `https://t.me/${config.telegramChannelUsername || 'Aurora_Almada_88_Bot'}`,
+    productUrl: config.telegramChannelUsername ? `https://t.me/${config.telegramChannelUsername}` : null,
     canInvoice: !!args,
     product
   };
