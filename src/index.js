@@ -163,6 +163,17 @@ if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
 }
 
 
+// Continuous operation: internal heartbeat every 5 min (works without cron-job.org)
+setInterval(async () => {
+  try {
+    const { runHeartbeat } = await import('./task-queue.js');
+    const result = await runHeartbeat();
+    info('heartbeat', `heartbeat ok: task=${result.executed} queue=${result.queue.pending}`);
+  } catch (caught) {
+    error('heartbeat', caught.message);
+  }
+}, 5 * 60 * 1000);
+
 // SQLite maintenance: weekly VACUUM + integrity check to keep DB small
 setInterval(async () => {
   try {

@@ -166,6 +166,24 @@ export function startScheduler() {
     } catch (e) { errLog('scheduler', `Production cycle failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
+  // ── Scheduled report every 3 hours (real numbers → Aurora) ──
+  jobs.push(cron.schedule('0 */3 * * *', async () => {
+    info('scheduler', '📬 3-hour report...');
+    try {
+      const { sendScheduledReport } = await import('./task-queue.js');
+      const result = await sendScheduledReport();
+      if (!result.delivered) warn('scheduler', `3-hour report not delivered: ${JSON.stringify(result).slice(0,200)}`);
+    } catch (e) { errLog('scheduler', `3-hour report failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── Heartbeat fallback: run queue task every 5 min even without cron-job.org ──
+  jobs.push(cron.schedule('*/5 * * * *', async () => {
+    try {
+      const { runHeartbeat } = await import('./task-queue.js');
+      await runHeartbeat();
+    } catch (e) { /* silent — heartbeat logs its own */ }
+  }, { timezone: 'UTC' }));
+
   // ── Record scheduler start in memory ──
   EpisodicMemory.record('system_start', 'scheduler', null, 'Scheduler Agent Started', `Active jobs: ${jobs.length}`, 'success', { jobCount: jobs.length });
 

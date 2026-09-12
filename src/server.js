@@ -313,6 +313,45 @@ export async function startServer() {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
       }
 
+      // ── Continuous Self-Running System: Task Queue + Heartbeat ──
+      if (url.pathname === '/heartbeat') {
+        const { runHeartbeat } = await import('./task-queue.js');
+        try {
+          const result = await runHeartbeat();
+          return json(response, 200, result);
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      if (url.pathname === '/send-report') {
+        const { sendScheduledReport } = await import('./task-queue.js');
+        try {
+          const result = await sendScheduledReport();
+          return json(response, result.delivered ? 200 : 502, result);
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      if (url.pathname === '/tasks/next' && request.method === 'GET') {
+        const { nextTask, getQueueStats } = await import('./task-queue.js');
+        const task = nextTask();
+        return json(response, task ? 200 : 204, { task, queue: getQueueStats() });
+      }
+
+      if (url.pathname === '/tasks/done' && request.method === 'POST') {
+        const body = await readBody(request).catch(() => ({}));
+        const { markDone } = await import('./task-queue.js');
+        const result = markDone(Number(body.taskId), body.result || 'done');
+        return json(response, 200, result);
+      }
+
+      if (url.pathname === '/tasks' && request.method === 'GET') {
+        const { getQueueStats } = await import('./task-queue.js');
+        return json(response, 200, getQueueStats());
+      }
+
       // ── Kimi Plan: Agent System Status ──
       if (url.pathname === '/agents/status') {
         try {
