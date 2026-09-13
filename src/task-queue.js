@@ -131,8 +131,8 @@ export async function executeTask(task) {
       return 'email checked';
     }
     if (cat === 'opportunities') {
-      const { reApplyOldOpportunities } = await import('./job-applicant.js');
-      if (typeof reApplyOldOpportunities === 'function') await reApplyOldOpportunities();
+      const { scanRealOpportunities } = await import('./opportunity-scan.js');
+      if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
       return 'opportunities scanned';
     }
     if (cat === 'marketing') {

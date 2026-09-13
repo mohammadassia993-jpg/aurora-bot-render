@@ -2,6 +2,7 @@ import { db } from './db.js';
 import { callModel } from './ai.js';
 import { notify } from './notifications.js';
 import { audit } from './audit.js';
+import { scanRealOpportunities } from './opportunity-scan.js';
 
 function parseJson(value, fallback) {
   try {
@@ -49,14 +50,10 @@ Be realistic and specific. Do NOT invent fake platforms; only list real markets/
     const summary = await callModel('daily-scout', prompt);
     const parsed = parseJson(summary, { opportunities: [], blocked_ideas: [], recommendations: [] });
     const raw = (parsed.opportunities || []).filter(Boolean);
-    // If the AI provided explicit criteria_met fields, require >=8; otherwise (deterministic
-    // simulation when keys are unavailable) accept the returned opportunities as pre-filtered.
-    const withCriteria = raw.filter(item => Array.isArray(item.criteria_met));
-    const base = withCriteria.length >= raw.length
-      ? withCriteria.filter(item => item.criteria_met.length >= 8)
-      : raw;
-    const qualified = base.map(item => ({ ...item, daily_research: true }));
-    qualified.forEach(item => upsertOpportunity(item.title || 'Web3 opportunity', item.source || 'opportunity', item));
+    // Leader rule: no invented opportunities. Tasks are populated ONLY from real,
+    // verified sources (RemoteOK + Remotive) via scanRealOpportunities().
+    const qualified = raw.map(item => ({ ...item, daily_research: true, candidate_only: true }));
+    await scanRealOpportunities();
 
     db.prepare(`
       INSERT INTO research_reports(cycle,summary,opportunities_json,competitors_json)
@@ -86,7 +83,8 @@ Focus on Dework, Superteam Earn, BountyCaster, grants, ambassador programs, paid
 `.trim();
   const summary = await callModel('scout', prompt);
   const parsed = parseJson(summary, { opportunities: [], competitors: [], weekly_feedback: { strengths: [], weaknesses: [], improvements: [] } });
-  parsed.opportunities?.forEach(item => upsertOpportunity(item.title || 'Web3 opportunity', item.source || 'opportunity', item));
+  // No invented tasks — see scanRealOpportunities() for real sources only.
+  await scanRealOpportunities();
 
   db.prepare(`
     INSERT INTO research_reports(cycle,summary,opportunities_json,competitors_json)
