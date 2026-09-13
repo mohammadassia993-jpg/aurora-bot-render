@@ -3,6 +3,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { db, recordError } from './db.js';
 import { retry } from './retry.js';
+import { info, warn } from './logger.js';
 
 function modelScores() {
   return db.prepare(`
@@ -17,9 +18,11 @@ export function simulationEnabled() {
 }
 
 export function availableModels() {
-  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey || config.agnesKey || config.gensparkKey);
+  const hasRealKey = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.gptOssApiUrl || config.openRouterKey || config.agnesKey || config.gensparkKey || config.llm7Key || config.logfareKey);
   if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
+    config.logfareKey && { id: 'logfare', label: 'Logfare (' + (config.logfareModel || 'gemma-4-26b') + ')', priority: 0 },
+    config.llm7Key && { id: 'llm7', label: 'LLM7 (' + (config.llm7Model || 'codestral-latest') + ')', priority: 0 },
     config.kimiKey && { id: 'kimi-k3', label: 'Kimi K3 (moonshotai/kimi-k3)', priority: 0 },
     config.agnesKey && { id: 'agnes', label: "Agnes AI (agnes-2.0-flash)", priority: 0 },
     config.gensparkKey && { id: "genspark", label: "Genspark (" + (config.gensparkModel || "genspark-v2") + ")", priority: 0 },
@@ -47,6 +50,8 @@ export function selectModel() {
     const ollamaModel = available.find(m => m.id === 'ollama');
     if (ollamaModel) return ollamaModel.id;
   }
+  if (config.logfareKey) return "logfare";
+  if (config.llm7Key) return "llm7";
   if (config.agnesKey) return "agnes";
   if (config.gensparkKey) return "genspark";
   if (config.deepSeekKey) { const ds = available.find(m => m.id === config.deepSeekModel); if (ds) return ds.id; }
@@ -76,6 +81,35 @@ async function postJson(url, body, headers = {}, scope = 'ai') {
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body)
   }), { delays: config.retryDelaysMs, scope, onError: caught => recordError(scope, caught.code || `${scope.toUpperCase()}_RETRY`, caught.message, { attempt }) });
+}
+
+// Real-provider fallback chain: Logfare -> LLM7 -> Agnes (template only if all fail)
+async function openaiCompletion(url, apiKey, model, prompt) {
+  const response = await postJson(url + '/chat/completions', {
+    model,
+    messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+    max_tokens: 1024,
+    temperature: 0.7,
+    stream: false
+  }, { authorization: 'Bearer ' + apiKey }, 'ai-cascade');
+  if (!response.ok) throw Object.assign(new Error('HTTP ' + response.status), { code: 'AI_PROVIDER' });
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content || '';
+}
+
+async function cascadeCompletion(prompt, skipModel) {
+  const attempts = [
+    ['logfare', config.logfareUrl, config.logfareKey, config.logfareModel],
+    ['llm7', config.llm7Url, config.llm7Key, config.llm7Model],
+    ['agnes', config.agnesUrl, config.agnesKey, config.agnesModel]
+  ].filter(([name]) => name !== skipModel && config[`${name}Key`]);
+  for (const [name, url, key, model] of attempts) {
+    try {
+      const text = await openaiCompletion(url, key, model, prompt);
+      if (text) { info('ai', `cascade fallback used: ${name}`); return text; }
+    } catch (e) { warn('ai', `cascade ${name} failed: ${e.message}`); }
+  }
+  throw new Error('ALL_AI_PROVIDERS_FAILED');
 }
 
 function smartFallback(agent, prompt) {
@@ -166,7 +200,7 @@ export async function callModel(agent, prompt, taskId = null) {
   let success = true;
   let errorType = '';
   try {
-    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl || config.agnesKey || config.gensparkKey);
+    const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl || config.agnesKey || config.gensparkKey || config.llm7Key || config.logfareKey);
     const useSimulation = (simulationEnabled() && !hasRealProvider && model !== 'pollinations-llama')
       || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey && !config.agnesKey && !config.gensparkKey);
     if (useSimulation) {
@@ -251,6 +285,32 @@ export async function callModel(agent, prompt, taskId = null) {
       output = data.choices?.[0]?.message?.content || '';
       if (!output) throw Object.assign(new Error('Kimi K3 returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
 
+    } else if (model === 'logfare' && config.logfareKey) {
+      const response = await postJson(config.logfareUrl + '/chat/completions', {
+        model: config.logfareModel || 'gemma-4-26b',
+        messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.7,
+        stream: false
+      }, { authorization: 'Bearer ' + config.logfareKey }, 'logfare');
+      if (!response.ok) throw Object.assign(new Error('Logfare HTTP ' + response.status), { code: 'AI_PROVIDER' });
+      const data = await response.json();
+      output = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content || '';
+      if (!output) throw Object.assign(new Error('Logfare returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+
+    } else if (model === 'llm7' && config.llm7Key) {
+      const response = await postJson(config.llm7Url + '/chat/completions', {
+        model: config.llm7Model || 'codestral-latest',
+        messages: [{ role: 'system', content: soulPrompt() }, { role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.7,
+        stream: false
+      }, { authorization: 'Bearer ' + config.llm7Key }, 'llm7');
+      if (!response.ok) throw Object.assign(new Error('LLM7 HTTP ' + response.status), { code: 'AI_PROVIDER' });
+      const data = await response.json();
+      output = data.choices?.[0]?.message?.content || '';
+      if (!output) throw Object.assign(new Error('LLM7 returned an empty response'), { code: 'AI_EMPTY_RESPONSE' });
+
     } else if (model === 'agnes' && config.agnesKey) {
       const response = await postJson(config.agnesUrl + '/chat/completions', {
         model: config.agnesModel,
@@ -322,7 +382,15 @@ export async function callModel(agent, prompt, taskId = null) {
   } catch (caught) {
     success = true;
     errorType = 'AI_SMART_SIMULATION';
-    model = `${model}->pollinations`;
+    const primaryModel = model;
+    model = `${primaryModel}->cascade`;
+    try {
+      output = await cascadeCompletion(prompt, primaryModel);
+      if (output) model = `${primaryModel}->cascade-ok`;
+    } catch (cascadeCaught) {
+      warn('ai', `cascade exhausted after ${primaryModel}: ${cascadeCaught.message}`);
+    }
+    if (!output) model = `${primaryModel}->pollinations`;
     try {
       const encoded = encodeURIComponent(prompt.slice(0, 1500));
       const fallbackRes = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });
@@ -332,11 +400,12 @@ export async function callModel(agent, prompt, taskId = null) {
       }
     } catch {}
     if (!output) {
-      model = `${model}->smart-simulation`;
+      model = `${primaryModel}->smart-simulation`;
       output = smartFallback(agent, prompt);
     }
     recordError('ai', 'AI_SMART_FALLBACK', `${caught.code || 'AI_UNKNOWN'}: ${caught.message}`, { requestedModel: model }, 'تم تشغيل قوالب المحاكاة الذكية العربية');
   } finally {
+    info('ai', `callModel: agent=${agent || '-'} model=${model} latency=${Date.now() - started}ms chars=${output.length} error=${errorType || 'none'}`);
     db.prepare(`
       INSERT INTO agent_runs(task_id, agent, model, prompt_version, latency_ms, success, quality_score, error_type)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)

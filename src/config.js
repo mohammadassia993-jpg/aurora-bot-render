@@ -46,13 +46,19 @@ export const config = {
   agnesKey: process.env.AGNES_API_KEY || '',
   agnesUrl: process.env.AGNES_API_URL || 'https://apihub.agnes-ai.com/v1',
   agnesModel: process.env.AGNES_MODEL || 'agnes-2.0-flash',
+  logfareKey: process.env.LOGFARE_API_KEY || '',
+  logfareUrl: process.env.LOGFARE_BASE_URL || 'https://logfare.ai/v1',
+  logfareModel: process.env.LOGFARE_MODEL || 'gemma-4-26b',
+  llm7Key: process.env.LLM7_API_KEY || '',
+  llm7Url: process.env.LLM7_BASE_URL || 'https://api.llm7.io/v1',
+  llm7Model: process.env.LLM7_MODEL || 'codestral-latest',
   ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'qwen2.5:0.5b',
 
 
 
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',
-  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'kimi-k3',
+  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'logfare',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   publicReadOnly: process.env.PUBLIC_READ_ONLY === 'true',
   teamUiToken: process.env.TEAM_UI_TOKEN || '',
