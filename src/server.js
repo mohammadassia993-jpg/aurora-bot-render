@@ -309,6 +309,26 @@ export async function startServer() {
         return json(response, ok ? 200 : 503, { ok, health: checked, source: 'live' });
       }
 
+      // ── Freeweb MCP: web search/scraping (no API keys needed) ──
+      if (url.pathname === '/mcp/freeweb') {
+        try {
+          let body = null;
+          if (request.method === 'POST') {
+            body = await readRawBody(request, 5 * 1024 * 1024);
+          }
+          const { handleFreewebMCP } = await import('./mcp-freeweb.js');
+          await handleFreewebMCP(request, response, body);
+          return;
+        } catch (e) {
+          console.error('[mcp/freeweb] error:', e.message);
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      if (url.pathname === '/mcp/freeweb' && request.method === 'GET') {
+        return json(response, 200, { ok: true, service: 'freeweb-mcp', endpoint: '/mcp/freeweb (POST)', docs: 'MCP JSON-RPC over HTTP' });
+      }
+
       if (url.pathname === '/keepalive') {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
       }
