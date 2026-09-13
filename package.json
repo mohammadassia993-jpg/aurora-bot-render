@@ -20,9 +20,7 @@
     "playwright": "^1.63.0",
     "puppeteer": "^25.9.0",
     "socks-proxy-agent": "^10.1.0",
-    "solc": "^0.8.20",
-    "freeweb-mcp": "^3.4.0",
-    "@modelcontextprotocol/sdk": "^1.12.1"
+    "solc": "^0.8.20"
   },
   "engines": {
     "node": ">=22"
