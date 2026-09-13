@@ -13,8 +13,10 @@
     "postinstall": "npx puppeteer browsers install chrome || true"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "delegate-os": "^0.3.0",
     "express": "^4.22.2",
+    "freeweb-mcp": "^3.4.0",
     "node-cron": "^4.6.0",
     "nodemailer": "^10.0.1",
     "playwright": "^1.63.0",
