@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { size: A4; margin: 2cm; }
+@page :first { margin: 0; }
+body { font-family: 'Noto Sans Arabic', 'Segoe UI', Arial, sans-serif; line-height: 1.8; color: #1a1a2e; font-size: 13pt; }
+.cover { page-break-after: always; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); color: white; text-align: center; padding: 3cm; }
+.cover h1 { font-size: 36pt; margin-bottom: 0.3em; color: #e8d44d; }
+.cover h2 { font-size: 18pt; font-weight: 300; margin-bottom: 1em; }
+.cover .meta { font-size: 11pt; opacity: 0.8; margin-top: 2em; }
+.cover .brand { margin-top: 3em; font-size: 10pt; letter-spacing: 2px; text-transform: uppercase; opacity: 0.6; }
+.toc { page-break-after: always; }
+.toc h2 { color: #302b63; border-bottom: 2px solid #e8d44d; padding-bottom: 8px; }
+.toc ul { list-style: none; padding: 0; columns: 2; column-gap: 2em; }
+.toc li { padding: 4px 0; font-size: 11pt; border-bottom: 1px dotted #ccc; }
+.toc li span.num { color: #302b63; font-weight: bold; }
+.term { page-break-inside: avoid; margin-bottom: 1.2em; padding: 8px 12px; border-right: 3px solid #302b63; background: #f8f9fa; }
+.term-en { font-weight: bold; color: #302b63; font-size: 13pt; }
+.term-ar { font-weight: bold; color: #555; font-size: 11pt; }
+.term-desc { margin-top: 2px; color: #333; }
+h2.section { color: #302b63; border-bottom: 2px solid #e8d44d; padding-bottom: 6px; page-break-after: avoid; }
+</style>
+</head>
+<body>
+<div class="cover">
+<h1>📖 قاموس Web3 الشامل</h1>
+<h2>مصطلحات بلوك تشين والمال اللامركي</h2>
+<div class="meta">الإصدار 1.0 — 250+ مصطلح عربي-إنجليزي<br>سبتمبر 2026</div>
+<div class="brand">Silent Giants · عمالقة الصمت</div>
+</div>
+
+<div class="toc">
+<h2>📋 فهرس المصطلحات</h2>
+<ul>
+<li style="font-weight:bold;color:#302b63;padding-top:8px;">الأساسيات والبلوكتشين</li>
+<li><span class="num">1.</span> Blockchain — سلسلة الكتل</li>
+<li><span class="num">2.</span> Block — كتلة</li>
+<li><span class="num">3.</span> Hash — هاش</li>
+<li><span class="num">4.</span> DLT — تقنية الدفتر الموزع</li>
+<li><span class="num">5.</span> Node — عقدة</li>
+<li><span class="num">6.</span> Mining — التعدين</li>
+<li><span class="num">7.</span> Consensus — الإجماع</li>
+<li><span class="num">8.</span> PoW — إثبات العمل</li>
+<li><span class="num">9.</span> PoS — إثبات الحصة</li>
+<li><span class="num">10.</span> PoH — إثبات التاريخ</li>
+<li><span class="num">11.</span> BFT — تحمل العطل البيزنطي</li>
+<li><span class="num">12.</span> Double Spending — الإنفاق المزدوج</li>
+<li><span class="num">13.</span> Fork — فرع</li>
+<li><span class="num">14.</span> Hard Fork — فرع صلب</li>
+<li><span class="num">15.</span> Soft Fork — فرع سلس</li>
+<li><span class="num">16.</span> Sharding — التجزئة</li>
+<li><span class="num">17.</span> Layer 1 — الطبقة الأولى</li>
+<li><span class="num">18.</span> Layer 2 — الطبقة الثانية</li>
+<li><span class="num">19.</span> Sidechain — سلسلة جانبية</li>
+<li><span class="num">20.</span> Rollup — تجميع</li>
+<li><span class="num">21.</span> ZK Rollup — تجميع بالتعريف المعدوم</li>
+<li><span class="num">22.</span> State Channel — قناة الحالة</li>
+<li><span class="num">23.</span> Merkle Tree — شجرة ميركل</li>
+<li><span class="num">24.</span> Immutability — عدم التغيير</li>
+<li><span class="num">25.</span> Decentralization — عدم المركزية</li>
+<li><span class="num">26.</span> Custodial — إشرافي</li>
+<li><span class="num">27.</span> Non-Custodial — غير إشرافي</li>
+<li><span class="num">28.</span> Private Key — مفتاح خاص</li>
+<li><span class="num">29.</span> Public Key — مفتاح عام</li>
+<li><span class="num">30.</span> Address — عنوان</li>
+<li><span class="num">31.</span> Seed Phrase — عبارة البذرة</li>
+<li><span class="num">32.</span> Wallet — محفظة رقمية</li>
+<li><span class="num">33.</span> Hot Wallet — محفظة ساخنة</li>
+<li><span class="num">34.</span> Cold Wallet — محفظة باردة</li>
+<li><span class="num">35.</span> Hardware Wallet — محفظة مادية</li>
+<li><span class="num">36.</span> Multi-Sig — توقيع متعدد</li>
+<li><span class="num">37.</span> Transaction — معاملة</li>
+<li><span class="num">38.</span> Gas — الغاز</li>
+<li><span class="num">39.</span> Gas Limit — حد الغاز</li>
+<li><span class="num">40.</span> Nonce — رقم تعريفي فريد</li>
+<li><span class="num">41.</span> Confirmation — تأكيد</li>
+<li><span class="num">42.</span> Mempool — مجموعة الانتظار</li>
+<li><span class="num">43.</span> Oracle — منبه</li>
+<li><span class="num">44.</span> On-Chain — على السلسلة</li>
+<li><span class="num">45.</span> Off-Chain — خارج السلسلة</li>
+<li><span class="num">46.</span> Liquidity — السيولة</li>
+<li><span class="num">47.</span> Staking — التخزين</li>
+<li><span class="num">48.</span> DPoS — إثبات الحصة المفوضة</li>
+<li><span class="num">49.</span> Slashing — خصم العقوبات</li>
+<li><span class="num">50.</span> Validator — محقق</li>
+<li style="font-weight:bold;color:#302b63;padding-top:8px;">البروتوكولات والشبكات</li>
+<li><span class="num">51.</span> Interoperability — قابلية التشغيل البيني</li>
+<li><span class="num">52.</span> Bridge — جسر</li>
+<li><span class="num">53.</span> Wrapped Token — عملة ملفوفة</li>
+<li><span class="num">54.</span> Token — توكن</li>
+<li><span class="num">55.</span> Utility Token — توكن الاستخدام</li>
+<li><span class="num">56.</span> Governance Token — توكن الحوكمة</li>
+<li><span class="num">57.</span> Stablecoin — عملة مستقرة</li>
+<li><span class="num">58.</span> CBDC — عملة مركزية رقمية</li>
+<li><span class="num">59.</span> Bitcoin — بيتكوين</li>
+<li><span class="num">60.</span> Ethereum — ايثريوم</li>
+<li><span class="num">61.</span> Solana — سولانا</li>
+<li><span class="num">62.</span> USDT — تتر</li>
+<li><span class="num">63.</span> USDC — يوز دي سي</li>
+<li><span class="num">64.</span> DeFi — التمويل اللامركزي</li>
+<li><span class="num">65.</span> DEX — منصة تداول لامركية</li>
+<li><span class="num">66.</span> CEX — منصة تداول مركزية</li>
+<li><span class="num">67.</span> AMM — صانع سوق تلقائي</li>
+<li><span class="num">68.</span> Liquidity Pool — حوض السيولة</li>
+<li><span class="num">69.</span> Yield Farming — زراعة العائد</li>
+<li><span class="num">70.</span> Lending — الإقراض</li>
+<li><span class="num">71.</span> Collateral — الرهن</li>
+<li><span class="num">72.</span> Flash Loan — قرض خاطف</li>
+<li><span class="num">73.</span> Impermanent Loss — الخسارة المؤقتة</li>
+<li><span class="num">74.</span> APR — العائد السنوي</li>
+<li><span class="num">75.</span> APY — العائد السنوي الفعلي</li>
+<li><span class="num">76.</span> DAO — منظمة ذاتية الحكم</li>
+<li><span class="num">77.</span> NFT — أصل رقمي فريد</li>
+<li><span class="num">78.</span> Minting — السك</li>
+<li><span class="num">79.</span> Floor Price — سعر الأرضية</li>
+<li><span class="num">80.</span> Metadata — البيانات الوصفية</li>
+<li><span class="num">81.</span> IPFS — بروتوكول الملفات اللامركي</li>
+<li><span class="num">82.</span> DePIN — بنية تحتية لامركزية</li>
+<li><span class="num">83.</span> IoT — انترنت الاشياء</li>
+<li><span class="num">84.</span> Edge Computing — الحوسبة الطرفية</li>
+<li><span class="num">85.</span> Proof of Coverage — إثبات التغطية</li>
+<li><span class="num">86.</span> Helium — هيليوم</li>
+<li><span class="num">87.</span> Filecoin — فايلكوين</li>
+<li><span class="num">88.</span> Render Network — شبكة رندر</li>
+<li><span class="num">89.</span> Graph Protocol — بروتوكول الجراف</li>
+<li><span class="num">90.</span> Chainlink — تشين لينك</li>
+<li><span class="num">91.</span> Mining Pool — مجموعة التعدين</li>
+<li><span class="num">92.</span> Hash Rate — معدل الهاش</li>
+<li><span class="num">93.</span> Masternode — نود رئيسي</li>
+<li><span class="num">94.</span> Full Node — نود كاملة</li>
+<li><span class="num">95.</span> Light Node — نود خفيفة</li>
+<li><span class="num">96.</span> Testnet — شبكة تجريبية</li>
+<li><span class="num">97.</span> Mainnet — شبكة حقيقية</li>
+<li><span class="num">98.</span> Smart Contract — عقد ذكي</li>
+<li><span class="num">99.</span> DApp — تطبيق لامركي</li>
+<li><span class="num">100.</span> White Paper — ورقة بيضاء</li>
+<li style="font-weight:bold;color:#302b63;padding-top:8px;">ال Defi والمال اللامركي</li>
+<li><span class="num">101.</span> IDO — عرض اولي لامركي</li>
+<li><span class="num">102.</span> Tokenomics — اقتصادية التوكن</li>
+<li><span class="num">103.</span> Burning — حرق العملات</li>
+<li><span class="num">104.</span> Halving — التقسيم</li>
+<li><span class="num">105.</span> Supply — العرض</li>
+<li><span class="num">106.</span> Governance — الحوكمة</li>
+<li><span class="num">107.</span> Proposal — اقتراح</li>
+<li><span class="num">108.</span> Treasury — الخزينة</li>
+<li><span class="num">109.</span> Escrow — ضمان مالي</li>
+<li><span class="num">110.</span> Atomic Swap — تبديل ذري</li>
+<li><span class="num">111.</span> Cross-Chain — بين السلاسل</li>
+<li><span class="num">112.</span> Liquid Staking — التخزين السيول</li>
+<li><span class="num">113.</span> Restaking — إعادة التخزين</li>
+<li><span class="num">114.</span> Tokenization — توكيت</li>
+<li><span class="num">115.</span> RWA — أصول حقيقية رقمية</li>
+<li><span class="num">116.</span> Zero-Knowledge Proof — إثبات التعريف المعدوم</li>
+<li><span class="num">117.</span> zk-SNARK — إثبات مختصر</li>
+<li><span class="num">118.</span> zk-STARK — إثبات قابل للتوسع</li>
+<li><span class="num">119.</span> Privacy Coin — عملة خصوصية</li>
+<li><span class="num">120.</span> Mixer — خالط</li>
+<li><span class="num">121.</span> Layer 0 — الطبقة صفر</li>
+<li><span class="num">122.</span> Cosmos — كوزموس</li>
+<li><span class="num">123.</span> Polkadot — بولكات</li>
+<li><span class="num">124.</span> Avalanche — افلانش</li>
+<li><span class="num">125.</span> Polygon — بوليجون</li>
+<li><span class="num">126.</span> Arbitrum — اربتريم</li>
+<li><span class="num">127.</span> Optimism — اوبتيمازم</li>
+<li><span class="num">128.</span> Base — بيس</li>
+<li><span class="num">129.</span> MEV — القيمة القابلة للاستخراج</li>
+<li><span class="num">130.</span> Liquidation — التصفية</li>
+<li><span class="num">131.</span> Bounty — مكافاة</li>
+<li><span class="num">132.</span> Grant — منحة</li>
+<li><span class="num">133.</span> Airdrop — التخفيض الجوي</li>
+<li><span class="num">134.</span> Faucet — صنبور</li>
+<li><span class="num">135.</span> API — واجهة برمجة التطبيقات</li>
+<li><span class="num">136.</span> SDK — مجموعة ادوات التطوير</li>
+<li><span class="num">137.</span> WebSocket — سوكيت ويب</li>
+<li><span class="num">138.</span> GraphQL — غراف كيو ال</li>
+<li><span class="num">139.</span> OAuth — مصادقة</li>
+<li><span class="num">140.</span> JWT — توكن المصادقة</li>
+<li><span class="num">141.</span> Rate Limiting — تحديد المعدل</li>
+<li><span class="num">142.</span> Backoff — تأخير</li>
+<li><span class="num">143.</span> Latency — التأخير</li>
+<li><span class="num">144.</span> Throughput — معدل النقل</li>
+<li><span class="num">145.</span> Scalability — قابلية التوسع</li>
+<li><span class="num">146.</span> Censorship Resistance — مقاومة الرقابة</li>
+<li><span class="num">147.</span> Audit — تدقيق امني</li>
+<li><span class="num">148.</span> Bug Bounty — مكافاة الثغرة</li>
+<li><span class="num">149.</span> Penetration Testing — اختبار الاختراق</li>
+<li><span class="num">150.</span> Formal Verification — التحقق الرمزي</li>
+<li style="font-weight:bold;color:#302b63;padding-top:8px;">الأمان والحماية والعقود الذكية</li>
+<li><span class="num">151.</span> Health Check — فحص الصحة</li>
+<li><span class="num">152.</span> Monitoring — المراقبة</li>
+<li><span class="num">153.</span> Logging — التسجيل</li>
+<li><span class="num">154.</span> Rollback — التراجع</li>
+<li><span class="num">155.</span> SLA — اتفاقية الخدمة</li>
+<li><span class="num">156.</span> Incident Response — الاستجابة للحوادث</li>
+<li><span class="num">157.</span> Disaster Recovery — التعافي من الكوارث</li>
+<li><span class="num">158.</span> Backup — النسخ الاحتياطي</li>
+<li><span class="num">159.</span> Redundancy — التكرار</li>
+<li><span class="num">160.</span> Failover — التحويل التلقائي</li>
+<li><span class="num">161.</span> Observability — قابلية الرصد</li>
+<li><span class="num">162.</span> Tracing — التتبع</li>
+<li><span class="num">163.</span> Profiling — التحليل</li>
+<li><span class="num">164.</span> Chaos Engineering — هندسة الفوضى</li>
+<li><span class="num">165.</span> Load Testing — اختبار الحمل</li>
+<li><span class="num">166.</span> Regression Testing — اختبار التراجع</li>
+<li><span class="num">167.</span> Smoke Testing — اختبار سريع</li>
+<li><span class="num">168.</span> Integration Testing — اختبار التكامل</li>
+<li><span class="num">169.</span> Unit Testing — اختبار الوحدة</li>
+<li><span class="num">170.</span> EIP-1559 — تحسين الرسوم</li>
+<li><span class="num">171.</span> Gas Price — سعر الغاز</li>
+<li><span class="num">172.</span> Deflation — النقص</li>
+<li><span class="num">173.</span> Inflation — التضخم</li>
+<li><span class="num">174.</span> DYOR — ابحث بنفسك</li>
+<li><span class="num">175.</span> HODL — احتفاظ</li>
+<li><span class="num">176.</span> FOMO — الخوف من الفوات</li>
+<li><span class="num">177.</span> FUD — الخوف والشك</li>
+<li><span class="num">178.</span> Rekt — خسارة كبيرة</li>
+<li><span class="num">179.</span> ATH — اعلى سعر</li>
+<li><span class="num">180.</span> Pump and Dump — ضخ وبيع</li>
+<li><span class="num">181.</span> DCA — التقسيط</li>
+<li><span class="num">182.</span> Ordinal — ارقام تسلسلية</li>
+<li><span class="num">183.</span> Taproot — تابرود</li>
+<li><span class="num">184.</span> SegWit — فصل التوقيع</li>
+<li><span class="num">185.</span> Lightning Network — شبكة لايتنيج</li>
+<li><span class="num">186.</span> CDP — موقع الدين المركزي</li>
+<li><span class="num">187.</span> Synthetic Asset — أصل اصطناعي</li>
+<li><span class="num">188.</span> Perpetual — عقد دائم</li>
+<li><span class="num">189.</span> Futures — عقود آجلة</li>
+<li><span class="num">190.</span> Options — خيارات</li>
+<li><span class="num">191.</span> Margin — الهامش</li>
+<li><span class="num">192.</span> Order Book — سجل الطلبات</li>
+<li><span class="num">193.</span> Limit Order — طلب محدد</li>
+<li><span class="num">194.</span> Market Order — طلب السوق</li>
+<li><span class="num">195.</span> Slippage — الانزلاق</li>
+<li><span class="num">196.</span> Candlestick — الشمعدان</li>
+<li><span class="num">197.</span> Volume — الحجم</li>
+<li><span class="num">198.</span> Bullish — صعودي</li>
+<li><span class="num">199.</span> Bearish — هبوطي</li>
+<li><span class="num">200.</span> Maker — صانع سوق</li>
+<li style="font-weight:bold;color:#302b63;padding-top:8px;">المصطلحات المتقدمة والğatraits</li>
+<li><span class="num">201.</span> Taker — مستهلك</li>
+<li><span class="num">202.</span> Aggregator — مجمّل</li>
+<li><span class="num">203.</span> Referral — إحالة</li>
+<li><span class="num">204.</span> Commission — عمولة</li>
+<li><span class="num">205.</span> Affiliate — شريك</li>
+<li><span class="num">206.</span> Web3 — الويب الثلاثي</li>
+<li><span class="num">207.</span> Metaverse — الميتافيرس</li>
+<li><span class="num">208.</span> GameFi — التمويل اللعبي</li>
+<li><span class="num">209.</span> P2E — اللعب مقابل الكسب</li>
+<li><span class="num">210.</span> Guild — نقابة</li>
+<li><span class="num">211.</span> Avatar — صورة وهمية</li>
+<li><span class="num">212.</span> Land Token — توكن الأرض</li>
+<li><span class="num">213.</span> Interoperable Avatar — صورة قابلة للنقل</li>
+<li><span class="num">214.</span> Quest — مهمة</li>
+<li><span class="num">215.</span> Reward — مكافأة</li>
+<li><span class="num">216.</span> Badge — شارة</li>
+<li><span class="num">217.</span> SBT — توكن الهوية النفسية</li>
+<li><span class="num">218.</span> ENS — نظام أسماء ايثريوم</li>
+<li><span class="num">219.</span> Domain — نطاق</li>
+<li><span class="num">220.</span> Lens Protocol — بروتوكول لنس</li>
+<li><span class="num">221.</span> Farcaster — فاركاستر</li>
+<li><span class="num">222.</span> Mirror — ميرور</li>
+<li><span class="num">223.</span> Publishing — النشر</li>
+<li><span class="num">224.</span> Moonriver — مون ريفر</li>
+<li><span class="num">225.</span> Kusama — كوساما</li>
+<li><span class="num">226.</span> XCM — بروتوكول التواصل</li>
+<li><span class="num">227.</span> Parachain — باراشين</li>
+<li><span class="num">228.</span> Relay Chain — سلسلة الترحيل</li>
+<li><span class="num">229.</span> Validators Set — مجموعة المحققين</li>
+<li><span class="num">230.</span> Staking Contract — عقد التخزين</li>
+<li><span class="num">231.</span> Delegating — التفويض</li>
+<li><span class="num">232.</span> Governance Forum — منتدى الحوكمة</li>
+<li><span class="num">233.</span> Snapshot — لقطة</li>
+<li><span class="num">234.</span> Tally — تالي</li>
+<li><span class="num">235.</span> Dune — دون أناليتكس</li>
+<li><span class="num">236.</span> Nansen — نانسن</li>
+<li><span class="num">237.</span> DefiLlama — ديفاي لما</li>
+<li><span class="num">238.</span> TVL — القيمة المحجوزة</li>
+<li><span class="num">239.</span> Fee — رسوم</li>
+<li><span class="num">240.</span> Spread — فارق</li>
+<li><span class="num">241.</span> Index — مؤشر</li>
+<li><span class="num">242.</span> Benchmark — معيار</li>
+<li><span class="num">243.</span> Rebalance — إعادة التوازن</li>
+<li><span class="num">244.</span> Slippage Tolerance — حد الانزلاق</li>
+<li><span class="num">245.</span> Deadline — موعد نهائي</li>
+<li><span class="num">246.</span> Signature — توقيع</li>
+<li><span class="num">247.</span> Signed Transaction — معاملة موقعة</li>
+<li><span class="num">248.</span> Broadcast — بث</li>
+<li><span class="num">249.</span> Pending — معلقة</li>
+<li><span class="num">250.</span> Rejected — مرفوضة</li>
+<li><span class="num">251.</span> Censorship — الرقابة</li>
+<li><span class="num">252.</span> Anonymity — الخصوصية</li>
+<li><span class="num">253.</span> Pseudonymity — اسم مستعار</li>
+<li><span class="num">254.</span> Traceability — قابلية التتبع</li>
+<li><span class="num">255.</span> Audit Trail — سجل التدقيق</li>
+<li><span class="num">256.</span> Proof — إثبات</li>
+<li><span class="num">257.</span> Challenge — تحدٍ</li>
+<li><span class="num">258.</span> Response — استجابة</li>
+<li><span class="num">259.</span> Round — جولة</li>
+<li><span class="num">260.</span> Leaderboard — لوحة المتصدرين</li>
+<li><span class="num">261.</span> Score — نقاط</li>
+<li><span class="num">262.</span> Limit — سقف</li>
+<li><span class="num">263.</span> Threshold — عتبة</li>
+<li><span class="num">264.</span> Trigger — مشغل</li>
+<li><span class="num">265.</span> Timer — مؤقت</li>
+<li><span class="num">266.</span> Queue — طابور</li>
+<li><span class="num">267.</span> Retry — إعادة المحاولة</li>
+<li><span class="num">268.</span> Timeout — مهلة</li>
+<li><span class="num">269.</span> Error Handling — معالجة الأخطاء</li>
+<li><span class="num">270.</span> Debugging — التصحيح</li>
+<li><span class="num">271.</span> Deploy — نشر</li>
+<li><span class="num">272.</span> Maintainer — صيان</li>
+<li><span class="num">273.</span> Contributor — مساهم</li>
+<li><span class="num">274.</span> PR (Pull Request) — طلب دمج</li>
+<li><span class="num">275.</span> Issue — مشكلة</li>
+<li><span class="num">276.</span> Roadmap — خارطة طريق</li>
+<li><span class="num">277.</span> Milestone — مرحلة</li>
+<li><span class="num">278.</span> Stable Release — إصدار مستقر</li>
+<li><span class="num">279.</span> Beta — بيتا</li>
+<li><span class="num">280.</span> Alpha — ألفا</li>
+<li><span class="num">281.</span> Bug — خطأ برمجي</li>
+<li><span class="num">282.</span> Patch — رقع</li>
+<li><span class="num">283.</span> Upgrade — ترقية</li>
+<li><span class="num">284.</span> Migration — ترحيل</li>
+<li><span class="num">285.</span> Snapshot — لقطة</li>
+<li><span class="num">286.</span> Genesis — الكتلة الأولى</li>
+<li><span class="num">287.</span> Explorer — مستكشف</li>
+<li><span class="num">288.</span> JSON-RPC — بروتوكول الاتصال</li>
+<li><span class="num">289.</span> Web3.js — مكتبة ويب3</li>
+<li><span class="num">290.</span> Ethers.js — مكتبة إيثيرز</li>
+<li><span class="num">291.</span> Hardhat — هارد Accurate</li>
+<li><span class="num">292.</span> Foundry — فاوندري</li>
+<li><span class="num">293.</span> Truffle — ترافل</li>
+<li><span class="num">294.</span> Ganache — غاناش</li>
+<li><span class="num">295.</span> Remix — ريمكس</li>
+<li><span class="num">296.</span> OpenZeppelin — أوبن زيبلين</li>
+<li><span class="num">297.</span> Libra — ليبرا</li>
+<li><span class="num">298.</span> MetaMask — ميتاماسك</li>
+<li><span class="num">299.</span> Phantom — فانتوم</li>
+<li><span class="num">300.</span> Trust Wallet — تست ولت</li>
+<li><span class="num">301.</span> Rainbow — رينبو</li>
+<li><span class="num">302.</span> Zerion — زيريون</li>
+<li><span class="num">303.</span> Ledger — ليغير</li>
+<li><span class="num">304.</span> Trezor — تريزور</li>
+<li><span class="num">305.</span> Simulate Transaction — محاكاة المعاملة</li>
+<li><span class="num">306.</span> Blind Signing — توقيع أعمى</li>
+<li><span class="num">307.</span> Spending Cap — سقف الإنفاق</li>
+<li><span class="num">308.</span> Revoke — إلغاء الصلاحية</li>
+<li><span class="num">309.</span> Allowance — السماح</li>
+<li><span class="num">310.</span> Router Approval — تفويض الموجه</li>
+</ul>
+
+</div>
