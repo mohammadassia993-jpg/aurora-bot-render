@@ -711,6 +711,21 @@ export async function startTelegram() {
   if (config.telegramWebhookUrl) {
     mode = 'webhook';
     info('telegram', `using webhook mode exclusively: ${config.telegramWebhookUrl} (polling disabled)`);
+    // Keep the webhook asserted: an external poller (e.g. a Termux copy of this bot)
+    // gets 409 while a webhook is active and may call deleteWebhook to "fix" it.
+    // Re-assert every minute so this service stays the single update consumer.
+    const assertWebhook = async () => {
+      try {
+        const res = await telegramRequest(config.telegramToken, 'setWebhook', {
+          url: config.telegramWebhookUrl,
+          secret_token: config.telegramWebhookSecret || undefined,
+          drop_pending_updates: false
+        }, 8000);
+        if (!res.ok) warn('telegram', `webhook keeper: setWebhook HTTP ${res.status}`);
+      } catch (e) { warn('telegram', `webhook keeper failed: ${e.message}`); }
+    };
+    await assertWebhook();
+    setInterval(assertWebhook, 60_000).unref();
     const outboxLoop = async () => {
       try { await processTelegramOutbox(); } catch {}
       setTimeout(outboxLoop, 3000).unref();
