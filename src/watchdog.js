@@ -11,6 +11,9 @@ import { telegramRequest, telegramTokenHealth } from './telegram-api.js';
 const STATE_FILE = path.join(config.root, 'data', 'health-state.json');
 const ALERT_COOLDOWN_MIN = 15;
 const EMAIL_STALE_MIN = 55; // 1 hour (was 12 min)
+const EMAIL_FAIL_THRESHOLD = 3;   // mark email down only after 3 consecutive real failures
+const EMAIL_RETRY_GAP_MIN = 30;   // min gap between self-heal attempts
+const EMAIL_TRANSIENT_RE = /timeout|timed\s*out|ETIMEDOUT|ECONN|socket\s*hang|network|temporar|transient|ECONNRESET|aborted?/i;
 
 function loadState() {
   try {
@@ -218,15 +221,56 @@ export async function checkEmail() {
       return Infinity;
     }
   };
+
+  const consecutiveFailures = () => {
+    const rows = db.prepare(`
+      SELECT healthy FROM health_checks WHERE component = 'email' ORDER BY id DESC LIMIT ?
+    `).all(EMAIL_FAIL_THRESHOLD);
+    let count = 0;
+    for (const row of rows) {
+      if (row.healthy) break;
+      count += 1;
+    }
+    return count;
+  };
+
+  const lastEmailHealthy = () => {
+    const row = db.prepare(`
+      SELECT healthy FROM health_checks WHERE component = 'email' ORDER BY id DESC LIMIT 1
+    `).get();
+    return row ? Boolean(row.healthy) : true;
+  };
+
   let age = await ageMinutes();
   if (age > EMAIL_STALE_MIN) {
+    // Retry gap: don't fire another self-heal attempt too soon.
+    const now = Date.now();
+    const lastTry = Number(lastState.emailLastTry || 0);
+    if (now - lastTry < EMAIL_RETRY_GAP_MIN * 60_000) {
+      info('watchdog', `email stale but within retry gap; reporting last status (${lastEmailHealthy()})`);
+      return lastEmailHealthy();
+    }
+    lastState.emailLastTry = now;
+    persistState();
+
     info('watchdog', 'email check stale; triggering self-heal run');
     const run = await runEmailCheck();
     age = await ageMinutes();
-    if (!run.ok && age > EMAIL_STALE_MIN) {
-      saveCheck('email', false, `self-heal failed: ${run.error || 'script error'}; last check ${Math.round(age)} min ago`, 'تحقق من إعدادات IMAP/كلمة مرور التطبيق');
-      recordError('email', 'EMAIL_CHECK_STALLED', `last check ${Math.round(age)} min ago`, {}, 'Self-heal rerun next cycle');
-      return false;
+    const transient = EMAIL_TRANSIENT_RE.test(String(run.error || ''));
+    if (!run.ok && !transient && age > EMAIL_STALE_MIN) {
+      const failures = consecutiveFailures() + 1;
+      if (failures >= EMAIL_FAIL_THRESHOLD) {
+        saveCheck('email', false, `البريد فشل ${failures} محاولات متتالية: ${run.error || 'script error'}; آخر فحص قبل ${Math.round(age)} دقيقة`, 'تحقق من إعدادات IMAP/كلمة مرور التطبيق');
+        recordError('email', 'EMAIL_CHECK_FAILED', `${failures} consecutive failures; last ${Math.round(age)} min ago`, {}, 'Self-heal rerun next cycle');
+        info('watchdog', `email marked DOWN after ${failures} consecutive real failures`);
+        return false;
+      }
+      info('watchdog', `email self-heal failed (${failures}/${EMAIL_FAIL_THRESHOLD}) — keeping last status, no false alert`);
+      return lastEmailHealthy();
+    }
+    if (!run.ok && transient) {
+      info('watchdog', `email self-heal transient issue ignored (whitelisted): ${run.error} — keeping last status`);
+      return lastEmailHealthy();
     }
   }
   if (age <= EMAIL_STALE_MIN) {
@@ -234,7 +278,7 @@ export async function checkEmail() {
     resolveLatestError('email', 'Email monitoring active');
     return true;
   }
-  saveCheck('email', false, `لا يوجد سجل فحص بريد`, 'تفعيل مراقبة البريد');
+  saveCheck('email', false, 'لا يوجد سجل فحص بريد بعد محاولة فحص حقيقية', 'تفعيل مراقبة البريد');
   recordError('email', 'EMAIL_CHECK_STALLED', 'no log file', {}, 'Enable email monitoring');
   return false;
 }

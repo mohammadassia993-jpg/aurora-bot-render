@@ -511,7 +511,7 @@ async function handleCommand(message) {
   const resolved = aliases[command] || command;
 
   // ALL OTHER COMMANDS → natural language brain
-  if (resolved && !['/start', '/products', '/pay', '/approve-product'].includes(resolved)) {
+  if (resolved && !['/start', '/products', '/pay', '/approve-product', '/approve-apply'].includes(resolved)) {
     try {
       const naturalReply = await processNaturalMessage(message.text, message.from || {});
       if (naturalReply) enqueueReply(null, replyChatId, naturalReply);
@@ -568,6 +568,23 @@ async function handleCommand(message) {
         enqueueReply(null, replyChatId, decision === 'yes'
           ? `✅ تم موافقة على المنتج #${productId} ونشره.`
           : `❌ تم رفض المنتج #${productId}.`);
+      }
+    }
+  } else if (resolved.startsWith('/approve-apply ')) {
+    const parts = message.text.split(/\s+/);
+    const applyTaskId = Number(parts[1]);
+    const decision = parts[2];
+    if (!applyTaskId || !decision || !['yes', 'no'].includes(decision)) {
+      enqueueReply(null, replyChatId, 'الاستخدام: /approve-apply <رقم المهمة> yes|no');
+    } else {
+      const { approveApplyTask } = await import('./opportunity-validator.js');
+      const approval = approveApplyTask(applyTaskId, decision);
+      if (approval.error) {
+        enqueueReply(null, replyChatId, '❌ ' + approval.error);
+      } else {
+        enqueueReply(null, replyChatId, decision === 'yes'
+          ? `✅ تمت الموافقة — التقديم على الفرصة «${approval.summary?.title || ''}» مسجل برقم ${approval.summary?.taskId || applyTaskId}.`
+          : `❌ تم رفض التقديم على «${approval.summary?.title || ''}».`);
       }
     }
   }

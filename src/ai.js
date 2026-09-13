@@ -33,7 +33,6 @@ export function availableModels() {
     config.openRouterKey && !process.env.AI_PROVIDER?.includes('local') && { id: 'google/gemini-3.6-flash-lite-preview-02-05:free', label: 'OpenRouter Gemini Lite', priority: 3 },
     { id: 'local-llama-cpp', label: 'ذكاء محلي (node-llama-cpp)', priority: -1 },
     { id: 'ollama', label: 'Ollama محلي (' + (config.ollamaModel || 'qwen') + ')', priority: 2 },
-    { id: 'pollinations-llama', label: 'Pollinations (مجاني بدون مفتاح)', priority: 3 },
     { id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 99 }
   ].filter(Boolean);
 }
@@ -201,7 +200,7 @@ export async function callModel(agent, prompt, taskId = null) {
   let errorType = '';
   try {
     const hasRealProvider = Boolean(config.deepSeekKey || config.siliconFlowKey || config.geminiKey || config.openRouterKey || config.gptOssApiUrl || config.agnesKey || config.gensparkKey || config.llm7Key || config.logfareKey);
-    const useSimulation = (simulationEnabled() && !hasRealProvider && model !== 'pollinations-llama')
+    const useSimulation = (simulationEnabled() && !hasRealProvider)
       || (model === 'local-deterministic' && !config.geminiKey && !config.openRouterKey && !config.deepSeekKey && !config.siliconFlowKey && !config.agnesKey && !config.gensparkKey);
     if (useSimulation) {
       if (agent === 'daily-scout') {
@@ -265,13 +264,6 @@ export async function callModel(agent, prompt, taskId = null) {
         console.error(msg);
         throw Object.assign(new Error(msg), { code: 'AI_PROVIDER' });
       }
-    } else if (model === 'pollinations-llama') {
-      const encoded = encodeURIComponent(prompt.slice(0, 1500));
-      const response = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });
-      if (!response.ok) throw Object.assign(new Error('Pollinations HTTP ' + response.status), { code: 'AI_PROVIDER' });
-      output = await response.text();
-      output = output.replace(/^data:image\/[^;]+;base64,.*$/, '').trim();
-      if (!output) throw Object.assign(new Error('Pollinations empty response'), { code: 'AI_EMPTY_RESPONSE' });
     } else if (model === 'kimi-k3' && config.kimiKey) {
       const response = await postJson(config.kimiUrl + '/chat/completions', {
         model: config.kimiModel || 'kimi-k3',
@@ -390,15 +382,6 @@ export async function callModel(agent, prompt, taskId = null) {
     } catch (cascadeCaught) {
       warn('ai', `cascade exhausted after ${primaryModel}: ${cascadeCaught.message}`);
     }
-    if (!output) model = `${primaryModel}->pollinations`;
-    try {
-      const encoded = encodeURIComponent(prompt.slice(0, 1500));
-      const fallbackRes = await fetch('https://text.pollinations.ai/' + encoded + '?model=openai&system=' + encodeURIComponent(soulPrompt().slice(0, 500)), { signal: AbortSignal.timeout(8000) });
-      if (fallbackRes.ok) {
-        const text = await fallbackRes.text();
-        output = text.replace(/^data:image\/[^;]+;base64,.*$/, '').trim();
-      }
-    } catch {}
     if (!output) {
       model = `${primaryModel}->smart-simulation`;
       output = smartFallback(agent, prompt);

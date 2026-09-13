@@ -43,14 +43,6 @@
     "status": "WORKING",
     "verified": "2026-09-12 16:20 UTC - 10/10 OK sequential both models, avg 3.5s, no quota observed"
   },
-  "fallback2": {
-    "provider": "pollinations",
-    "baseUrl": "https://text.pollinations.ai/openai",
-    "apiKey": "",
-    "model": "openai",
-    "status": "WORKING_LOW_BUDGET",
-    "note": "HTTP 200 via curl with browser UA (single requests), intermittent 402 under rapid burst"
-  },
   "fallback3": {
     "provider": "agnes",
     "baseUrl": "https://apihub.agnes-ai.com/v1",
@@ -102,23 +94,19 @@
     "chain": [
       "llm7",
       "logfare",
-      "pollinations",
-      "agnes",
-      "dg-ai"
+      "agnes"
     ],
     "active_chain": [
       "llm7",
       "logfare",
-      "pollinations",
       "agnes"
     ],
-    "dg_ai_note": "queued until 13 Sep quota reset",
+    "dg_ai_note": "quota exhausted, excluded from chain",
     "retryDelayMs": 1000
   },
   "verified": {
     "llm7": "WORKING_REAL_KEY",
     "logfare": "WORKING",
-    "pollinations": "WORKING_LOW_BUDGET",
     "agnes": "WORKING_INTERMITTENT",
     "dg-ai": "QUOTA_EXHAUSTED_TODAY",
     "dahl": "FAIL_401",
@@ -132,13 +120,13 @@
     "zendriver_mcp": "FAIL_TIMEOUT"
   },
   "tested_at": "2026-09-12T16:15:00Z",
-  "active_providers_target": 4,
-  "active_providers_now": 4,
+  "active_providers_target": 3,
+  "active_providers_now": 3,
   "stress_test": {
     "tested_at": "2026-09-12T12:55:00Z",
     "phase1_20x_llm7": "10/20 OK (0.6s spacing) avg 736ms; then 429 window",
-    "phase2_llm7_down": "pollinations 402, dg-ai 502, agnes OK -> first success agnes ~38.7s incl retries",
-    "phase3_llm7+poll_down": "dg-ai 502, agnes 429 (rate limit) -> no success that minute",
+    "phase2_llm7_down": "dg-ai 502, agnes OK -> first success agnes ~38.7s incl retries",
+    "phase3_llm7_down": "dg-ai 502, agnes 429 (rate limit) -> no success that minute",
     "control_chain": "llm7 first, 1434ms",
     "note": "details in reports/STRESS_TEST_2026-09-12.md"
   },

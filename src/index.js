@@ -193,6 +193,21 @@ setInterval(() => {
   fetch("https://aurora-bot-render.onrender.com/health").catch(() => {});
 }, 10 * 60 * 1000);
 
+// Mutual keepalive with the backup service: each pings the other every 5 min,
+// so both services stay awake 24/7 without any external account or webhook.
+// PEER_KEEPALIVE_URL per service:
+//   primary: https://silent-giants-render-backup.onrender.com/health
+//   backup:  https://aurora-bot-render.onrender.com/health
+const peerUrl = process.env.PEER_KEEPALIVE_URL;
+if (peerUrl) {
+  info('platform', `mutual keepalive active -> ${peerUrl}`);
+  setInterval(() => {
+    fetch(peerUrl).catch(() => {});
+  }, 5 * 60 * 1000);
+} else {
+  info('platform', 'PEER_KEEPALIVE_URL not set — mutual keepalive disabled');
+}
+
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     info('platform', `${signal} received; stopping`);

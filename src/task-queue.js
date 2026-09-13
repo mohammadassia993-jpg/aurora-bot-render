@@ -232,7 +232,52 @@ export async function executeTask(task) {
     if (cat === 'opportunities') {
       const { scanRealOpportunities } = await import('./opportunity-scan.js');
       if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
-      return 'opportunities scanned';
+      // Opportunity Validator (2.1): only verified opportunities become apply tasks
+      const { validateOpportunity, buildDossier } = await import('./opportunity-validator.js');
+      let created = 0;
+      let verified = 0;
+      const candidates = db.prepare(`
+        SELECT * FROM tasks
+        WHERE status = 'discovered' AND assigned_agent = ''
+          AND source IN ('jobs','remotive','remoteok')
+        ORDER BY fit_score DESC LIMIT 10
+      `).all();
+      for (const candidate of candidates) {
+        try {
+          const result = await validateOpportunity(candidate);
+          if (!result.passed) {
+            db.prepare("UPDATE tasks SET assigned_agent='rejected-validator', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(candidate.id);
+            continue;
+          }
+          verified += 1;
+          const payload = (() => { try { return JSON.parse(candidate.payload_json || '{}'); } catch { return {}; } })();
+          const dossierTask = db.prepare(`
+            INSERT INTO task_queue(description, status, priority, category, type, result)
+            VALUES (?, 'pending', 8, 'apply-opportunity', 'one-time', ?)
+          `).run(
+            `التقديم على فرصة مؤكدة: ${candidate.title} ($${candidate.reward || 0}) عبر ${candidate.source}`,
+            JSON.stringify({ taskId: candidate.id, title: candidate.title, source: candidate.source, reward: candidate.reward, payload, score: result.score })
+          );
+          db.prepare("UPDATE tasks SET assigned_agent='validated', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(candidate.id);
+          created += 1;
+        } catch (e) {
+          warn('opportunity-validator', `candidate #${candidate.id} failed: ${e.message}`);
+        }
+      }
+      return `opportunities scanned; verified=${verified}, apply-tasks=${created}`;
+    }
+    if (cat === 'apply-opportunity') {
+      // Leader verification flow (2.4): dossier قبل أي التزام
+      const { buildDossier } = await import('./opportunity-validator.js');
+      const { sendMessageDetailed } = await import('./telegram.js');
+      const { config } = await import('./config.js');
+      const dossier = buildDossier(task);
+      await sendMessageDetailed(dossier, config.telegramChatId || config.telegramAdminChatId).catch(() => {});
+      const payload = (() => { try { return JSON.parse(task.result || '{}'); } catch { return {}; } })();
+      db.prepare(`
+        UPDATE task_queue SET result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+      `).run(JSON.stringify({ ...payload, awaiting_leader_approval: 1, dossier_at: new Date().toISOString() }), task.id);
+      return `apply dossier #${task.id} sent to leader, awaiting approval`;
     }
     if (cat === 'marketing') {
       const { runMarketingPublish } = await import('./operations.js');
