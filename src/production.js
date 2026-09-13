@@ -473,6 +473,9 @@ export async function publishApprovedProduct(id) {
   const product = getProduct(id);
   if (!product) return { error: 'product_not_found' };
   if (product.status !== 'approved') return { error: 'not_approved', status: product.status };
+  if (!product.content_md || String(product.content_md).length < 1000) {
+    return { error: 'missing_real_content', productId: id, message: 'المنتج لا يحتوي على محتوى حقيقي كافٍ (أقل من 1000 حرف)' };
+  }
 
   let fileUrl = '';
   if (product.content_md) {
@@ -549,6 +552,7 @@ export async function autoProduce(quantity = 1) {
 
 
 export function approveAllProducts() {
+  cleanupFakeProducts();
   const pending = getPendingProducts();
   const results = [];
   let qualityFailed = false;
@@ -633,25 +637,53 @@ export function getProductionStatus() {
 
 export function buildProductionReport() {
   const s = getProductionStatus();
-  const pending = getPendingProducts().slice(0, 5);
+  const pending = getPendingProducts().filter(p => p.file_path || (p.content_md || '').length >= 1000).slice(0, 5);
+  const fakePending = getPendingProducts().length - pending.length;
+  const rejected = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='rejected'").get().c ?? 0;
   return [
     '🏭 تقرير آلة الإنتاج',
     '━━━━━━━━━━━━',
     '',
     `📦 المنتجات المُنتجة: ${s.produced}`,
     `⏳ بانتظار موافقة القائد: ${s.pending}`,
+    `🗑 مرفوضة آلياً (بدون محتوى حقيقي): ${rejected}`,
     `✅ معتمدة: ${s.approved}`,
     `🚀 منشورة: ${s.published}`,
     `📚 كتالوج المنتجات (من المهام): ${s.catalog}`,
     '',
-    pending.length ? '🆕 أحدث المنتجات بانتظار الموافقة:' : 'لا توجد منتجات بانتظار الموافقة',
+    pending.length ? '🆕 منتجات حقيقية بانتظار الموافقة:' : (fakePending > 0 ? `لا توجد منتجات حقيقية بانتظار الموافقة (${fakePending} مسودة آلية مرفوضة)` : 'لا توجد منتجات بانتظار الموافقة'),
     ...pending.map(p => `• #${p.id}: ${p.title} ($${p.price}) — أرسل: /approve-product ${p.id} yes|no`)
   ].join('\n');
 }
 
+export function cleanupFakeProducts() {
+  // Auto-generated drafts without a real file or substantial content are removed
+  // from the approval queue so the leader only reviews real products.
+  const condition = `
+    status = 'pending_approval'
+    AND (file_path IS NULL OR file_path = '')
+    AND (content_md IS NULL OR length(content_md) < 1000)
+  `;
+  const fakes = db.prepare(`
+    SELECT id, title, length(content_md) AS content_len FROM produced_products WHERE ${condition}
+  `).all();
+  if (fakes.length) {
+    db.prepare(`UPDATE produced_products SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE ${condition}`).run();
+    audit('executor', 'fake_products_archived', { count: fakes.length, ids: fakes.map(f => f.id) });
+    warn('production', `cleanup: ${fakes.length} fake auto-produced drafts removed from approval queue (ids: ${fakes.map(f => f.id).join(',')})`);
+  }
+  return { removed: fakes.length };
+}
+
 export function startProductionMachine() {
   const timers = [];
-  // Continuous production: 3 products every 30 minutes (max power)
+  // Leader order: automatic product generation is OFF. Fake drafts are cleaned first.
+  cleanupFakeProducts();
+  if (process.env.AUTO_PRODUCTION !== 'true') {
+    info('production', 'auto production DISABLED — on-demand production only (leader instruction)');
+    return timers;
+  }
+  // Continuous production: 3 products every 30 minutes (only if AUTO_PRODUCTION=true)
   const t = setInterval(() => {
     autoProduce(3).then(r => {
       if (r.produced?.length) {

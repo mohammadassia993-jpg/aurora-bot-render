@@ -320,6 +320,11 @@ try {
   if (!String(error).includes('duplicate column name')) throw error;
 }
 try {
+  db.exec("ALTER TABLE operations_marketing ADD COLUMN body TEXT DEFAULT ''");
+} catch (error) {
+  if (!String(error).includes('duplicate column name')) throw error;
+}
+try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_source_status ON tasks(source,status)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_updated ON tasks(updated_at DESC)');

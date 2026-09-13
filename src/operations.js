@@ -16,7 +16,6 @@ import { notify } from './notifications.js';
 import { sendMessageDetailed } from './telegram.js';
 import { config } from './config.js';
 import { info, warn } from './logger.js';
-import { PRODUCTS } from './storefront.js';
 import { runConnectors } from './connectors.js';
 import { callModel } from './ai.js';
 import { recordLesson } from './memory.js';
@@ -168,52 +167,100 @@ export async function runJobApplications() {
   return { appliedToday: dayCount, appliedNow: applied.length, remaining: remaining - applied.length };
 }
 
+function normalizeTokens(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2);
+}
+
+function textSimilarity(a, b) {
+  const ta = new Set(normalizeTokens(a));
+  const tb = new Set(normalizeTokens(b));
+  if (!ta.size || !tb.size) return 0;
+  let intersection = 0;
+  for (const word of ta) if (tb.has(word)) intersection++;
+  return intersection / (ta.size + tb.size - intersection);
+}
+
+function channelPostText(product) {
+  return [
+    `🛒 ${product.title}`,
+    ``,
+    `💰 السعر: $${product.price} (USDT/USDC/Stars)`,
+    ``,
+    `⚡️ تسليم فوري خلال ساعة`,
+    ``,
+    `📩 اطلب الآن عبر: @Aurora_Almada_88_Bot`,
+    ``,
+    `#Web3 #DePIN #الكريبتو #التسويق_الرقمي`
+  ].join('\n');
+}
+
 export async function runMarketingPublish() {
   const channelId = config.telegramChannelId;
-  if (!channelId) { warn('operations', 'TELEGRAM_CHANNEL_ID not configured — skipping channel publish'); return { published: 0 }; }
-  const published = [];
-  const now = new Date();
+  if (!channelId) { warn('operations', 'TELEGRAM_CHANNEL_ID not configured — skipping channel publish'); return { published: 0, skipped: 'no_channel' }; }
 
-  if (config.telegramToken && channelId) {
-    for (const product of PRODUCTS.slice(0, 2)) {
-      const text = [
-        `🛒 ${product.name}`,
-        ``,
-        `💰 السعر: $${product.price} (USDT/USDC/Stars)`,
-        ``,
-        `⚡️ تسليم فوري خلال ساعة`,
-        ``,
-        `📩 اطلب الآن عبر: @Aurora_Almada_88_Bot`,
-        ``,
-        `#Web3 #DePIN #الكريبتو #التسويق_الرقمي`
-      ].join('\n');
-      try {
-        const { telegramRequest } = await import('./telegram-api.js');
-        const res = await telegramRequest(config.telegramToken, 'sendMessage', {
-          chat_id: channelId,
-          text,
-          parse_mode: 'HTML',
-          link_preview_options: { is_disabled: true }
-        }, 15000);
-        if (res.ok && res.data?.ok) {
-          published.push({ product: product.id, messageId: res.data.result.message_id });
-        }
-      } catch (caught) {
-        warn('operations', `channel publish failed: ${caught.message}`);
-      }
+  // Daily limit: max 1 channel post/day
+  const postsToday = db.prepare(`
+    SELECT COUNT(*) c FROM operations_marketing
+    WHERE channel='telegram_channel' AND date(created_at) = date('now')
+  `).get().c ?? 0;
+  if (postsToday >= 1) {
+    info('operations', 'marketing publish skipped: daily limit reached (1/day)');
+    return { published: 0, skipped: 'daily_limit' };
+  }
+
+  // Only leader-approved products with real generated content (no fake drafts)
+  const product = db.prepare(`
+    SELECT * FROM produced_products
+    WHERE status='approved' AND content_md IS NOT NULL AND length(content_md) >= 1000
+    ORDER BY id ASC LIMIT 1
+  `).get();
+  if (!product) {
+    info('operations', 'marketing publish skipped: no approved real products');
+    return { published: 0, skipped: 'no_approved_products' };
+  }
+
+  const text = channelPostText(product);
+
+  // Similarity filter: skip if >80% identical to last 5 posts
+  const recentPosts = db.prepare(`
+    SELECT body FROM operations_marketing
+    WHERE channel='telegram_channel' AND body IS NOT NULL AND body != ''
+    ORDER BY id DESC LIMIT 5
+  `).all();
+  for (const row of recentPosts) {
+    if (textSimilarity(row.body, text) > 0.8) {
+      info('operations', 'marketing publish skipped: too similar to a recent post');
+      return { published: 0, skipped: 'similar_content' };
     }
   }
 
-  // Record marketing activity
-  if (published.length) {
-    audit('executor', 'marketing_published', { count: published.length, channel: channelId });
-    db.prepare(`
-      INSERT INTO operations_marketing(channel, message_id, product_id, status)
-      VALUES (?, ?, ?, 'published')
-    `).run('telegram_channel', published[0].messageId || 0, published[0]?.product || '');
+  try {
+    if (config.telegramToken && channelId) {
+      const { telegramRequest } = await import('./telegram-api.js');
+      const res = await telegramRequest(config.telegramToken, 'sendMessage', {
+        chat_id: channelId,
+        text,
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true }
+      }, 15000);
+      if (res.ok && res.data?.ok) {
+        db.prepare(`
+          INSERT INTO operations_marketing(channel, message_id, product_id, body, status)
+          VALUES ('telegram_channel', ?, ?, ?, 'published')
+        `).run(res.data.result.message_id, String(product.id), text);
+        audit('executor', 'marketing_published', { count: 1, channel: channelId, productId: product.id });
+        info('operations', `marketing publish: 1 post (product #${product.id}) to channel`);
+        return { published: 1, product: product.id };
+      }
+    }
+  } catch (caught) {
+    warn('operations', `channel publish failed: ${caught.message}`);
   }
-  info('operations', `marketing publish: ${published.length} posts to channel ${now.toISOString()}`);
-  return { published: published.length };
+  return { published: 0, skipped: 'send_failed' };
 }
 
 export async function runOpportunityDiscovery() {
