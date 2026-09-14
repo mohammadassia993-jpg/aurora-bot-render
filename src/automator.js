@@ -56,11 +56,15 @@ async function monitorSuperteam() {
       (l.agentAccess === 'AGENT_ALLOWED' || l.agentAccess === 'AGENT_ONLY') && !l.isWinnersAnnounced
     );
 
+    // Strict filter: only listings with a numeric reward > 0 are reported.
+    const { hasValidReward } = await import('./opportunity-validation.js');
+    const eligibleWithReward = agentEligible.filter(l => hasValidReward(l.rewardAmount));
+
     const previousCount = loadPreviousCount();
-    const currentCount = agentEligible.length;
+    const currentCount = eligibleWithReward.length;
 
     if (currentCount > 0 && currentCount !== previousCount) {
-      const summary = agentEligible.map(l =>
+      const summary = eligibleWithReward.map(l =>
         `• ${l.title} — ${l.rewardAmount} ${l.token} [${l.agentAccess}]`
       ).join('\n');
       const text = [

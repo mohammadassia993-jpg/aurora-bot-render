@@ -9,9 +9,19 @@ import { info } from './logger.js';
 const MIN_REWARD = 0;
 const MIN_DESC_CHARS = 100;
 
+// Strict reward check: handles 0, "N/A", null, undefined, "", "0", and any non-numeric string.
+export function hasValidReward(r) {
+  if (r === null || r === undefined) return false;
+  const s = String(r).trim();
+  if (s === '' || s.toLowerCase() === 'n/a' || s === '0') return false;
+  if (!/\d/.test(s)) return false;      // must contain at least one digit
+  const num = Number(s.replace(/[^0-9.\-]/g, ''));
+  return !Number.isNaN(num) && num > MIN_REWARD;
+}
+
 export function validateOpportunity(opp = {}) {
-  const reward = Number(opp.reward || opp.price || 0);
-  if (!(reward > MIN_REWARD)) {
+  const reward = opp.reward !== undefined ? opp.reward : opp.price;
+  if (!hasValidReward(reward)) {
     return { ok: false, reason: 'zero_reward' };
   }
   const url = String(opp.url || opp.link || opp.source_url || '').trim();

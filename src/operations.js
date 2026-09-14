@@ -381,7 +381,7 @@ export function startOperations() {
 
 
 // ── Prizes & Bounties Daily Report ──
-export function getPrizesReport() {
+export async function getPrizesReport() {
   // Get all bounty/prize submissions
   const submitted = db.prepare(`
     SELECT * FROM operations_submissions 
@@ -391,7 +391,7 @@ export function getPrizesReport() {
   `).all();
 
   // Get all opportunities that look like prizes/bounties
-  const prizes = db.prepare(`
+  const rawPrizes = db.prepare(`
     SELECT * FROM tasks 
     WHERE source IN ('jobs', 'opportunity')
     AND (title LIKE '%bounty%' OR title LIKE '%prize%' OR title LIKE '%reward%'
@@ -401,6 +401,25 @@ export function getPrizesReport() {
     ORDER BY created_at DESC
   `).all();
 
+  // Strict filter: reward > 0 (numeric/N-A handling) + URL + desc > 100 chars.
+  const { filterValidOpportunities } = await import('./opportunity-validation.js');
+  const normalized = rawPrizes.map(p => {
+    let payload = {};
+    try { payload = JSON.parse(p.payload_json || '{}'); } catch { /* keep empty */ }
+    return {
+      id: p.id,
+      title: p.title,
+      reward: p.reward,
+      status: p.status,
+      url: payload.url || payload.link || '',
+      description: payload.description || payload.why || payload.details || p.title || ''
+    };
+  });
+  const { valid, rejected } = filterValidOpportunities(normalized);
+  // Keep valid ones for reporting; the rest are silently excluded (never sent).
+  const prizeIds = new Set(valid.map(v => v.id));
+  const prizes = rawPrizes.filter(p => prizeIds.has(p.id));
+
   const openPrizes = prizes.filter(p => p.status !== 'expired' && p.status !== 'done');
   const expiredPrizes = prizes.filter(p => p.status === 'expired' || p.status === 'done');
 
@@ -408,7 +427,7 @@ export function getPrizesReport() {
     '🏆 تقرير الجوائز والمسابقات — يومي',
     '━━━━━━━━━━━━━━━━━━━━━━━━━━━',
     '',
-    `📊 الإجمالي: ${prizes.length} فرصة`,
+    `📊 الإجمالي: ${prizes.length} فرصة (مستبعد: ${rejected.length} غير صالحة)`,
     `🟢 مفتوحة: ${openPrizes.length}`,
     `🔴 منتهية: ${expiredPrizes.length}`,
     `📨 مقدّمة: ${submitted.length}`,
@@ -438,7 +457,7 @@ export function startPrizesReport() {
     try {
       const mod = await import('./telegram.js');
       if (mod?.sendMessageDetailed) {
-        const report = getPrizesReport();
+        const report = await getPrizesReport();
         await mod.sendMessageDetailed(report, config.telegramChatId);
       }
     } catch (e) { warn('operations', 'prizes report failed: ' + e.message); }

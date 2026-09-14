@@ -1,6 +1,6 @@
 {
   "team": "Silent Giants",
-  "updatedAt": "2026-09-14T06:40:00Z",
+  "updatedAt": "2026-09-14T07:30:00Z",
   "version": "1.0.0",
   "primary": "aurora-bot-render",
   "backup": "silent-giants-render-backup",
@@ -11,12 +11,18 @@
     "aiLayer": "llm7+logfare+agnes",
     "peerKeepalive": "active",
     "selfHealing": "active",
-    "qrLoginFlow": "ready"
+    "qrLoginFlow": "ready",
+    "opportunityFilter": "strict (N/A + reward + url + desc)",
+    "sendPathAudit": "done"
   },
   "blockers": {
     "huggingface": "AWS WAF CAPTCHA — automated signup declined; requires leader token",
     "oracle": "geo-block (Export Law) — requires leader signup from personal device",
     "kubeletto": "turnstile CAPTCHA — requires leader GitHub signup once"
   },
-  "lastTasks": []
+  "lastTasks": [],
+  "dbCleanup": {
+    "deletedTasks": 11,
+    "deletedQueue": 0
+  }
 }
