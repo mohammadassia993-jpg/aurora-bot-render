@@ -5,11 +5,34 @@ import { audit } from './audit.js';
 const WEB3_TAGS = /crypto|blockchain|web3|defi|nft|solana|ethereum|bitcoin|solidity|smart contract|dao/i;
 
 function upsertReal(source, externalId, title, payload) {
+  // Filter at creation: never store invalid opportunities (0$/no link/short desc).
+  if (!shouldCreateOpportunityRow(source, externalId, title, payload)) return false;
   db.prepare(`
     INSERT INTO tasks(source, external_id, title, reward, currency, fit_score, risk, status, payload_json)
     VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT(external_id) DO UPDATE SET title=excluded.title, payload_json=excluded.payload_json, updated_at=CURRENT_TIMESTAMP
   `).run(source, externalId, title, payload.reward || 0, 'USD', payload.fit_score || 60, payload.risk || 'low', 'discovered', JSON.stringify(payload));
+  return true;
+}
+
+function shouldCreateOpportunityRow(source, externalId, title, payload) {
+  const link = String(payload.url || payload.link || '').trim();
+  const description = String(payload.description || payload.why || payload.details || title || '').trim();
+  let reward = payload.reward;
+  if (reward === undefined) {
+    // salary may be a premium indicator for jobs; require numeric salary > 0
+    const salary = String(payload.salary || '');
+    const nums = salary.match(/\d/);
+    reward = nums ? 1 : 0;
+  }
+  const r = ({ reward, link, description });
+  if (!link.startsWith('http')) return false;
+  if (description.length < 100) return false;
+  if (reward === null || reward === undefined) return false;
+  const s = String(reward).trim().toLowerCase();
+  if (s === '' || s === 'n/a' || s === '0' || s === 'free') return false;
+  if (!/\d/.test(s)) return false;
+  return true;
 }
 
 async function scanRemoteOk() {

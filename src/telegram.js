@@ -72,6 +72,14 @@ function htmlSafeText(text) {
 }
 
 export async function sendMessageDetailed(text, chatId = effectiveChatId(), replyToMessageId = null) {
+  if (config.silentMode) {
+    // Full-stop silent mode: log intent, never send to Telegram.
+    info('telegram', 'SILENT_MODE_BLOCKED_SEND', {
+      chatId,
+      preview: String(text).slice(0, 120)
+    });
+    return { delivered: false, error: 'SILENT_MODE' };
+  }
   if (!config.telegramToken || !chatId) {
     return { delivered: false, error: 'MISSING_TELEGRAM_CONFIG' };
   }

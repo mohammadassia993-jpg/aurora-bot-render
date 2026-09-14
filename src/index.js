@@ -88,13 +88,17 @@ cronInterval(async () => {
   }
 }, 10 * 60_000);
 
-startWalletMonitors();
-startTunnelWatcher();
-startAutomator();
-startOpportunityMonitor();
-startOperations();
-startPrizesReport();
-startProductionMachine();
+if (process.env.AURORA_AUTOMATION !== 'false') {
+  startWalletMonitors();
+  startTunnelWatcher();
+  startAutomator();
+  startOpportunityMonitor();
+  startOperations();
+  startPrizesReport();
+  startProductionMachine();
+} else {
+  info('platform', '⏸ FULL_STOP: all automated loops disabled (AURORA_AUTOMATION=false)');
+}
 
 // ── Kimi Plan: Autonomous Agent System ──
 info('platform', '🚀 Starting autonomous agent system (Kimi Plan)...');
@@ -164,15 +168,19 @@ if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
 
 
 // Continuous operation: internal heartbeat every 5 min (works without cron-job.org)
-setInterval(async () => {
-  try {
-    const { runHeartbeat } = await import('./task-queue.js');
-    const result = await runHeartbeat();
-    info('heartbeat', `heartbeat ok: task=${result.executed} queue=${result.queue.pending}`);
-  } catch (caught) {
-    error('heartbeat', caught.message);
-  }
-}, 5 * 60 * 1000);
+if (process.env.AURORA_AUTOMATION !== 'false') {
+  setInterval(async () => {
+    try {
+      const { runHeartbeat } = await import('./task-queue.js');
+      const result = await runHeartbeat();
+      info('heartbeat', `heartbeat ok: task=${result.executed} queue=${result.queue.pending}`);
+    } catch (caught) {
+      error('heartbeat', caught.message);
+    }
+  }, 5 * 60 * 1000);
+} else {
+  info('platform', '⏸ FULL_STOP: heartbeat disabled (AURORA_AUTOMATION=false)');
+}
 
 // SQLite maintenance: weekly VACUUM + integrity check to keep DB small
 setInterval(async () => {

@@ -84,6 +84,10 @@ export const config = {
   kimiKey: process.env.KIMI_API_KEY || 'sk-3wOZCMBWfpmw6i7Q41C21887D4Fa43AcBc7e2cD54b70639b',
   kimiUrl: process.env.KIMI_BASE_URL || 'https://aihubmix.com/v1',
   kimiModel: process.env.KIMI_MODEL || 'kimi-k3',
+  // Full-stop / silent mode: when AURORA_SILENT_MODE=true, no outbound sends happen.
+  silentMode: process.env.AURORA_SILENT_MODE === 'true',
+  // Gate that disables automated loops (scheduler/heartbeat/keepalive) — full stop.
+  automationEnabled: process.env.AURORA_AUTOMATION !== 'false',
   mailDeliveryMode: process.env.MAIL_DELIVERY_MODE || 'queue',
   backupMirrorDir: process.env.BACKUP_MIRROR_DIR || '',
   backupIntervalMinutes: Number(process.env.BACKUP_INTERVAL_MINUTES || 360),

@@ -510,9 +510,11 @@ export async function publishApprovedProduct(id) {
   ].join('\n');
 
   try {
-    if (config.telegramToken && config.telegramChannelId) {
+    if (config.telegramToken && config.telegramChannelId && !config.silentMode) {
       const { telegramRequest } = await import('./telegram-api.js');
       await telegramRequest(config.telegramToken, 'sendMessage', { chat_id: config.telegramChannelId, text: postText }, 15000);
+    } else if (config.silentMode) {
+      info('production', 'SILENT_MODE_BLOCKED_CHANNEL_POST', { productId: id, title: product.title });
     }
   } catch (e) {
     warn('production', `marketing post failed: ${e.message}`);

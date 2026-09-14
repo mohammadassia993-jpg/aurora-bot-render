@@ -29,6 +29,10 @@ async function fetchJson(url, options = {}, timeoutMs = 15000) {
 
 /** Self-keepalive: ping backup service to prevent Render sleep */
 async function keepAlive() {
+  if (process.env.AURORA_AUTOMATION === 'false') {
+    info('automator', '⏸ FULL_STOP: keepalive disabled');
+    return;
+  }
   const backupUrl = config.backupUrl || 'https://silent-giants-render-backup.onrender.com';
   if (!backupUrl) return;
   try {
@@ -121,6 +125,10 @@ async function monitorJobs() {
 }
 /** Start all automator jobs */
 export function startAutomator() {
+  if (process.env.AURORA_AUTOMATION === 'false') {
+    info('automator', '⏸ FULL_STOP: automator disabled (AURORA_AUTOMATION=false)');
+    return { disabled: true };
+  }
   info('automator', 'starting automator jobs');
 
   // Keepalive every 10 minutes

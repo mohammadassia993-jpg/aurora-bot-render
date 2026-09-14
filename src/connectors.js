@@ -2,8 +2,16 @@ import { config } from './config.js';
 import { db, recordError } from './db.js';
 import { info, warn } from './logger.js';
 import { retry } from './retry.js';
+import { shouldCreateOpportunity } from './opportunity-validation.js';
+globalThis.__oppValidator = { shouldCreateOpportunity };
 
 function upsertTask(source, externalId, title, reward, currency, fitScore, risk, payload) {
+  // Filter at creation: never store invalid opportunities.
+  if (source === 'opportunity' || source === 'jobs') {
+    const link = String(payload?.url || payload?.link || '').trim();
+    const description = String(payload?.description || payload?.why || payload?.details || title || '').trim();
+    if (!shouldCreateOpportunity({ reward, link, description })) return false;
+  }
   db.prepare(`
     INSERT INTO tasks(source, external_id, title, reward, currency, fit_score, risk, payload_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -11,6 +19,7 @@ function upsertTask(source, externalId, title, reward, currency, fitScore, risk,
       title = excluded.title, reward = excluded.reward, fit_score = excluded.fit_score,
       payload_json = excluded.payload_json, updated_at = CURRENT_TIMESTAMP
   `).run(source, externalId, title, reward, currency, fitScore, risk, JSON.stringify(payload));
+  return true;
 }
 
 export async function syncDework() {

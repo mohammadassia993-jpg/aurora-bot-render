@@ -54,4 +54,15 @@ export function filterValidOpportunities(list = []) {
   return { valid, rejected };
 }
 
+// Filter at creation: nothing is stored unless it is valid.
+export function shouldCreateOpportunity(opp = {}) {
+  const reward = opp.reward !== undefined ? opp.reward : opp.price;
+  if (!hasValidReward(reward)) return false;
+  const link = String(opp.link || opp.url || opp.source_url || '').trim();
+  if (!link.startsWith('http')) return false;
+  const description = String(opp.description || opp.why || opp.details || opp.payload?.description || '').trim();
+  if (description.length < 100) return false;
+  return true;
+}
+
 export default validateOpportunity;

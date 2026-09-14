@@ -13,6 +13,7 @@ import { callModel } from './ai.js';
 import { info, warn } from './logger.js';
 import { eventBus, EVENTS } from './event-bus.js';
 import { EpisodicMemory, SemanticMemory, ProceduralMemory } from './persistent-memory.js';
+import { shouldCreateOpportunity } from './opportunity-validation.js';
 
 class InitiatorAgent {
   constructor() {
@@ -107,6 +108,15 @@ class InitiatorAgent {
 
   /** Create a task from discovered opportunity */
   createTask(opportunity) {
+    // Filter at creation: never create tasks for invalid opportunities.
+    if (!shouldCreateOpportunity({
+      reward: opportunity.reward,
+      link: opportunity.link || opportunity.url || '',
+      description: opportunity.description || opportunity.why || opportunity.details || ''
+    })) {
+      info('initiator', `Opportunity blocked by creation filter: ${String(opportunity.title || '').slice(0, 50)}`);
+      return null;
+    }
     const existing = db.prepare('SELECT id FROM tasks WHERE title = ?').get(opportunity.title);
     if (existing) {
       info('initiator', `Task already exists: ${opportunity.title.slice(0, 40)}`);

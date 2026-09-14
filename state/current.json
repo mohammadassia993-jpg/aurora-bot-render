@@ -1,6 +1,6 @@
 {
   "team": "Silent Giants",
-  "updatedAt": "2026-09-14T07:30:00Z",
+  "updatedAt": "2026-09-14T08:00:00Z",
   "version": "1.0.0",
   "primary": "aurora-bot-render",
   "backup": "silent-giants-render-backup",
@@ -22,7 +22,15 @@
   },
   "lastTasks": [],
   "dbCleanup": {
-    "deletedTasks": 11,
-    "deletedQueue": 0
-  }
+    "task_queue": 6,
+    "tasks": 4,
+    "notifications": 3,
+    "health_checks": 8
+  },
+  "mode": {
+    "fullStop": "AURORA_AUTOMATION=false",
+    "silent": "AURORA_SILENT_MODE=true",
+    "verification": "pending 3h"
+  },
+  "filterAtCreation": "shouldCreateOpportunity active in scan/initiator/connectors/task-queue"
 }

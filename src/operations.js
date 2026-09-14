@@ -239,7 +239,7 @@ export async function runMarketingPublish() {
   }
 
   try {
-    if (config.telegramToken && channelId) {
+    if (config.telegramToken && channelId && !config.silentMode) {
       const { telegramRequest } = await import('./telegram-api.js');
       const res = await telegramRequest(config.telegramToken, 'sendMessage', {
         chat_id: channelId,

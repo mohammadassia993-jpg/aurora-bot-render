@@ -16,6 +16,10 @@ const jobs = [];
 
 /** Start all scheduled jobs */
 export function startScheduler() {
+  if (process.env.AURORA_AUTOMATION === 'false') {
+    info('scheduler', '⏸ FULL_STOP: scheduler disabled (AURORA_AUTOMATION=false)');
+    return { disabled: true };
+  }
   info('scheduler', '🚀 Starting scheduler agent...');
 
   // ── 0. Bundle 92-tasks generation (daily at 05:00 UTC, ONLY if enabled) ──
