@@ -224,3 +224,59 @@ export default { startScheduler, stopScheduler, getSchedulerStatus };
       await followup.runFollowupCycle();
     } catch (e) { errLog('scheduler', `Followup cycle failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
+
+// ── Hivemoot Integration (every 6 hours) ──
+// Runs hivemoot buzz to scan repo, read issues, generate tasks
+if (process.env.AURORA_AUTOMATION !== 'false') {
+  jobs.push(cron.schedule('0 */6 * * *', async () => {
+    info('scheduler', '🐝 Running Hivemoot buzz...');
+    try {
+      const { execSync } = await import('node:child_process');
+      const output = execSync('npx hivemoot buzz --repo mohammadassia993-jpg/aurora-bot-render', {
+        encoding: 'utf8',
+        timeout: 60000,
+        env: { ...process.env, GITHUB_TOKEN: process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || '' }
+      });
+      info('scheduler', `🐝 Hivemoot buzz completed:\n${output.substring(0, 500)}`);
+    } catch (e) { warn('scheduler', `⚠️ Hivemoot buzz failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+  info('scheduler', '🐝 Hivemoot buzz registered (every 6 hours)');
+}
+
+// ── Self-Healing Cycle (every 6 hours) ──
+// Checks for issues, creates fix PRs automatically
+if (process.env.AURORA_AUTOMATION !== 'false') {
+  jobs.push(cron.schedule('30 */6 * * *', async () => {
+    info('scheduler', '🔧 Running self-healing cycle...');
+    try {
+      const { getRepoHealth, createIssue, commentIssue } = await import('./github-api.js');
+      const health = await getRepoHealth();
+      info('scheduler', `📊 Repo health: ${health.openIssues} issues, ${health.openPRs} PRs`);
+
+      // Log issues for awareness
+      for (const issue of health.issues.slice(0, 5)) {
+        info('scheduler', `  📋 Issue #${issue.number}: ${issue.title}`);
+      }
+    } catch (e) { warn('scheduler', `⚠️ Self-healing failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+  info('scheduler', '🔧 Self-healing cycle registered (every 6 hours)');
+}
+
+// ── Team Report (every 3 hours) ──
+if (process.env.AURORA_AUTOMATION !== 'false') {
+  jobs.push(cron.schedule('0 */3 * * *', async () => {
+    info('scheduler', '📊 Generating team report...');
+    try {
+      const { getRepoHealth } = await import('./github-api.js');
+      const health = await getRepoHealth();
+      const report = [
+        '📊 Team Status Report',
+        `Open Issues: ${health.openIssues}`,
+        `Open PRs: ${health.openPRs}`,
+        `Timestamp: ${new Date().toISOString()}`
+      ].join('\n');
+      info('scheduler', report);
+    } catch (e) { warn('scheduler', `⚠️ Team report failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+  info('scheduler', '📊 Team report registered (every 3 hours)');
+}

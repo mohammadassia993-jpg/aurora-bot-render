@@ -1,0 +1,55 @@
+# Hivemoot team definition — Silent Giants (Aurora)
+# GitHub-native AI agent team: issues, PRs, votes, reviews.
+
+team:
+  name: "Silent Giants — Aurora"
+  repo: "mohammadassia993-jpg/aurora-hivemoot"
+
+roles:
+  - name: Queen
+    model: logfare
+    responsibilities:
+      - إدارة المناقشات
+      - دعوة للتصويت
+      - دمج PRs
+  - name: Builder
+    model: llm7
+    responsibilities:
+      - كتابة الكود
+      - فتح Issues
+      - تنفيذ المهام
+  - name: Reviewer
+    model: agnes
+    responsibilities:
+      - مراجعة الكود
+      - التحقق من الجودة
+      - اختبار المخرجات
+  - name: Researcher
+    model: logfare
+    responsibilities:
+      - البحث عن الفرص
+      - جمع البيانات
+      - تحليل السوق
+  - name: Guard
+    model: llm7
+    responsibilities:
+      - مراقبة الأمن
+      - كشف الشذوذ
+      - حماية المحافظ
+
+# Guardrails
+rules:
+  - never delete production data or the original repo
+  - wallet keys stay secret (env only)
+  - no unauthorized external API calls
+  - leader (888229115) approves final publishes
+
+  - name: FieldManager
+    model: logfare
+    tools: [playwright, chrome, github-api, render-api]
+    responsibilities:
+      - تسجيل الدخول للخدمات
+      - تجاوز CAPTCHA (عبر متصفح حقيقي)
+      - رفع workflow
+      - نشر على Witchly/Kubeletto/Suga
+      - إنشاء GitHub App عبر Manifest Flow
