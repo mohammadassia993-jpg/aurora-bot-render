@@ -1,0 +1,22 @@
+{
+  "team": "Silent Giants",
+  "updatedAt": "2026-09-14T06:40:00Z",
+  "version": "1.0.0",
+  "primary": "aurora-bot-render",
+  "backup": "silent-giants-render-backup",
+  "lastDeploy": "357dcbb",
+  "gitRemote": "github.com/mohammadassia993-jpg/aurora-bot-render",
+  "tools": {
+    "freewebMCP": "live",
+    "aiLayer": "llm7+logfare+agnes",
+    "peerKeepalive": "active",
+    "selfHealing": "active",
+    "qrLoginFlow": "ready"
+  },
+  "blockers": {
+    "huggingface": "AWS WAF CAPTCHA — automated signup declined; requires leader token",
+    "oracle": "geo-block (Export Law) — requires leader signup from personal device",
+    "kubeletto": "turnstile CAPTCHA — requires leader GitHub signup once"
+  },
+  "lastTasks": []
+}
