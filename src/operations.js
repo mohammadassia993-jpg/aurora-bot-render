@@ -267,14 +267,18 @@ export async function runOpportunityDiscovery() {
   try {
     const { runDailyResearch } = await import('./research.js');
     const result = await runDailyResearch();
-    if (result.opportunities?.length) {
-      notify('opportunity_discovery', 'فرص جديدة مكتشفة', `${result.opportunities.length} فرصة مؤهلة جديدة`);
+    const { filterValidOpportunities } = await import('./opportunity-validation.js');
+    const { valid, rejected } = filterValidOpportunities(result.opportunities || []);
+    if (valid.length) {
+      notify('opportunity_discovery', 'فرص جديدة مكتشفة', `${valid.length} فرصة مؤهلة جديدة (استُبعد ${rejected.length})`);
       sendMessageDetailed([
         `📡 فرص جديدة مكتشفة:`,
         `━━━━━━━━━━━`,
-        ...result.opportunities.slice(0, 5).map((o, i) => `• ${i + 1}. ${o.title} ($${o.reward || 0})`),
-        result.opportunities.length > 5 ? `... و ${result.opportunities.length - 5} أخرى` : ''
+        ...valid.slice(0, 5).map((o, i) => `• ${i + 1}. ${o.title} ($${o.reward || 0})`),
+        valid.length > 5 ? `... و ${valid.length - 5} أخرى` : ''
       ].filter(Boolean).join('\n')).catch(() => {});
+    } else if (rejected.length) {
+      notify('opportunity_discovery', 'فرص مستبعدة', `استُبعد ${rejected.length} فرصة غير صالحة (0$/رابط مفقود/وصف قصير) — لم تُرسل للقائد`);
     }
     return { discovered: result.opportunities?.length || 0 };
   } catch (caught) {

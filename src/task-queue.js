@@ -269,8 +269,22 @@ export async function executeTask(task) {
     if (cat === 'apply-opportunity') {
       // Leader verification flow (2.4): dossier قبل أي التزام
       const { buildDossier } = await import('./opportunity-validator.js');
+      const { validateOpportunity } = await import('./opportunity-validation.js');
       const { sendMessageDetailed } = await import('./telegram.js');
       const { config } = await import('./config.js');
+      let oppPayload = {};
+      try { oppPayload = JSON.parse(task.result || '{}'); } catch { /* keep empty */ }
+      const oppForFilter = {
+        title: task.description || oppPayload.title,
+        reward: oppPayload.reward,
+        url: oppPayload.payload?.url || oppPayload.url,
+        description: oppPayload.payload?.description || oppPayload.payload?.why || task.description
+      };
+      const gate = validateOpportunity(oppForFilter);
+      if (!gate.ok) {
+        warn('opportunity-validation', `dossier send blocked: ${gate.reason} — ${String(oppForFilter.title || '').slice(0, 60)}`);
+        return `apply-opportunity blocked (${gate.reason}) — not sent to leader`;
+      }
       const dossier = buildDossier(task);
       await sendMessageDetailed(dossier, config.telegramChatId || config.telegramAdminChatId).catch(() => {});
       const payload = (() => { try { return JSON.parse(task.result || '{}'); } catch { return {}; } })();

@@ -9,11 +9,12 @@ import { info, warn } from './logger.js';
 import { telegramRequest, telegramTokenHealth } from './telegram-api.js';
 
 const STATE_FILE = path.join(config.root, 'data', 'health-state.json');
-const ALERT_COOLDOWN_MIN = 15;
+const ALERT_COOLDOWN_MIN = 30;
 const EMAIL_STALE_MIN = 55; // 1 hour (was 12 min)
 const EMAIL_FAIL_THRESHOLD = 3;   // mark email down only after 3 consecutive real failures
 const EMAIL_RETRY_GAP_MIN = 30;   // min gap between self-heal attempts
 const EMAIL_TRANSIENT_RE = /timeout|timed\s*out|ETIMEDOUT|ECONN|socket\s*hang|network|temporar|transient|ECONNRESET|aborted?/i;
+const FAIL_THRESHOLD = 3;   // alert only after 3 consecutive real failures
 
 function loadState() {
   try {
@@ -73,26 +74,57 @@ export async function notifyHealthChange(component, healthy, detail, action, rec
   }
 }
 
-function trackHealth(component, healthy, detail, action) {
+export function trackHealth(component, healthy, detail, action) {
   const now = Date.now();
   const prev = lastState[component];
+  const detailText = String(detail || '');
+  const transient = EMAIL_TRANSIENT_RE.test(detailText);
+
   if (!prev) {
     // Baseline on first run: record state without alerting (avoids startup noise).
-    lastState[component] = { healthy, ts: now };
+    lastState[component] = { healthy, ts: now, fails: 0 };
     persistState();
     return;
   }
-  if (prev.healthy === healthy) {
-    if (!healthy && now - prev.ts > ALERT_COOLDOWN_MIN * 60_000) {
-      notifyHealthChange(component, healthy, detail, action, false);
-      prev.ts = now;
-      persistState();
+
+  if (healthy) {
+    // Recovered: reset failure counter. Only alert a recovery if the component
+    // had been marked down by a real alert (prev.alerted) — avoids "recovery"
+    // messages for noise that never alerted.
+    const wasDown = prev.healthy === false;
+    const wasAlerted = Boolean(prev.alerted);
+    lastState[component] = { healthy, ts: now, fails: 0 };
+    persistState();
+    if (wasDown && wasAlerted) {
+      notifyHealthChange(component, healthy, detail, action, true);
     }
     return;
   }
-  lastState[component] = { healthy, ts: now };
+
+  // Unhealthy path.
+  if (transient) {
+    // Transient (timeout/network) failures do not count toward alerting.
+    lastState[component] = { healthy, ts: now, fails: prev.fails || 0 };
+    persistState();
+    return;
+  }
+
+  const fails = (prev.fails || 0) + 1;
+  const cooldownOk = now - (prev.alertTs || 0) > ALERT_COOLDOWN_MIN * 60_000;
+  lastState[component] = { healthy, ts: now, fails };
   persistState();
-  notifyHealthChange(component, healthy, detail, action, healthy);
+
+  if (fails < FAIL_THRESHOLD) {
+    info('watchdog', `${component} ${fails}/${FAIL_THRESHOLD} consecutive failures — no false alert`);
+    return;
+  }
+  if (!cooldownOk) {
+    info('watchdog', `${component} still failing but within 30min cooldown — quiet`);
+    return;
+  }
+  lastState[component] = { healthy, ts: now, fails, alertTs: now, alerted: true };
+  persistState();
+  notifyHealthChange(component, healthy, detail, action, false);
 }
 
 export async function checkGateway() {
