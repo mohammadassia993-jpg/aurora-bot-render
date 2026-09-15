@@ -70,6 +70,13 @@ export async function validateOpportunity(task) {
     return { passed: false, score: 0, reasons };
   }
 
+  // Leader order 2026-09-15: dead bounties (CVE/GHSA) permanently rejected
+  const deadBountyText = `${title} ${source} ${url} ${payload.description || ''}`;
+  if (DEAD_BOUNTY_RE.test(deadBountyText)) {
+    reasons.push('ثغرة ميتة (CVE/GHSA/مُصلَحة) — مرفوضة تلقائياً');
+    return { passed: false, score: 0, reasons };
+  }
+
   const text = `${title} ${payload.description || ''} ${payload.why || ''}`.toLowerCase();
   for (const re of SCAM_KEYWORDS) {
     if (re.test(text)) {
