@@ -88,5 +88,14 @@
     "root_cause": " Fear of autonomous action",
     "lesson": "Playwright يحل كل شيء — لا انتظار",
     "new_rule": "NO_WAITING: Playwright يحل كل شيء"
+  },
+  {
+    "id": 11,
+    "date": "2026-09-15",
+    "title": "AUTO_RETRY triggered by VIGIL",
+    "description": "NEVER_STOP strategy alt_path",
+    "root_cause": "500 Internal Server Error — Superteam API broken",
+    "lesson": "VIGIL kept the team moving (NEVER_STOP)",
+    "new_rule": "AUTO_RETRY: NEVER_STOP strategy alt_path"
   }
 ]

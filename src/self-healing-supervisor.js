@@ -345,3 +345,85 @@ if (isMain) {
 
 export { VigilSupervisor, RECOVERY_ACTIONS, CONFIG };
 export default VigilSupervisor;
+/**
+ * ── Public API (VIGIL 2.0) ──
+ * The leader-requested interface:
+ *   const failure = await vigil.diagnose(error)
+ *   await vigil.applyStrategy(failure.recommendation)
+ */
+const NEVER_STOP_STRATEGIES = ['alt_path', 'retry', 'skip_task', 'alert_leader'];
+const MISTAKES_FILE = 'data/mistakes.json';
+
+VigilSupervisor.prototype.diagnose = async function (failure) {
+  const message = String(failure?.message || failure || '');
+  const scope = failure?.scope || 'unknown';
+  const recovery = this._classifyRecovery(message);
+
+  const diagnosis = {
+    ok: true,
+    time: new Date().toISOString(),
+    scope,
+    message,
+    classification: recovery.action,
+    ruleId: recovery.ruleId,
+    description: recovery.description,
+    recommendation: recovery.action,
+    strategies: NEVER_STOP_STRATEGIES.slice(),
+  };
+  this._log('info', `diagnose() → ${recovery.action} (rule ${recovery.ruleId || '?'})`, { scope, message });
+  return diagnosis;
+};
+
+VigilSupervisor.prototype._updateMistakes = function (entry) {
+  try {
+    const mistakesPath = this._path(MISTAKES_FILE);
+    let mistakes = [];
+    try { mistakes = JSON.parse(fs.readFileSync(mistakesPath, 'utf8')); } catch { /* empty */ }
+    if (!Array.isArray(mistakes)) mistakes = [];
+    const nextId = mistakes.reduce((max, m) => Math.max(max, Number(m.id) || 0), 0) + 1;
+    const ruleName = entry.ruleId && this._loadRules().find(r => r.id === entry.ruleId)?.rule || entry.rule || 'NEVER_STOP';
+    mistakes.push({
+      id: nextId,
+      date: new Date().toISOString().slice(0, 10),
+      title: `${ruleName} triggered by VIGIL`,
+      description: String(entry.description || entry.rule || 'VIGIL recovery action').slice(0, 300),
+      root_cause: String(entry.message || 'automated stall detection').slice(0, 300),
+      lesson: entry.action === 'alert_leader' ? 'All strategies exhausted — escalate to leader' : 'VIGIL kept the team moving (NEVER_STOP)',
+      new_rule: `${ruleName}: ${entry.description || 'keep moving autonomously'}`,
+    });
+    fs.mkdirSync(path.dirname(mistakesPath), { recursive: true });
+    fs.writeFileSync(mistakesPath, JSON.stringify(mistakes, null, 2));
+    return true;
+  } catch (caught) {
+    this._log('warn', `mistakes.json update failed: ${caught.message}`);
+    return false;
+  }
+};
+
+VigilSupervisor.prototype.applyStrategy = async function (recommendation, context = {}) {
+  const strategies = NEVER_STOP_STRATEGIES;
+  const current = recommendation?.strategy || recommendation?.classification || recommendation || 'log_only';
+
+  // NEVER_STOP: if one strategy fails, escalate to the next — only alert leader last
+  let idx = strategies.indexOf(current);
+  if (idx === -1) idx = strategies.indexOf('skip_task') === -1 ? 0 : strategies.indexOf('skip_task');
+
+  let lastResult = null;
+  for (let i = idx; i < strategies.length; i++) {
+    const strategy = strategies[i];
+    this._log('info', `applyStrategy() → trying "${strategy}"`);
+    const recovery = {
+      action: strategy,
+      ruleId: (strategy === 'alt_path') ? 12 : (strategy === 'retry') ? 14 : (strategy === 'skip_task') ? 1 : 9,
+      description: `NEVER_STOP strategy ${strategy}`,
+    };
+    lastResult = await this._executeRecovery(recovery, context.recentFailures || []);
+    this._updateMistakes({ ...recovery, message: context.message, scope: context.scope });
+    // alt_path / retry / skip all count as "moved forward" — only alert_leader is terminal
+    if (strategy !== 'alert_leader') {
+      return { ok: true, strategy, result: lastResult, alertLeader: false };
+    }
+  }
+  // All strategies exhausted → alert leader (terminal)
+  return { ok: false, strategy: 'alert_leader', result: lastResult, alertLeader: true };
+};

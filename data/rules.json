@@ -124,5 +124,22 @@
     "description": "برنامج واحد = تحليل جميع عقوده — لا تحليل جزئي",
     "source_mistake": "تحليل 3 عقود من 8",
     "priority": "CRITICAL"
+  },
+  {
+    "id": 19,
+    "rule": "NEVER_STOP",
+    "description": "لا يتوقف الفريق أبداً. أي توقف > 5 دقائق = فشل حرج. VIGIL ينفذ: alt_path → retry → skip → alert_leader فقط إذا فشلت كل الاستراتيجيات.",
+    "source_mistake": "توقف الفريق — أي توقف > 5 دقائق غير مقبول",
+    "priority": "CRITICAL",
+    "vigil": {
+      "stall_threshold_ms": 300000,
+      "strategy_order": [
+        "alt_path",
+        "retry",
+        "skip",
+        "alert_leader"
+      ],
+      "alert_leader_only_if_all_fail": true
+    }
   }
 ]
