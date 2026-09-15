@@ -207,7 +207,40 @@ export function startScheduler() {
     } catch (e) { errLog('scheduler', `Follow-up failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
+
+  // ── Event Pipeline: Researcher (every 5 minutes) ──
+  jobs.push(cron.schedule('*/5 * * * *', async () => {
+    info('scheduler', '🔎 Pipeline researcher cycle...');
+    try {
+      const { runResearcher } = await import('./pipeline.js');
+      await runResearcher();
+    } catch (e) { errLog('scheduler', `Researcher failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── Event Pipeline: Planner → Executor → Reviewer → Orchestrator (every 1 minute) ──
+  jobs.push(cron.schedule('* * * * *', async () => {
+    try {
+      const pipe = await import('./pipeline.js');
+      // Feed the loop: process one opportunity per stage per tick
+      const consumed = [];
+      for (let i = 0; i < 3; i++) {
+        if (await pipe.runPlanner()) consumed.push('planner');
+        else break;
+      }
+      for (let i = 0; i < 3; i++) {
+        if (await pipe.runExecutor()) consumed.push('executor');
+        else break;
+      }
+      for (let i = 0; i < 3; i++) {
+        if (await pipe.runReviewer()) consumed.push('reviewer');
+        else break;
+      }
+      await pipe.runOrchestrator();
+    } catch (e) { errLog('scheduler', `Pipeline loop error: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
   // ── Record scheduler start in memory ──
+
 
   EpisodicMemory.record('system_start', 'scheduler', null, 'Scheduler Agent Started', `Active jobs: ${jobs.length}`, 'success', { jobCount: jobs.length });
 

@@ -1,0 +1,61 @@
+{
+  "opportunities": [
+    {
+      "id": "opp_888468_om8n",
+      "title": "PIPELINE TEST — Latvian quickstart for omi-cli",
+      "link": "https://github.com/BasedHardware/omi/issues/13883",
+      "reward": 25,
+      "status": "approved",
+      "researcher_notes": "pipeline test opportunity",
+      "planner_plan": {
+        "goal": "PIPELINE TEST — Latvian quickstart for omi-cli",
+        "link": "https://github.com/BasedHardware/omi/issues/13883",
+        "reward": 25,
+        "steps": [
+          {
+            "step": "analyze",
+            "desc": "تحليل المتطلبات والفرصة"
+          },
+          {
+            "step": "gather",
+            "desc": "جمع المعلومات اللازمة (الوصف، التعليقات، المتطلبات)"
+          },
+          {
+            "step": "craft",
+            "desc": "صياغة الحل الكامل وتجهيز التقديم"
+          },
+          {
+            "step": "submit",
+            "desc": "تقديم الحل (GitHub comment أو Superteam submission)"
+          },
+          {
+            "step": "self-review",
+            "desc": "مراجعة ذاتية قبل التسليم للمراجع"
+          }
+        ],
+        "tools": [
+          "github-api"
+        ],
+        "status": "ready"
+      },
+      "executor_result": {
+        "submitted": true,
+        "comment_id": 5674794773,
+        "url": "https://github.com/BasedHardware/omi/issues/13883#issuecomment-5674794773",
+        "at": "2026-09-15T04:34:50.148Z"
+      },
+      "reviewer_score": 8,
+      "reviewer_notes": "Submission posted (comment #5674794773). Meets requirements, could improve with more detailed solution.",
+      "created_at": "2026-09-15T04:34:48.470Z",
+      "updated_at": "2026-09-15T04:34:50.163Z",
+      "reported": true
+    }
+  ],
+  "meta": {
+    "created_at": "2026-09-15T07:35:00Z",
+    "updated_at": "2026-09-15T04:34:50.163Z",
+    "total_processed": 1,
+    "total_approved": 0,
+    "total_rejected": 0
+  }
+}
