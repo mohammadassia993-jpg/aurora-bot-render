@@ -188,7 +188,27 @@ export function startScheduler() {
     } catch (e) { /* silent — heartbeat logs its own */ }
   }, { timezone: 'UTC' }));
 
+
+  // ── Bounty Watcher (every 5 minutes) — discovers GitHub + Superteam bounties ──
+  jobs.push(cron.schedule('*/5 * * * *', async () => {
+    info('scheduler', '🎯 Bounty watch cycle...');
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('bash scripts/watch_bounties.sh', { timeout: 60000, env: process.env });
+    } catch (e) { errLog('scheduler', `Bounty watch failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
+  // ── Follow-up checker (every 15 minutes) — checks replies on our claims ──
+  jobs.push(cron.schedule('*/15 * * * *', async () => {
+    info('scheduler', '📬 Follow-up check...');
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('bash scripts/followup_15min.sh', { timeout: 60000, env: process.env });
+    } catch (e) { errLog('scheduler', `Follow-up failed: ${e.message}`); }
+  }, { timezone: 'UTC' }));
+
   // ── Record scheduler start in memory ──
+
   EpisodicMemory.record('system_start', 'scheduler', null, 'Scheduler Agent Started', `Active jobs: ${jobs.length}`, 'success', { jobCount: jobs.length });
 
   info('scheduler', `✅ Scheduler active with ${jobs.length} recurring jobs`);
