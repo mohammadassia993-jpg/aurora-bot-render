@@ -1,17 +1,114 @@
 [
-  {"id": 1, "rule": "NOT_FOUND_RECOVERY", "description": "لا تتوقف عند Not Found — ابحث في 6 منصات بديلة قبل الاستسلام", "source_mistake": "SecureSignature Not Found", "priority": "HIGH"},
-  {"id": 2, "rule": "PLAYWRIGHT_FIRST", "description": "Playwright MCP قبل API — دائماً. إذا فشل API، انتقل لـ Playwright فوراً", "source_mistake": "Superteam API 500", "priority": "HIGH"},
-  {"id": 3, "rule": "DEAD_BOUNTY_BLOCK", "description": "أي فرصة تحتوي على CVE- أو GHSA- أو fixed in أو patched → مرفوضة تلقائياً", "source_mistake": "مطاردة CVE/GHSA", "priority": "CRITICAL"},
-  {"id": 4, "rule": "INSTALL_WITH_PLAN", "description": "لا تثبت أداة بدون خطة استخدام واضحة خلال 10 دقائق", "source_mistake": "Kuren/Lightpanda بدون استخدام", "priority": "MEDIUM"},
-  {"id": 5, "rule": "ONE_TOOL_ONLY", "description": "لا تثبت أكثر مما تستخدم — أداة واحدة متقنة أفضل من 7 أدوات ضائعة", "source_mistake": "7 أدوات CAPTCHA", "priority": "MEDIUM"},
-  {"id": 6, "rule": "REVIEWER_STANDARD", "description": "المراجع ≥ 15 ثانية + توثيق ملموس — لا تقييم شكلي", "source_mistake": "1.7 ثانية تقييم", "priority": "HIGH"},
-  {"id": 7, "rule": "EXECUTE_FIRST", "description": "التنفيذ أولاً، التنسيق لاحقاً — لا قوالب جاهزة بدل العمل", "source_mistake": "دراسة قوالب بدل التنفيذ", "priority": "HIGH"},
-  {"id": 8, "rule": "TEST_BEFORE_REPORT", "description": "اختبر قبل النشر — لا تقارير مبكرة قبل التأكد من النجاح", "source_mistake": "تقرير ناجح ثم فشل", "priority": "CRITICAL"},
-  {"id": 9, "rule": "NO_WAITING", "description": "لا انتظار تدخل بشري — Playwright يحل كل شيء", "source_mistake": "انتظار قرار القائد", "priority": "CRITICAL"},
-  {"id": 10, "rule": "MIN_BOUNTY_200", "description": "لا مكافآت أقل من $200 — الوقت أغلى", "source_mistake": "low value bounties", "priority": "MEDIUM"},
-  {"id": 11, "rule": "VERIFY_COMPATIBILITY", "description": "تحقق من التوافق (نظام، معمارية، إصدار) قبل التثبيت", "source_mistake": "Lightpanda بدون binary", "priority": "MEDIUM"},
-  {"id": 12, "rule": "AUTO_RETRY", "description": "إذا فشل مسار → حوّل تلقائياً إلى المسار البديل بدون تدخل", "source_mistake": "توقف عند كل فشل", "priority": "HIGH"},
-  {"id": 13, "rule": "EVERY_TASK_OUTPUT", "description": "كل مهمة يجب أن تنتج مخرجاً ملموساً — لا مهام بدون نتائج", "source_mistake": "مهام بدون مخرجات", "priority": "HIGH"},
-  {"id": 14, "rule": "NO_SLEEP", "description": "لا انتظار. لا نوم. القلعة ثابتة لأن الجميع يعمل", "source_mistake": "توقف الفريق", "priority": "CRITICAL"},
-  {"id": 15, "rule": "PROOF_REQUIRED", "description": "كل خطوة تحتاج توثيق + إثبات ملموس — لا ادعاءات بدون دليل", "source_mistake": "تقارير بدون إثباتات", "priority": "CRITICAL"}
+  {
+    "id": 1,
+    "rule": "NOT_FOUND_RECOVERY",
+    "description": "لا تتوقف عند Not Found — ابحث في 6 منصات بديلة قبل الاستسلام",
+    "source_mistake": "SecureSignature Not Found",
+    "priority": "HIGH"
+  },
+  {
+    "id": 2,
+    "rule": "PLAYWRIGHT_FIRST",
+    "description": "Playwright MCP قبل API — دائماً. إذا فشل API، انتقل لـ Playwright فوراً",
+    "source_mistake": "Superteam API 500",
+    "priority": "HIGH"
+  },
+  {
+    "id": 3,
+    "rule": "DEAD_BOUNTY_BLOCK",
+    "description": "أي فرصة تحتوي على CVE- أو GHSA- أو fixed in أو patched → مرفوضة تلقائياً",
+    "source_mistake": "مطاردة CVE/GHSA",
+    "priority": "CRITICAL"
+  },
+  {
+    "id": 4,
+    "rule": "INSTALL_WITH_PLAN",
+    "description": "لا تثبت أداة بدون خطة استخدام واضحة خلال 10 دقائق",
+    "source_mistake": "Kuren/Lightpanda بدون استخدام",
+    "priority": "MEDIUM"
+  },
+  {
+    "id": 5,
+    "rule": "ONE_TOOL_ONLY",
+    "description": "لا تثبت أكثر مما تستخدم — أداة واحدة متقنة أفضل من 7 أدوات ضائعة",
+    "source_mistake": "7 أدوات CAPTCHA",
+    "priority": "MEDIUM"
+  },
+  {
+    "id": 6,
+    "rule": "REVIEWER_STANDARD",
+    "description": "المراجع ≥ 15 ثانية + توثيق ملموس — لا تقييم شكلي",
+    "source_mistake": "1.7 ثانية تقييم",
+    "priority": "HIGH"
+  },
+  {
+    "id": 7,
+    "rule": "EXECUTE_FIRST",
+    "description": "التنفيذ أولاً، التنسيق لاحقاً — لا قوالب جاهزة بدل العمل",
+    "source_mistake": "دراسة قوالب بدل التنفيذ",
+    "priority": "HIGH"
+  },
+  {
+    "id": 8,
+    "rule": "TEST_BEFORE_REPORT",
+    "description": "اختبر قبل النشر — لا تقارير مبكرة قبل التأكد من النجاح",
+    "source_mistake": "تقرير ناجح ثم فشل",
+    "priority": "CRITICAL"
+  },
+  {
+    "id": 9,
+    "rule": "NO_WAITING",
+    "description": "لا انتظار تدخل بشري — Playwright يحل كل شيء",
+    "source_mistake": "انتظار قرار القائد",
+    "priority": "CRITICAL"
+  },
+  {
+    "id": 10,
+    "rule": "MIN_BOUNTY_200",
+    "description": "لا مكافآت أقل من $200 — الوقت أغلى",
+    "source_mistake": "low value bounties",
+    "priority": "MEDIUM"
+  },
+  {
+    "id": 11,
+    "rule": "VERIFY_COMPATIBILITY",
+    "description": "تحقق من التوافق (نظام، معمارية، إصدار) قبل التثبيت",
+    "source_mistake": "Lightpanda بدون binary",
+    "priority": "MEDIUM"
+  },
+  {
+    "id": 12,
+    "rule": "AUTO_RETRY",
+    "description": "إذا فشل مسار → حوّل تلقائياً إلى المسار البديل بدون تدخل",
+    "source_mistake": "توقف عند كل فشل",
+    "priority": "HIGH"
+  },
+  {
+    "id": 13,
+    "rule": "EVERY_TASK_OUTPUT",
+    "description": "كل مهمة يجب أن تنتج مخرجاً ملموساً — لا مهام بدون نتائج",
+    "source_mistake": "مهام بدون مخرجات",
+    "priority": "HIGH"
+  },
+  {
+    "id": 14,
+    "rule": "NO_SLEEP",
+    "description": "لا انتظار. لا نوم. القلعة ثابتة لأن الجميع يعمل",
+    "source_mistake": "توقف الفريق",
+    "priority": "CRITICAL"
+  },
+  {
+    "id": 15,
+    "rule": "PROOF_REQUIRED",
+    "description": "كل خطوة تحتاج توثيق + إثبات ملموس — لا ادعاءات بدون دليل",
+    "source_mistake": "تقارير بدون إثباتات",
+    "priority": "CRITICAL"
+  },
+  {
+    "id": 16,
+    "rule": "DEEP_ANALYSIS",
+    "description": "برنامج واحد بعمق > 10 برامج بسطحية. لا تحليل سطحي بعد اليوم",
+    "source_mistake": "تحليل سطحي لـ 10 برامج",
+    "priority": "CRITICAL"
+  }
 ]
