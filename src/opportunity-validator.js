@@ -17,6 +17,22 @@ const SCAM_KEYWORDS = [
   /honeypot/i, /rug\s*pull/i, /phishing/i, /malicious\s*contract/i, /backdoor/i, /proxy?\s*contract/i
 ];
 
+
+const HONEYPOT_SIGNALS = [
+  /ethereum.*ipv[46]|ipv[46].*ethereum/i,
+  /smart\s+contract.*ip\s+address|ip\s+address.*smart\s+contract/i,
+  /solc\s+--\s*tcp|tcp-handshake|--tcp-handshake/i,
+  /refund\s+opcode.*broadcast|broadcast.*refund\s+opcode/i,
+  /gas\s+metering.*ipv4|ipv4.*gas\s+metering/i,
+  /hallucinated\s+router|do\s+not\s+have\s+ip\s+addresses/i
+];
+
+const HONEYPOT_RULES = {
+  HIGH_REWARD_NEW_PROJECT: { max_repo_age_days: 7, min_reward: 1000 },
+  FEW_COMMENTS_HIGH_REWARD: { max_comments: 3, min_reward: 500 },
+  UNKNOWN_REPO: { min_stars: 5 }
+};
+
 const FAKE_PLATFORM_RE = /unknown[-.]platform|fake[-.]bounty|test[-.]bounty|scam[-.]job|example\.(com|org)/i;
 
 const MIN_REWARD = 50;

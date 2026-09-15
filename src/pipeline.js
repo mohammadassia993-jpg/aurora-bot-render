@@ -94,10 +94,21 @@ export async function runResearcher() {
         if (['misakanet', 'zero', '$0', 'test bounty', 'fake'].some(s => body.includes(s))) continue;
         const amountMatch = (item.title + ' ' + (item.body || '').slice(0, 200)).match(/\$[\d,]+/);
         const reward = amountMatch ? parseInt(amountMatch[0].replace(/[$,]/g, ''), 10) : 0;
-        if (reward < 20) continue;
+        // MIN_REWARD = $200 (high-reward focus, no ceiling)
+        if (reward < 200) continue;
+        // Honeypot check
+        try {
+          const { detectHoneypot } = await import('./opportunity-validator.js');
+          const hp = await detectHoneypot({ title: item.title, body: item.body || '', url: item.html_url });
+          if (hp.isHoneypot) {
+            const { recordHoneypot } = await import('./opportunity-validator.js');
+            recordHoneypot(hp.signals);
+            continue;
+          }
+        } catch (e) { /* validator not critical */ }
         const r = addOpportunity({
           title: item.title.slice(0, 90), link: item.html_url, reward,
-          notes: `GitHub bounty (${item.repository_url.split('/').pop()})`
+          notes: `GitHub bounty (${item.repository_url.split('/').pop()}) [high-reward ≥$200]`
         });
         if (r.ok) added++;
       }
@@ -110,11 +121,13 @@ export async function runResearcher() {
     if (Array.isArray(data)) {
       for (const item of data) {
         if (item.isWinnersAnnounced || item.status !== 'OPEN') continue;
+        const reward = item.rewardAmount || 0;
+        if (reward < 200) continue; // high-reward focus
         const r = addOpportunity({
           title: (item.title || '').slice(0, 90),
           link: `https://superteam.fun/earn/${item.slug || item.id}`,
-          reward: item.rewardAmount || 0,
-          notes: `Superteam ${item.agentAccess || '?'} (${item.token || 'USD'})`
+          reward,
+          notes: `Superteam ${item.agentAccess || '?'} (${item.token || 'USD'}) [high-reward ≥$200]`
         });
         if (r.ok) added++;
       }

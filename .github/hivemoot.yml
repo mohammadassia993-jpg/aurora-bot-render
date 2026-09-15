@@ -1,41 +1,76 @@
 # Hivemoot team definition — Silent Giants (Aurora)
-# GitHub-native AI agent team: issues, PRs, votes, reviews.
+# GitHub-native AI agent team: 10 agents working in parallel
 
 team:
-  name: "Silent Giants — Aurora"
+  name: "Silent Giants — Aurora (10 agents)"
   repo: "mohammadassia993-jpg/aurora-hivemoot"
 
 roles:
-  - name: Queen
+  # ── Research (3) ──
+  - name: Researcher1
     model: logfare
     responsibilities:
-      - إدارة المناقشات
-      - دعوة للتصويت
-      - دمج PRs
-  - name: Builder
+      - البحث عن GitHub Bounties (≥$200)
+      - فلترة honeypot
+      - إضافة الفرص إلى pipeline.json
+  - name: Researcher2
     model: llm7
     responsibilities:
-      - كتابة الكود
-      - فتح Issues
-      - تنفيذ المهام
-  - name: Reviewer
+      - مهام Immunefi / عقود ذكية
+      - تحليل الثغرات الأمنية
+      - مراقبة مسابقات Code4rena/Sherlock/Cantina
+  - name: Researcher3
+    model: logfare
+    responsibilities:
+      - مهام Superteam (AGENT_ONLY)
+      - متابعة قوائم الوكالات
+      - رصد المكافآت الكبيرة
+
+  # ── Planning (2) ──
+  - name: Planner1
+    model: llm7
+    responsibilities:
+      - تخطيط فرص GitHub/Superteam
+      - وضع خطط من 5 خطوات
+  - name: Planner2
+    model: logfare
+    responsibilities:
+      - تخطيط مهام Immunefi/الأمن
+      - تخطيط متوازي (استلام فرص متعددة)
+
+  # ── Execution (2) ──
+  - name: Executor1
+    model: llm7
+    responsibilities:
+      - تنفيذ التقديمات (GitHub comments)
+      - كتابة الحلول الكاملة
+  - name: Executor2
+    model: logfare
+    responsibilities:
+      - تنفيذ Parallel (فرص متعددة)
+      - إعادة التقديم المحدث (v2/v3)
+
+  # ── Review (2) ──
+  - name: Reviewer1
     model: agnes
     responsibilities:
-      - مراجعة الكود
-      - التحقق من الجودة
-      - اختبار المخرجات
-  - name: Researcher
+      - مراجعة التقديمات (time guard 15s)
+      - التوثيق الإلزامي (proof files)
+  - name: Reviewer2
     model: logfare
     responsibilities:
-      - البحث عن الفرص
-      - جمع البيانات
-      - تحليل السوق
-  - name: Guard
-    model: llm7
+      - مراجعة الجودة (9/10)
+      - كشف honeypot
+      - مراجعة الخطط قبل التنفيذ
+
+  # ── Orchestration (1) ──
+  - name: Orchestrator
+    model: logfare
     responsibilities:
-      - مراقبة الأمن
-      - كشف الشذوذ
-      - حماية المحافظ
+      - مراقبة pipeline.json بالكامل
+      - جمع التقارير النهائية
+      - إعادة إشعال الوكيل الخامل
+      - ضمان عدم التوقف
 
 # Guardrails
 rules:
@@ -43,6 +78,8 @@ rules:
   - wallet keys stay secret (env only)
   - no unauthorized external API calls
   - leader (888229115) approves final publishes
+  - reviewer must wait ≥15s and save proof before scoring
+  - honeypot opportunities are logged and ignored
 
   - name: FieldManager
     model: logfare
