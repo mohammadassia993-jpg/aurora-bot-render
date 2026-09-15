@@ -180,21 +180,24 @@ export async function runExecutor() {
 export async function runReviewer() {
   const opp = claimNext('reviewing');
   if (!opp) return false;
-  log('reviewer', `Reviewing ${opp.id}: ${opp.title}`);
-  const result = opp.executor_result || {};
-  let score = 5, notes = '';
-  if (result.submitted && result.comment_id) {
-    score = 8;
-    notes = `Submission posted (comment #${result.comment_id}). Meets requirements, could improve with more detailed solution.`;
-  } else if (result.submitted) {
-    score = 7;
-    notes = 'Submitted but verification incomplete.';
-  } else {
-    score = 4;
-    notes = 'Submission not posted — ' + (result.reason || result.error || 'unknown');
+  log('reviewer', `Reviewing ${opp.id}: ${opp.title} (REAL review with time guard)`);
+  try {
+    const { reviewOpportunity } = await import('./self-review.js');
+    const review = await reviewOpportunity(opp);
+    const { score, notes, duration_ms, proof_path } = review;
+    const needsPlan = score < 7;
+    if (needsPlan) {
+      // rejected → hand back to planner for improvement
+      updateOpportunity(opp.id, { status: 'planned', reviewer_score: score, reviewer_notes: notes, reviewer_proof: proof_path, planner_plan: opp.planner_plan ? { ...opp.planner_plan, revision: (opp.planner_plan.revision || 0) + 1 } : null });
+      log('reviewer', `${opp.id} → REJECTED (${score}/10), back to planner`);
+    } else {
+      updateOpportunity(opp.id, { status: 'approved', reviewer_score: score, reviewer_notes: notes, reviewer_proof: proof_path });
+      log('reviewer', `${opp.id} → APPROVED (${score}/10) after ${duration_ms}ms with proof`);
+    }
+  } catch (e) {
+    log('reviewer', `REVIEW FAILED for ${opp.id}: ${e.message} — review void, status stays reviewing`);
+    return false;
   }
-  updateOpportunity(opp.id, { status: score >= 7 ? 'approved' : 'rejected', reviewer_score: score, reviewer_notes: notes });
-  log('reviewer', `${opp.id} → ${score >= 7 ? 'APPROVED' : 'REJECTED'} (${score}/10)`);
   return true;
 }
 

@@ -1,0 +1,14 @@
+{
+  "opp_id": "opp_537994_8j3y",
+  "title": "REVIEWER REAL TEST — Mongolian quickstart for omi-cli",
+  "link": "https://github.com/BasedHardware/omi/issues/13882",
+  "reviewed_at": "2026-09-15T04:45:55.439Z",
+  "review_duration_ms": 15005,
+  "fetched": {
+    "status": 200,
+    "finalUrl": "https://github.com/BasedHardware/omi/issues/13882"
+  },
+  "comment_text": "https://github.com/BasedHardware/omi/issues/13882#issuecomment-5674873708",
+  "score": 7,
+  "reason": "Submission posted (comment #5674873708) and link verified reachable (HTTP 200). Review took 15s."
+}
