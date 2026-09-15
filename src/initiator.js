@@ -30,16 +30,18 @@ class InitiatorAgent {
     const lessons = SemanticMemory.byDomain('initiator', 5);
     const procedures = ProceduralMemory.topProcedures(5);
 
-    const prompt = `أنت وكيل المبادر في نظام عمالقة الصمت. مهمتك اكتشاف فرص عمل جديدة.
+    const prompt = `أنت وكيل المبادر في نظام عمالقة الصمت. مهمتك اكتشاف فرص دخل حقيقية فقط (≥$200).
+لا تكتشف وظائف Remotive/RemoteOK — هذه محظورة نهائياً.
 
 السياق:
 - آخر المهام: ${context.map(t => `${t.title} [${t.outcome}]`).join(', ') || 'لا توجد'}
 - الدروس المستفادة: ${lessons.map(l => `${l.topic}: ${l.content.slice(0, 80)}`).join(', ') || 'لا توجد'}
 - الإجراءات الناجحة: ${procedures.map(p => `${p.procedure_name} (${(p.success_rate * 100).toFixed(0)}% نجاح)`).join(', ') || 'لا توجد'}
 
-المجالات المستهدفة: Web3, DePIN, Blockchain, AI, Content Writing, Translation
+المجالات المستهدفة: Superteam Earn bounties ≥$200, Immunefi bug bounties, Algora code bounties.
+لا تكتشف وظائف Remotive/RemoteOK — هذه الفئة محظورة.
 
-المطلوب: اقترح 3-5 فرص عمل جديدة كـ JSON:
+المطلوب: اقترح 3-5 فرص دخل حقيقية كـ JSON (فقط مكافآت ≥$200):
 {"opportunities": [{"title": "...", "platform": "...", "reward": "...", "fit_score": 0.8, "action": "..."}]}
 
 若有 أي درس من المهام السابقة ينطبق، استخدمه.`;
@@ -57,8 +59,8 @@ class InitiatorAgent {
           this.createTask(opp);
         }
 
-        info('initiator', `✅ Found ${opps.length} opportunities`);
-        await eventBus.fire(EVENTS.OPPORTUNITY_DISCOVERED, { count: opps.length, source: 'initiator_scan' });
+        info('initiator', `✅ Found ${opps.length} revenue opportunities (≥$200 only)`);
+        await eventBus.fire(EVENTS.OPPORTUNITY_DISCOVERED, { count: opps.length, source: 'initiator_scan_revenue' });
         return opps;
       }
     } catch (e) {

@@ -163,16 +163,18 @@ export function seedDefaultQueue() {
   const count = db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status = 'pending'").get().c;
   if (count > 0) return { seeded: 0, pending: count };
 
+  // Revenue-only categories — old jobs/email-outreach/RemoteOK categories are banned.
   const defaults = [
-    ['فحص البريد الوارد والرد على أي رسائل جديدة', 'email', 8],
-    ['فحص فرص العمل والعقود الجديدة عبر منصة Dework/RemoteOK', 'opportunities', 8],
-    ['التحقق من صحة متجر المنتجات وجدول الأسعار', 'store', 5],
+    ['فحص ومتابعة الـ bounties على Superteam و Immunefi (≥$200 فقط)', 'bounty-claim', 9],
+    ['تحليل عقود ذكية صغيرة على Immunefi لاكتشاف ثغرات', 'immunefi-analysis', 8],
+    ['البحث عن فرصة جديدة على Superteam Earn وتقديم عليها', 'superteam-apply', 8],
+    ['مراجعة جودة التقارير والتقديمات الحالية (9/10 على الأقل)', 'quality-submission', 7],
     ['تدقيق صحة النظام (DB integrity + logs)', 'maintenance', 4]
   ];
   for (const [desc, cat, pri] of defaults) {
     if (!hasPending(cat)) addTask(desc, cat, pri);
   }
-  info('task-queue', `seeded ${defaults.length} default tasks`);
+  info('task-queue', `seeded ${defaults.length} revenue-only tasks`);
   return { seeded: defaults.length };
 }
 
@@ -206,14 +208,15 @@ export function missionLoop() {
     created.push(addTask('نشر منشور تسويقي واحد لقناة المتجر (منتج معتمد)', 'marketing', 6));
   }
 
-  // 3. Opportunities: scan sources
-  if (!hasPending('opportunities')) {
-    created.push(addTask('فحص مصادر الفرص (RemoteOK/Dework) وترشيح الجديد', 'opportunities', 8));
-  }
-
-  // 4. Email: check for unread replies
-  if (!hasPending('email')) {
-    created.push(addTask('التحقق من البريد الوارد (IMAP) للردود الجديدة', 'email', 7));
+  // 3. Revenue-only loop: bounty-claim / immunefi-analysis / superteam-apply / quality-submission
+  const revenueCategories = [
+    ['bounty-claim', 'متابعة bounties مؤكدة ≥$200 وتقديم عليها', 9],
+    ['immunefi-analysis', 'تحليل عقد صغير جديد على Immunefi بحثاً عن ثغرات', 8],
+    ['superteam-apply', 'مراجعة Superteam Earn والتقديم على فرصة AGENT-eligible', 8],
+    ['quality-submission', 'مراجعة جودة آخر تقديم (≥9/10) وإصلاح ما يلزم', 7]
+  ];
+  for (const [cat, desc, prio] of revenueCategories) {
+    if (!hasPending(cat)) created.push(addTask(desc, cat, prio));
   }
 
   archiveDoneTasks(3);
@@ -229,18 +232,19 @@ export async function executeTask(task) {
       if (typeof checkEmail === 'function') await checkEmail();
       return 'email checked';
     }
-    if (cat === 'opportunities') {
+    if (cat === 'opportunities' || cat === 'bounty-claim') {
       const { scanRealOpportunities } = await import('./opportunity-scan.js');
       if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
-      // Opportunity Validator (2.1): only verified opportunities become apply tasks
-      const { validateOpportunity, buildDossier } = await import('./opportunity-validator.js');
+      // Revenue-only gate: high-reward (>= $200), verified sources. Old boards are forever banned.
+      const { validateOpportunity } = await import('./opportunity-validator.js');
       let created = 0;
       let verified = 0;
       const candidates = db.prepare(`
         SELECT * FROM tasks
         WHERE status = 'discovered' AND assigned_agent = ''
-          AND source IN ('jobs','remotive','remoteok')
-        ORDER BY fit_score DESC LIMIT 10
+          AND source NOT IN ('jobs','remotive','remoteok','opportunity')
+          AND reward IS NOT NULL AND reward >= 200
+        ORDER BY fit_score DESC, reward DESC LIMIT 10
       `).all();
       for (const candidate of candidates) {
         try {
@@ -251,7 +255,7 @@ export async function executeTask(task) {
           }
           verified += 1;
           const payload = (() => { try { return JSON.parse(candidate.payload_json || '{}'); } catch { return {}; } })();
-          const dossierTask = db.prepare(`
+          db.prepare(`
             INSERT INTO task_queue(description, status, priority, category, type, result)
             VALUES (?, 'pending', 8, 'apply-opportunity', 'one-time', ?)
           `).run(
@@ -264,7 +268,52 @@ export async function executeTask(task) {
           warn('opportunity-validator', `candidate #${candidate.id} failed: ${e.message}`);
         }
       }
-      return `opportunities scanned; verified=${verified}, apply-tasks=${created}`;
+      return `${cat} ran; verified=${verified}, apply-tasks=${created}`;
+    }
+    if (cat === 'immunefi-analysis') {
+      const candidates = db.prepare(`
+        SELECT * FROM tasks
+        WHERE status='discovered' AND source LIKE '%immunefi%'
+          AND reward IS NOT NULL AND reward >= 200
+        ORDER BY fit_score DESC LIMIT 5
+      `).all();
+      let created = 0;
+      for (const candidate of candidates) {
+        db.prepare(`
+          INSERT INTO task_queue(description, status, priority, category, type, result)
+          VALUES (?, 'pending', 7, 'apply-opportunity', 'one-time', ?)
+        `).run(
+          `تحليل عقد Immunefi: ${candidate.title} ($${candidate.reward})`,
+          JSON.stringify({ taskId: candidate.id, title: candidate.title, source: candidate.source, reward: candidate.reward, analysis: 'audit' })
+        );
+        created += 1;
+      }
+      return `immunefi-analysis: ${created} audit tasks created`;
+    }
+    if (cat === 'superteam-apply') {
+      const candidates = db.prepare(`
+        SELECT * FROM tasks
+        WHERE status='discovered' AND source LIKE '%superteam%'
+          AND reward IS NOT NULL AND reward >= 200
+        ORDER BY fit_score DESC LIMIT 5
+      `).all();
+      let created = 0;
+      for (const candidate of candidates) {
+        db.prepare(`
+          INSERT INTO task_queue(description, status, priority, category, type, result)
+          VALUES (?, 'pending', 8, 'apply-opportunity', 'one-time', ?)
+        `).run(
+          `التقديم على Superteam: ${candidate.title} ($${candidate.reward})`,
+          JSON.stringify({ taskId: candidate.id, title: candidate.title, source: candidate.source, reward: candidate.reward })
+        );
+        created += 1;
+      }
+      return `superteam-apply: ${created} apply tasks created`;
+    }
+    if (cat === 'quality-submission') {
+      const blocked = db.prepare("SELECT COUNT(*) c FROM tasks WHERE assigned_agent='rejected-validator'").get().c;
+      const total = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status='discovered'").get().c;
+      return `quality-submission: total opportunities=${total}, rejected-by-validator=${blocked}`;
     }
     if (cat === 'apply-opportunity') {
       // Leader verification flow (2.4): dossier قبل أي التزام
@@ -280,6 +329,13 @@ export async function executeTask(task) {
         url: oppPayload.payload?.url || oppPayload.url,
         description: oppPayload.payload?.description || oppPayload.payload?.why || task.description
       };
+      // FINAL GATE (leader order 2026-09-15): never send N/A reward or banned job-board links.
+      const rewardStr = String(oppForFilter.reward ?? '').trim().toLowerCase();
+      const linkStr = String(oppForFilter.url ?? '').toLowerCase();
+      if (rewardStr === '' || rewardStr === 'n/a' || /remotive\.com|remoteok\.com|remote\.co/.test(linkStr)) {
+        warn('opportunity-validation', `FINAL GATE blocked: reward='${rewardStr}' link='${linkStr.slice(0, 60)}'`);
+        return `apply-opportunity blocked by final gate (N/A or banned job board)`;
+      }
       const gate = validateOpportunity(oppForFilter);
       if (!gate.ok) {
         warn('opportunity-validation', `dossier send blocked: ${gate.reason} — ${String(oppForFilter.title || '').slice(0, 60)}`);

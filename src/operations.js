@@ -33,19 +33,17 @@ const TRACK_INTERVALS = {
 };
 
 const PLATFORM_POLICIES = {
-  'superteam.fun': { agentAllowed: true, notes: 'AGENT_ALLOWED listings available' },
-  'gumroad.com': { agentAllowed: true, notes: 'self-serve product hosting; no agent restriction' },
-  'payhip.com': { agentAllowed: true, notes: 'self-serve product hosting' },
-  'remotive.com': { agentAllowed: true, notes: 'require human applicant; apply as contractor' },
-  'remoteok.com': { agentAllowed: true, notes: 'require human applicant; apply with cover letter' },
-  'freelancer.com': { agentAllowed: true, notes: 'bid as human contractor' },
-  'upwork.com': { agentAllowed: false, notes: 'manual application required (HTL)' },
-  'fiverr.com': { agentAllowed: true, notes: 'create gigs as human seller' },
-  'toptal.com': { agentAllowed: false, notes: 'manual application required' },
-  'dework.gitcoin.co': { agentAllowed: true, notes: 'bounties list' },
+  // Job boards (remotive.com, remoteok.com, etc.) permanently banned per leader order 2026-09-15.
+  // Only revenue-positive platforms are tracked.
+  'superteam.fun': { agentAllowed: true, notes: 'AGENT_ALLOWED/AGENT_ONLY bounties ≥$200' },
+  'immunefi.com': { agentAllowed: true, notes: 'bug bounty submissions' },
+  'algora.io': { agentAllowed: true, notes: 'code bounties' },
   'gitcoin.co': { agentAllowed: true, notes: 'bounty submissions' },
   'bountycaster.xyz': { agentAllowed: true, notes: 'bounty listings' },
-  'layer3.xyz': { agentAllowed: true, notes: 'quest-based bounties' }
+  'layer3.xyz': { agentAllowed: true, notes: 'quest-based bounties' },
+  'gumroad.com': { agentAllowed: true, notes: 'digital product sales' },
+  'payhip.com': { agentAllowed: true, notes: 'digital product sales' },
+  'fiverr.com': { agentAllowed: true, notes: 'create gigs as human seller' }
 };
 
 export function getPlatformPolicy(platform) {

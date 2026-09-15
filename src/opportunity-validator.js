@@ -34,6 +34,8 @@ const HONEYPOT_RULES = {
 };
 
 const FAKE_PLATFORM_RE = /unknown[-.]platform|fake[-.]bounty|test[-.]bounty|scam[-.]job|example\.(com|org)/i;
+// Leader order 2026-09-15: job boards permanently banned. Any occurrence blocks the opportunity.
+const BANNED_SOURCE_RE = /remotive\.com|remoteok\.com|remote\.co|source\s*[=:]\s*['"](?:jobs|opportunity)['"]/i;
 
 const MIN_REWARD = 50;
 const MIN_FIT_SCORE = 40;
@@ -62,6 +64,11 @@ export async function validateOpportunity(task) {
   const url = String(payload.url || task?.url || '');
 
   if (!title || !source) return { passed: false, score: 0, reasons: ['مصدر أو عنوان مفقود'] };
+
+  if (BANNED_SOURCE_RE.test(`${source} ${url}`)) {
+    reasons.push('مصدر محظور نهائياً (Remotive/RemoteOK/jobs) — لا يُرسل');
+    return { passed: false, score: 0, reasons };
+  }
 
   const text = `${title} ${payload.description || ''} ${payload.why || ''}`.toLowerCase();
   for (const re of SCAM_KEYWORDS) {
