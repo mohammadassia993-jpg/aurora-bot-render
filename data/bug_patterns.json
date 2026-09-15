@@ -1,0 +1,12 @@
+[
+  {"id": 1, "name": "Reentrancy", "swc": "SWC-107", "description": "إعادة دخول العقد قبل تحديث الحالة", "detection": "external calls قبل تحديث state", "mitigation": "Checks-Effects-Interactions", "bounty_programs": ["Aave", "Compound", "Uniswap"]},
+  {"id": 2, "name": "Access Control", "swc": "SWC-105", "description": "غياب التحكم في الوصول للوظائف الحساسة", "detection": "وظائف بدون modifier", "mitigation": "onlyOwner / RBAC", "bounty_programs": ["Euler", "DeXe", "Lido"]},
+  {"id": 3, "name": "Integer Overflow", "swc": "SWC-101", "description": "تجاوز حدود الأرقام في العمليات الحسابية", "detection": "uint بدون SafeMath (Pre-0.8)", "mitigation": "Solidity 0.8+ / SafeMath", "bounty_programs": ["MakerDAO", "Curve"]},
+  {"id": 4, "name": "Oracle Manipulation", "swc": "SWC-114", "description": "التلاعب بأسعار الأوراكل للربح", "detection": "استخدام oracles غير محمية", "mitigation": "TWAP / متعدد الأوراكل", "bounty_programs": ["Euler", "Pendle", "The Graph"]},
+  {"id": 5, "name": "Flash Loan", "swc": "SWC-114", "description": "قرض فوري لتنفيذ هجوم في نفس الكتلة", "detection": "اعتماد كبير على السيولة", "mitigation": "TWAP / محددات", "bounty_programs": ["Aave", "Curve", "Lido"]},
+  {"id": 6, "name": "Front-running", "swc": "SWC-114", "description": "سباق المعاملات لاستغلال معلومات الميمبول", "detection": "تسلسل معاملات قابل للسبق", "mitigation": "Commit-Reveal / خصوصية", "bounty_programs": ["Uniswap", "Pendle"]},
+  {"id": 7, "name": "Signature Replay", "swc": "SWC-121", "description": "إعادة استخدام توقيع في سياق أو شبكة أخرى", "detection": "توقيعات بدون nonce/chainId", "mitigation": "nonce + chainId + expiry", "bounty_programs": ["EigenLayer", "ENS"]},
+  {"id": 8, "name": "Delegate Call", "swc": "SWC-112", "description": "الاستدعاء في سياق المخزن — تخزين تالف", "detection": "delegatecall إلى غير موثوق", "mitigation": "توثيق العقد الهدف", "bounty_programs": ["Lido", "Compound"]},
+  {"id": 9, "name": "Unchecked Return Value", "swc": "SWC-104", "description": "تجاهل قيمة العودة من external call", "detection": "call/transfer بدون تحقق", "mitigation": "safeTransfer / تحقق", "bounty_programs": ["Aave", "Sushi"]},
+  {"id": 10, "name": "Timestamp Dependence", "swc": "SWC-116", "description": "الاعتماد على block.timestamp للقرارات", "detection": "block.timestamp في شروط", "mitigation": "فترات زمنية واسعة", "bounty_programs": ["Compound", "MakerDAO"]}
+]

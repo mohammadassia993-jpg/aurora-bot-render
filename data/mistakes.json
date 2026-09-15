@@ -1,0 +1,92 @@
+[
+  {
+    "id": 1,
+    "date": "2026-09-14",
+    "title": "Not Found على SecureSignature → توقف",
+    "description": "واجه الفريق صفحة 'Not Found' على Immunefi when searching for SecureSignatureContract وتوقف بدل البحث عن بديل",
+    "root_cause": "الاعتماد على رابط واحد بدل البحث المتعدد",
+    "lesson": "لا تتوقف عند Not Found — ابحث في 6 منصات بديلة",
+    "new_rule": "NOT_FOUND_RECOVERY: فحص 6 منصات قبل الاستسلام"
+  },
+  {
+    "id": 2,
+    "date": "2026-09-14",
+    "title": "API 500 على Superteam → توقف",
+    "description": "API أعاد 403/500 وتوقف الفريق بدل استخدام Playwright للتقديم اليدوي",
+    "root_cause": "الاعتماد على API فقط بدون fallback",
+    "lesson": "Playwright MCP قبل API — دائماً",
+    "new_rule": "PLAYWRIGHT_FIRST: استخدم Playwright كحل أولي"
+  },
+  {
+    "id": 3,
+    "date": "2026-09-13",
+    "title": "تثبيت Kuren بدون استخدام",
+    "description": "أُنفق وقت في تثبيت Kuren但لم يُستخدم فعلياً في أي مهمة",
+    "root_cause": "تثبيت بدون خطة استخدام واضحة",
+    "lesson": "لا تثبت أداة بدون خطة استخدام فورية",
+    "new_rule": "INSTALL_WITH_PLAN: لا تثبيت بدون خطة استخدام"
+  },
+  {
+    "id": 4,
+    "date": "2026-09-13",
+    "title": "تثبيت Lightpanda بدون binary",
+    "description": "حاول الفريق تثبيت Lightpanda لكن لم يجد binary متوافق",
+    "root_cause": "عدم التحقق من التوافق قبل التثبيت",
+    "lesson": "تحقق من التوافق قبل التثبيت",
+    "new_rule": "VERIFY_COMPATIBILITY: تحقق قبل التثبيت"
+  },
+  {
+    "id": 5,
+    "date": "2026-09-15",
+    "title": "مطاردة CVE/GHSA → مكافأة ميتة",
+    "description": "أُنفق وقت في تحليل GitHub Advisories التي لها CVE (مُصلَحة) بدلاً من البرامج النشطة",
+    "root_cause": "عدم فهم أن CVE = ثغرة ميتة",
+    "lesson": "لا CVE/GHSA = لا مكافأة — تجاهل",
+    "new_rule": "DEAD_BOUNTY_BLOCK: أي CVE/GHSA → مرفوض"
+  },
+  {
+    "id": 6,
+    "date": "2026-09-12",
+    "title": "المراجع أعطى 1.7 ثانية → تقييم شكلي",
+    "description": "المراجع أجاب في 1.7 ثانية مما يدل على عدم المراجعة الفعلية",
+    "root_cause": "عدم تحقق المراجع من عمله",
+    "lesson": "المراجع ≥ 15 ثانية + توثيق ملموس",
+    "new_rule": "REVIEWER_STANDARD: ≥ 15 ثانية + إثبات"
+  },
+  {
+    "id": 7,
+    "date": "2026-09-11",
+    "title": "دراسة قوالب جاهزة بدل التنفيذ",
+    "description": "أُنفق وقت في مراجعة قوالب التقارير بدل التنفيذ الفعلي للمهام",
+    "root_cause": "productive procrastination — الانشغال بالتنسيق بدل المحتوى",
+    "lesson": "التنفيذ أولاً، التنسيق لاحقاً",
+    "new_rule": "EXECUTE_FIRST: لا تقارير ورقية قبل التنفيذ"
+  },
+  {
+    "id": 8,
+    "date": "2026-09-10",
+    "title": "تثبيت 7 أدوات CAPTCHA",
+    "description": "ثبّت الفريق 7 أدوات CAPTCHA مختلفة لكن استخدم واحدة فقط",
+    "root_cause": "عدم التركيز على أداة واحدة",
+    "lesson": "استخدم أداة واحدة فقط وأتقنها",
+    "new_rule": "ONE_TOOL_ONLY: لا تثبت أكثر مما تستخدم"
+  },
+  {
+    "id": 9,
+    "date": "2026-09-10",
+    "title": "تقرير ناجح ثم فشل في التنفيذ",
+    "description": "أرسل الفريق تقريراً بنجاح لكن التنفيذ الفعلي فشل",
+    "root_cause": "عدم اختبار قبل الإبلاغ",
+    "lesson": "اختبر قبل النشر — لا تقارير مبكرة",
+    "new_rule": "TEST_BEFORE_REPORT: اختبر أولاً"
+  },
+  {
+    "id": 10,
+    "date": "2026-09-09",
+    "title": "انتظار تدخل بشري",
+    "description": "توقف الفريق في انتظار قرار القائد بدلاً من استخدام Playwright للتنفيذ الذاتي",
+    "root_cause": " Fear of autonomous action",
+    "lesson": "Playwright يحل كل شيء — لا انتظار",
+    "new_rule": "NO_WAITING: Playwright يحل كل شيء"
+  }
+]
