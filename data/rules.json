@@ -110,5 +110,19 @@
     "description": "برنامج واحد بعمق > 10 برامج بسطحية. لا تحليل سطحي بعد اليوم",
     "source_mistake": "تحليل سطحي لـ 10 برامج",
     "priority": "CRITICAL"
+  },
+  {
+    "id": 17,
+    "rule": "NO_SHALLOW_ANALYSIS",
+    "description": "لا نتيجة آمن بدون 3 أدوات تحليل على الأقل",
+    "source_mistake": "تحليل Ethena بـ 3 عقود فقط",
+    "priority": "CRITICAL"
+  },
+  {
+    "id": 18,
+    "rule": "ALL_CONTRACTS",
+    "description": "برنامج واحد = تحليل جميع عقوده — لا تحليل جزئي",
+    "source_mistake": "تحليل 3 عقود من 8",
+    "priority": "CRITICAL"
   }
 ]
