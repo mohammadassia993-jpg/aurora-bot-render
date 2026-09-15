@@ -16,6 +16,7 @@
   "dependencies": {
     "@hivemoot-dev/cli": "^0.3.8",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@wefi-ai/ekyc-suite-mcp": "^1.2.14",
     "delegate-os": "^0.3.0",
     "express": "^4.22.2",
     "freeweb-mcp": "^3.4.0",
