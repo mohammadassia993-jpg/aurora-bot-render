@@ -11,6 +11,7 @@ import cron from 'node-cron';
 import { info, warn, error as errLog } from './logger.js';
 import { eventBus, EVENTS } from './event-bus.js';
 import { EpisodicMemory } from './persistent-memory.js';
+import { initModules } from './integrate-modules.js';
 
 const jobs = [];
 
@@ -21,6 +22,7 @@ export function startScheduler() {
     return { disabled: true };
   }
   info('scheduler', '🚀 Starting scheduler agent...');
+  initModules();  // Load knowledge base + new modules
 
   // ── 0. Bundle 92-tasks generation (daily at 05:00 UTC, ONLY if enabled) ──
   jobs.push(cron.schedule('0 5 * * *', async () => {
