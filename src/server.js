@@ -89,14 +89,12 @@ async function serveFile(response, absolutePath, downloadName = '', cacheControl
 export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
-    // Layer 1+3: Security headers + global rate limiting
     securityHeaders(request, response);
     if (!globalRateLimit(request, response)) return;
     try {
       if (url.pathname === '/submit' && request.method === 'POST') {
         const sync = url.searchParams.get('sync') === '1';
         if (sync) {
-          // Synchronous: wait for Puppeteer result (up to 4 min)
           try {
             const { runBrowserSubmissions } = await import('./superteam-submit.js');
             const result = await Promise.race([
@@ -108,14 +106,11 @@ export async function startServer() {
             return json(response, 500, { ok: false, error: e.message });
           }
         }
-        // Async fire and forget
         import('./superteam-submit.js').then(m => m.runBrowserSubmissions().then(r => console.log('[submit] done:', JSON.stringify(r))).catch(e => console.error('[submit] failed:', e.message)));
         return json(response, 200, { ok: true, message: 'submission_started' });
       }
       if (url.pathname === '/register' && request.method === 'POST') {
         try {
-          const { runBrowserSubmissions } = await import('./superteam-submit.js');
-          // Run registration script as child process
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'register-platforms.js');
           const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -140,7 +135,7 @@ export async function startServer() {
           return json(response, 404, { error: 'no results yet', detail: e.message });
         }
       }
-            if (url.pathname === '/outreach' && request.method === 'POST') {
+      if (url.pathname === '/outreach' && request.method === 'POST') {
         try {
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'send-outreach-dms.js');
@@ -166,7 +161,7 @@ export async function startServer() {
           return json(response, 404, { error: 'no tracker yet', detail: e.message });
         }
       }
-            if (url.pathname === '/email-check' && request.method === 'POST') {
+      if (url.pathname === '/email-check' && request.method === 'POST') {
         try {
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'check-email-inbox.js');
@@ -193,7 +188,7 @@ export async function startServer() {
           return json(response, 404, { error: 'no email checks yet' });
         }
       }
-            if (url.pathname === '/performance' && request.method === 'GET') {
+      if (url.pathname === '/performance' && request.method === 'GET') {
         try {
           const metricsPath = path.join(config.root, 'deliverables', 'publishing', 'metrics.json');
           const data = await fs.readFile(metricsPath, 'utf8');
@@ -202,7 +197,7 @@ export async function startServer() {
           return json(response, 404, { error: 'no metrics yet', detail: e.message });
         }
       }
-            if (url.pathname === '/create-accounts' && request.method === 'POST') {
+      if (url.pathname === '/create-accounts' && request.method === 'POST') {
         try {
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'auto-create-accounts.js');
@@ -219,7 +214,7 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-            if (url.pathname === '/smart-reply' && request.method === 'POST') {
+      if (url.pathname === '/smart-reply' && request.method === 'POST') {
         try {
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'smart-email-reply.js');
@@ -236,7 +231,7 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-            if (url.pathname === '/enable-2fa' && request.method === 'POST') {
+      if (url.pathname === '/enable-2fa' && request.method === 'POST') {
         try {
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'enable-twitter-2fa.js');
@@ -253,7 +248,7 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-            if (url.pathname === '/start-2fa' && request.method === 'POST') {
+      if (url.pathname === '/start-2fa' && request.method === 'POST') {
         try {
           const { spawn } = await import('node:child_process');
           const scriptPath = path.join(config.root, 'scripts', 'twitter-2fa-qr-capture.js');
@@ -308,8 +303,6 @@ export async function startServer() {
         const ok = Object.values(checked).every(Boolean);
         return json(response, ok ? 200 : 503, { ok, health: checked, source: 'live' });
       }
-
-      // ── Freeweb MCP: web search/scraping (no API keys needed) ──
       if (url.pathname === '/mcp/freeweb') {
         try {
           let body = null;
@@ -324,16 +317,12 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-
       if (url.pathname === '/mcp/freeweb' && request.method === 'GET') {
         return json(response, 200, { ok: true, service: 'freeweb-mcp', endpoint: '/mcp/freeweb (POST)', docs: 'MCP JSON-RPC over HTTP' });
       }
-
       if (url.pathname === '/keepalive') {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
       }
-
-      // ── Continuous Self-Running System: Task Queue + Heartbeat ──
       if (url.pathname === '/heartbeat') {
         const { runHeartbeat } = await import('./task-queue.js');
         try {
@@ -343,7 +332,6 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-
       if (url.pathname === '/send-report') {
         const { sendScheduledReport } = await import('./task-queue.js');
         try {
@@ -353,26 +341,21 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-
       if (url.pathname === '/tasks/next' && request.method === 'GET') {
         const { nextTask, getQueueStats } = await import('./task-queue.js');
         const task = nextTask();
         return json(response, task ? 200 : 204, { task, queue: getQueueStats() });
       }
-
       if (url.pathname === '/tasks/done' && request.method === 'POST') {
         const body = await readBody(request).catch(() => ({}));
         const { markDone } = await import('./task-queue.js');
         const result = markDone(Number(body.taskId), body.result || 'done');
         return json(response, 200, result);
       }
-
       if (url.pathname === '/tasks' && request.method === 'GET') {
         const { getQueueStats } = await import('./task-queue.js');
         return json(response, 200, getQueueStats());
       }
-
-      // ── Kimi Plan: Agent System Status ──
       if (url.pathname === '/agents/status') {
         try {
           const { getSchedulerStatus } = await import('./scheduler.js');
@@ -391,7 +374,6 @@ export async function startServer() {
           return json(response, 500, { error: e.message });
         }
       }
-
       if (url.pathname === '/agents/memory') {
         try {
           const { PersistentMemory } = await import('./persistent-memory.js');
@@ -400,7 +382,6 @@ export async function startServer() {
           return json(response, 500, { error: e.message });
         }
       }
-
       if (url.pathname === '/agents/events') {
         try {
           const { eventBus } = await import('./event-bus.js');
@@ -409,7 +390,6 @@ export async function startServer() {
           return json(response, 500, { error: e.message });
         }
       }
-
       if (url.pathname === '/status') {
         return json(response, 200, {
           telegram: { mode: telegramMode(), tokenValidated: Boolean(config.telegramToken), webhookConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_URL) },
@@ -420,7 +400,6 @@ export async function startServer() {
           models: modelPerformance()
         });
       }
-
       if (url.pathname === '/automations') {
         const fsSync = await import('node:fs').then(m => m.default);
         let superteamCount = 0;
@@ -441,7 +420,6 @@ export async function startServer() {
           timestamp: new Date().toISOString()
         });
       }
-
       if (url.pathname === '/debug-telegram') {
         const testId = url.searchParams.get('testId') || url.searchParams.get('id') || '';
         const allowed = config.telegramAllowedIds;
@@ -456,7 +434,6 @@ export async function startServer() {
           platformRole: config.platformRole
         });
       }
-
       if (url.pathname === '/debug-ai') {
         const msg = url.searchParams.get('msg') || 'مرحبا كيف حالك';
         try {
@@ -478,7 +455,6 @@ export async function startServer() {
           return json(response, 500, { error: e.message, code: e.code });
         }
       }
-
       if (url.pathname === '/debug-natural') {
         const msg = url.searchParams.get('msg') || 'مرحبا';
         try {
@@ -499,7 +475,6 @@ export async function startServer() {
           return json(response, 500, { error: e.message, code: e.code });
         }
       }
-
       if (url.pathname === '/telegram/webhook') {
         if (request.method === 'GET') { return json(response, 200, { ok: true }); }
         if (request.method !== 'POST') { return; }
@@ -507,14 +482,12 @@ export async function startServer() {
         if (config.telegramWebhookSecret && secretToken !== config.telegramWebhookSecret) {
           return json(response, 403, { ok: false, error: 'invalid secret token' });
         }
-        // Return 200 immediately, process update in background
         const update = await readBody(request);
         setTimeout(() => {
           handleTelegramUpdate(update).then(() => processTelegramOutbox()).catch(e => recordError('telegram', 'WEBHOOK_BG_ERROR', e.message));
         }, 0);
         return json(response, 200, { ok: true });
       }
-
       if (url.pathname === '/api/sync/database' && request.method === 'GET') {
         if (config.platformRole !== 'primary' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
           return json(response, 403, { ok: false, error: 'database export disabled or unauthorized' });
@@ -534,7 +507,6 @@ export async function startServer() {
         audit('aurora', 'database_backup_exported', { bytes: payload.byteLength, sha256 });
         return;
       }
-
       if (url.pathname === '/api/sync/database.gz' && request.method === 'GET') {
         if (config.platformRole !== 'primary' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
           return json(response, 403, { ok: false, error: 'database export disabled or unauthorized' });
@@ -559,7 +531,6 @@ export async function startServer() {
         });
         return;
       }
-
       if (url.pathname === '/api/sync/database.gz' && request.method === 'POST') {
         if (config.platformRole !== 'render' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
           return json(response, 403, { ok: false, error: 'database sync disabled or unauthorized' });
@@ -581,7 +552,6 @@ export async function startServer() {
         if (process.env.ALLOW_DATABASE_RESTORE_RESTART === 'true') setTimeout(() => process.exit(0), 1000).unref();
         return json(response, 202, { ok: true, accepted: true, compressed: true, sha256: actualHash, restoreOnRestart: true });
       }
-
       if (url.pathname === '/api/sync/database' && request.method === 'POST') {
         if (config.platformRole !== 'render' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
           return json(response, 403, { ok: false, error: 'database sync disabled or unauthorized' });
@@ -604,7 +574,6 @@ export async function startServer() {
         }
         return json(response, 202, { ok: true, accepted: true, sha256: actualHash, restoreOnRestart: true });
       }
-
       if (url.pathname === '/api/team/telegram' && request.method === 'POST') {
         if (!config.databaseSyncToken || !databaseSyncAuthorized(request)) return json(response, 403, { ok: false, error: 'telegram relay unauthorized' });
         const input = await readBody(request);
@@ -636,7 +605,6 @@ export async function startServer() {
       if (url.pathname === '/tasks') {
         return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
       }
-
       if (url.pathname === '/api/live' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
         let closed = false;
@@ -664,7 +632,6 @@ export async function startServer() {
         });
         return;
       }
-
       if (url.pathname === '/report') {
         const health = await runWatchdog();
         const dashboard = await dashboardData();
@@ -700,11 +667,9 @@ export async function startServer() {
           finalReport
         });
       }
-
       if (url.pathname === '/agents/activate' && request.method === 'POST') {
         return json(response, 200, { activation: await activateTeam() });
       }
-
       if (url.pathname === '/api/dashboard') {
         const data = await dashboardData();
         data.performance = performancePlan();
@@ -713,9 +678,7 @@ export async function startServer() {
         }
         return json(response, 200, data);
       }
-
       if (url.pathname === '/api/team/agents') return json(response, 200, { agents: (await dashboardData()).agents });
-
       if (url.pathname === '/api/team/tasks') {
         const tasks = db.prepare(`
           SELECT id, source, title, status, reward, currency, assigned_agent AS assignedAgent,
@@ -724,11 +687,9 @@ export async function startServer() {
         `).all();
         return json(response, 200, { tasks });
       }
-
       if (url.pathname === '/api/team/messages' && request.method === 'GET') {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
-
       if (url.pathname === '/api/team/messages' && request.method === 'POST') {
         const body = await readBody(request);
         const saved = await createMessage(body);
@@ -741,7 +702,6 @@ export async function startServer() {
         }
         return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
       }
-
       if (url.pathname === '/api/notifications' && request.method === 'GET') {
         const rows = db.prepare(`
           SELECT id,kind,title,body,read,created_at AS createdAt
@@ -750,12 +710,10 @@ export async function startServer() {
         const unread = db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count;
         return json(response, 200, { notifications: rows, unread });
       }
-
       if (url.pathname === '/api/notifications/read' && request.method === 'POST') {
         db.prepare('UPDATE notifications SET read=1 WHERE read=0').run();
         return json(response, 200, { ok: true });
       }
-
       if (url.pathname.startsWith('/uploads/') && request.method === 'GET') {
         const relative = decodeURIComponent(url.pathname);
         const file = await attachmentFile(relative);
@@ -763,21 +721,17 @@ export async function startServer() {
         response.writeHead(200, { 'content-type': mimeTypes[path.extname(relative).toLowerCase()] || 'application/octet-stream', 'cache-control': 'private, max-age=300' });
         return response.end(file);
       }
-
       if (url.pathname === '/research/weekly' && request.method === 'POST') {
         return json(response, 200, { report: await runWeeklyResearch() });
       }
-
       if (url.pathname === '/research/daily' && request.method === 'POST') {
         return json(response, 200, { report: await runDailyResearch() });
       }
-
       if (url.pathname === '/productivity/run' && request.method === 'POST') {
         const body = await readBody(request);
         const count = Math.max(1, Math.min(50, Number(body.count || 10)));
         return json(response, 200, { summary: await runHighThroughput(count) });
       }
-
       if (url.pathname === '/api/deliverables' && request.method === 'GET') {
         const rows = db.prepare(`
           SELECT id, category, title, file_path AS filePath, status, created_at AS createdAt
@@ -785,7 +739,6 @@ export async function startServer() {
         `).all();
         return json(response, 200, { deliverables: rows });
       }
-
       if (url.pathname === '/api/team/tasks/by-stream' && request.method === 'GET') {
         const streams = ['dework', 'titan', 'jobs', 'opportunity'];
         const result = {};
@@ -798,13 +751,12 @@ export async function startServer() {
         }
         return json(response, 200, { streams: result, generatedAt: new Date().toISOString() });
       }
-
       if (url.pathname === '/emergency' && request.method === 'POST') {
         const body = await readBody(request);
         const message = body.message || 'Emergency activation requested.';
         recordError('emergency', 'EMERGENCY_REQUEST', message, body, 'Activate backup and notify operator');
         audit('aurora', 'emergency_request', { message });
-        const telegramResult = await sendMessage(`🚨 Aurora emergency request\n${message}`);
+        const telegramResult = await sendMessageDetailed(`🚨 Aurora emergency request\n${message}`);
         const mailResult = await sendMail({
           to: config.officialEmail,
           subject: 'Aurora emergency activation',
@@ -812,22 +764,18 @@ export async function startServer() {
         });
         return json(response, 202, { accepted: true, telegram: telegramResult, email: mailResult });
       }
-
       if (url.pathname === '/sync' && request.method === 'POST') {
         return json(response, 200, { connectors: await runConnectors() });
       }
-
       if (url.pathname === '/content' && request.method === 'GET') {
         return serveFile(response, path.join(config.root, 'www', 'index.html'), 'text/html; charset=utf-8', 'public, max-age=300');
       }
-
       let match;
       if ((match = url.pathname.match(/^\/tasks\/(\d+)\/(plan|execute|review)$/)) && request.method === 'POST') {
         const taskId = Number(match[1]);
         const output = match[2] === 'plan' ? await planTask(taskId) : match[2] === 'execute' ? await executeTask(taskId) : await reviewTask(taskId);
         return json(response, 200, { output });
       }
-
       if ((match = url.pathname.match(/^\/tasks\/(\d+)\/submit$/)) && request.method === 'POST') {
         const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(match[1]));
         if (!task) return json(response, 404, { error: 'task not found' });
@@ -839,18 +787,16 @@ export async function startServer() {
         db.prepare("UPDATE tasks SET status = 'submitted', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(task.id);
         return json(response, 200, { state: 'submitted' });
       }
-
       if (['/', '/dashboard'].includes(url.pathname) || url.pathname === '/app') {
         let html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
         const etag = `"${crypto.createHash('sha256').update(html).digest('hex')}"`;
         response.setHeader('etag', etag);
         response.setHeader('cache-control', 'no-cache');
         if (request.headers['if-none-match'] === etag) return response.writeHead(304).end();
-        html = html.replace("localStorage.getItem('teamKey')||'__TEAM_KEY__'", `localStorage.getItem('teamKey')||'${isLoopback(request) ? config.teamUiToken : ''}'`);
+        html = html.replace("localStorage.getItem('teamKey')||'__TEAM_KEY__'", `localStorage.getItem('teamKey')||'${url.searchParams.get('key') || (isLoopback(request) ? config.teamUiToken : '')}'`);
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return response.end(html);
       }
-
       if (url.pathname.startsWith('/icons/') && !url.pathname.includes('..')) {
         const iconPath = path.resolve(config.root, 'public', '.' + url.pathname);
         if (iconPath.startsWith(path.join(config.root, 'public', 'icons'))) {
@@ -858,14 +804,12 @@ export async function startServer() {
           return;
         }
       }
-
       return json(response, 404, { error: 'not found' });
     } catch (caught) {
       console.error(caught);
       return json(response, caught.code === 'ATTACHMENT_SIZE' || caught.code === 'REQUEST_TOO_LARGE' ? 413 : 500, { error: caught.message });
     }
   });
-
   await new Promise(resolve => server.listen(config.port, '0.0.0.0', resolve));
   return server;
 }
