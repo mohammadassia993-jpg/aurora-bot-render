@@ -58,7 +58,24 @@
 
 <div class="panel" id="panel-team">
   <div class="card">
-    <h2>💬 رسائل الفريق</h2>
+    <h2>📤 إرسال رسالة للفريق</h2>
+    <div style="margin-bottom: 10px;">
+      <label style="color:#94a3b8; font-size:13px; display:block; margin-bottom:6px;">إلى:</label>
+      <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
+        <option value="all">الفريق الكامل</option>
+        <option value="aurora">أورورا (المنسق)</option>
+        <option value="planner">المخطط</option>
+        <option value="executor">المنفذ</option>
+        <option value="reviewer">المراجع</option>
+        <option value="scout">المستخبر</option>
+      </select>
+    </div>
+    <textarea id="msg-body" placeholder="اكتب الأمر أو الرسالة..." style="width:100%; min-height:100px; padding:12px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+    <button onclick="sendMessage()" style="display:block; width:100%; padding:12px; background:#312e81; color:#e0e7ff; border:none; border-radius:10px; font-size:15px; cursor:pointer; margin-top:10px; font-weight:600;">📤 إرسال</button>
+    <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
+  </div>
+  <div class="card">
+    <h2>💬 الرسائل السابقة</h2>
     <div id="messages-list">جاري التحميل...</div>
   </div>
 </div>
