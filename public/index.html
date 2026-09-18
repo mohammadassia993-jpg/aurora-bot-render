@@ -71,7 +71,7 @@
       </select>
     </div>
     <textarea id="msg-body" placeholder="اكتب الأمر أو الرسالة..." style="width:100%; min-height:100px; padding:12px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
-    <button onclick="sendMessage()" style="display:block; width:100%; padding:12px; background:#312e81; color:#e0e7ff; border:none; border-radius:10px; font-size:15px; cursor:pointer; margin-top:10px; font-weight:600;">📤 إرسال</button>
+    <button id="send-btn" style="display:block; width:100%; padding:12px; background:#312e81; color:#e0e7ff; border:none; border-radius:10px; font-size:15px; cursor:pointer; margin-top:10px; font-weight:600;">📤 إرسال</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
   <div class="card">
@@ -94,7 +94,7 @@
   </div>
 </div>
 
-<button class="reload" onclick="loadAll()">🔄 تحديث البيانات</button>
+<button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
 <script src="/dashboard.js"></script>
 </body>
