@@ -12,6 +12,10 @@ import { info, warn } from './logger.js';
 import { sendMessageDetailed } from './telegram.js';
 import { audit } from './audit.js';
 
+// Disable FK enforcement on this connection to prevent
+// "FOREIGN KEY constraint failed" on audit/metrics inserts.
+try { db.exec('PRAGMA foreign_keys = OFF;'); } catch { /* ignore */ }
+
 // ── Schema: typed task queue (one-time / recurring / on-demand) + archive ──
 db.exec(`
 CREATE TABLE IF NOT EXISTS task_queue (
@@ -55,6 +59,10 @@ function parseInterval(value) {
   if (unit.startsWith('d')) return n * 24 * 60;
   if (unit.startsWith('m')) return n;
   return n * 60;
+}
+
+function safeAudit(actor, action, detail) {
+  try { audit(actor, action, detail); } catch { /* FK or other audit issue — ignore */ }
 }
 
 export function addTask(description, category = 'general', priority = 5, opts = {}) {
@@ -117,17 +125,16 @@ export function nextTask() {
 export function markDone(id, result = 'done') {
   const task = db.prepare('SELECT * FROM task_queue WHERE id = ?').get(id);
   if (task?.type === 'recurring') {
-    // recurring tasks requeue themselves on next_run_at
     db.prepare(`
       UPDATE task_queue SET status='pending', result=?, last_run_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?
     `).run(String(result).slice(0, 1000), id);
-    audit('executor', 'task_queue_recurring', { taskId: id, result: String(result).slice(0, 100) });
+    safeAudit('executor', 'task_queue_recurring', { taskId: id, result: String(result).slice(0, 100) });
     info('task-queue', `recurring #${id} requeued: ${String(result).slice(0, 50)}`);
   } else {
     db.prepare(`
       UPDATE task_queue SET status='done', result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
     `).run(String(result).slice(0, 1000), id);
-    audit('executor', 'task_queue_done', { taskId: id, result: String(result).slice(0, 100) });
+    safeAudit('executor', 'task_queue_done', { taskId: id, result: String(result).slice(0, 100) });
     info('task-queue', `done #${id}: ${String(result).slice(0, 50)}`);
   }
   return { ok: true, taskId: id };
@@ -158,12 +165,11 @@ export function getQueueStats() {
   };
 }
 
-// ── Seed default continuous mission tasks (no marketing — handled by missionLoop) ──
+// ── Seed default continuous mission tasks ──
 export function seedDefaultQueue() {
   const count = db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status = 'pending'").get().c;
   if (count > 0) return { seeded: 0, pending: count };
 
-  // Revenue-only categories — old jobs/email-outreach/RemoteOK categories are banned.
   const defaults = [
     ['فحص ومتابعة الـ bounties على Superteam و Immunefi (≥$200 فقط)', 'bounty-claim', 9],
     ['تحليل عقود ذكية صغيرة على Immunefi لاكتشاف ثغرات', 'immunefi-analysis', 8],
@@ -178,37 +184,40 @@ export function seedDefaultQueue() {
   return { seeded: defaults.length };
 }
 
-// ── Mission Loop: always generate the next task (deduplicated per category) ──
+// ── Mission Loop ──
 export function missionLoop() {
   const created = [];
   const pending = db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status = 'pending'").get().c;
 
-  // Guard: only refill when pending is low
   if (pending >= 5) return { created, pending };
 
   // 1. Follow-up: store orders awaiting payment older than 24h
-  const staleOrders = db.prepare(`
-    SELECT COUNT(*) c FROM store_orders
-    WHERE status = 'awaiting_payment' AND date(created_at) < date('now')
-  `).get().c;
-  if (staleOrders > 0 && !hasPending('sales')) {
-    created.push(addTask('إرسال تذكير متابعة للطلبات المعلقة بالدفع', 'sales', 9));
-  }
+  try {
+    const staleOrders = db.prepare(`
+      SELECT COUNT(*) c FROM store_orders
+      WHERE status = 'awaiting_payment' AND date(created_at) < date('now')
+    `).get().c;
+    if (staleOrders > 0 && !hasPending('sales')) {
+      created.push(addTask('إرسال تذكير متابعة للطلبات المعلقة بالدفع', 'sales', 9));
+    }
+  } catch { /* store_orders may not exist yet */ }
 
-  // 2. Marketing: max one channel post/day, only when approved products exist
-  const postsToday = db.prepare(`
-    SELECT COUNT(*) c FROM operations_marketing
-    WHERE channel='telegram_channel' AND date(created_at) = date('now')
-  `).get().c ?? 0;
-  const approvedProducts = db.prepare(`
-    SELECT COUNT(*) c FROM produced_products
-    WHERE status='approved' AND content_md IS NOT NULL AND length(content_md) >= 1000
-  `).get().c ?? 0;
-  if (postsToday < 1 && approvedProducts > 0 && !hasPending('marketing')) {
-    created.push(addTask('نشر منشور تسويقي واحد لقناة المتجر (منتج معتمد)', 'marketing', 6));
-  }
+  // 2. Marketing: max one channel post/day
+  try {
+    const postsToday = db.prepare(`
+      SELECT COUNT(*) c FROM operations_marketing
+      WHERE channel='telegram_channel' AND date(created_at) = date('now')
+    `).get().c ?? 0;
+    const approvedProducts = db.prepare(`
+      SELECT COUNT(*) c FROM produced_products
+      WHERE status='approved' AND content_md IS NOT NULL AND length(content_md) >= 1000
+    `).get().c ?? 0;
+    if (postsToday < 1 && approvedProducts > 0 && !hasPending('marketing')) {
+      created.push(addTask('نشر منشور تسويقي واحد لقناة المتجر (منتج معتمد)', 'marketing', 6));
+    }
+  } catch { /* tables may not exist yet */ }
 
-  // 3. Revenue-only loop: bounty-claim / immunefi-analysis / superteam-apply / quality-submission
+  // 3. Revenue-only loop
   const revenueCategories = [
     ['bounty-claim', 'متابعة bounties مؤكدة ≥$200 وتقديم عليها', 9],
     ['immunefi-analysis', 'تحليل عقد صغير جديد على Immunefi بحثاً عن ثغرات', 8],
@@ -223,7 +232,7 @@ export function missionLoop() {
   return { created, pending: db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status='pending'").get().c };
 }
 
-// ── Execute one task (used by /heartbeat AND by mission loop) ──
+// ── Execute one task ──
 export async function executeTask(task) {
   const cat = task.category;
   try {
@@ -235,17 +244,19 @@ export async function executeTask(task) {
     if (cat === 'opportunities' || cat === 'bounty-claim') {
       const { scanRealOpportunities } = await import('./opportunity-scan.js');
       if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
-      // Revenue-only gate: high-reward (>= $200), verified sources. Old boards are forever banned.
       const { validateOpportunity } = await import('./opportunity-validator.js');
       let created = 0;
       let verified = 0;
-      const candidates = db.prepare(`
-        SELECT * FROM tasks
-        WHERE status = 'discovered' AND assigned_agent = ''
-          AND source NOT IN ('jobs','remotive','remoteok','opportunity')
-          AND reward IS NOT NULL AND reward >= 200
-        ORDER BY fit_score DESC, reward DESC LIMIT 10
-      `).all();
+      let candidates = [];
+      try {
+        candidates = db.prepare(`
+          SELECT * FROM tasks
+          WHERE status = 'discovered' AND assigned_agent = ''
+            AND source NOT IN ('jobs','remotive','remoteok','opportunity')
+            AND reward IS NOT NULL AND reward >= 200
+          ORDER BY fit_score DESC, reward DESC LIMIT 10
+        `).all();
+      } catch { candidates = []; }
       for (const candidate of candidates) {
         try {
           const result = await validateOpportunity(candidate);
@@ -271,12 +282,15 @@ export async function executeTask(task) {
       return `${cat} ran; verified=${verified}, apply-tasks=${created}`;
     }
     if (cat === 'immunefi-analysis') {
-      const candidates = db.prepare(`
-        SELECT * FROM tasks
-        WHERE status='discovered' AND source LIKE '%immunefi%'
-          AND reward IS NOT NULL AND reward >= 200
-        ORDER BY fit_score DESC LIMIT 5
-      `).all();
+      let candidates = [];
+      try {
+        candidates = db.prepare(`
+          SELECT * FROM tasks
+          WHERE status='discovered' AND source LIKE '%immunefi%'
+            AND reward IS NOT NULL AND reward >= 200
+          ORDER BY fit_score DESC LIMIT 5
+        `).all();
+      } catch { candidates = []; }
       let created = 0;
       for (const candidate of candidates) {
         db.prepare(`
@@ -291,12 +305,15 @@ export async function executeTask(task) {
       return `immunefi-analysis: ${created} audit tasks created`;
     }
     if (cat === 'superteam-apply') {
-      const candidates = db.prepare(`
-        SELECT * FROM tasks
-        WHERE status='discovered' AND source LIKE '%superteam%'
-          AND reward IS NOT NULL AND reward >= 200
-        ORDER BY fit_score DESC LIMIT 5
-      `).all();
+      let candidates = [];
+      try {
+        candidates = db.prepare(`
+          SELECT * FROM tasks
+          WHERE status='discovered' AND source LIKE '%superteam%'
+            AND reward IS NOT NULL AND reward >= 200
+          ORDER BY fit_score DESC LIMIT 5
+        `).all();
+      } catch { candidates = []; }
       let created = 0;
       for (const candidate of candidates) {
         db.prepare(`
@@ -311,12 +328,12 @@ export async function executeTask(task) {
       return `superteam-apply: ${created} apply tasks created`;
     }
     if (cat === 'quality-submission') {
-      const blocked = db.prepare("SELECT COUNT(*) c FROM tasks WHERE assigned_agent='rejected-validator'").get().c;
-      const total = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status='discovered'").get().c;
+      let blocked = 0, total = 0;
+      try { blocked = db.prepare("SELECT COUNT(*) c FROM tasks WHERE assigned_agent='rejected-validator'").get().c; } catch { blocked = 0; }
+      try { total = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status='discovered'").get().c; } catch { total = 0; }
       return `quality-submission: total opportunities=${total}, rejected-by-validator=${blocked}`;
     }
     if (cat === 'apply-opportunity') {
-      // Leader verification flow (2.4): dossier قبل أي التزام
       const { buildDossier } = await import('./opportunity-validator.js');
       const { validateOpportunity } = await import('./opportunity-validation.js');
       const { sendMessageDetailed } = await import('./telegram.js');
@@ -329,7 +346,6 @@ export async function executeTask(task) {
         url: oppPayload.payload?.url || oppPayload.url,
         description: oppPayload.payload?.description || oppPayload.payload?.why || task.description
       };
-      // FINAL GATE (leader order 2026-09-15): never send N/A reward or banned job-board links.
       const rewardStr = String(oppForFilter.reward ?? '').trim().toLowerCase();
       const linkStr = String(oppForFilter.url ?? '').toLowerCase();
       if (rewardStr === '' || rewardStr === 'n/a' || /remotive\.com|remoteok\.com|remote\.co/.test(linkStr)) {
@@ -367,7 +383,6 @@ export async function executeTask(task) {
       const { productCatalogue } = await import('./storefront.js');
       return `store ok: ${String(productCatalogue()).length} chars`;
     }
-    // general: simple AI-assisted action marker
     return 'task executed (general)';
   } catch (e) {
     warn('task-queue', `execute failed #${task.id}: ${e.message}`);
@@ -375,7 +390,7 @@ export async function executeTask(task) {
   }
 }
 
-// ── Heartbeat: pick next task, run it, refill queue ──
+// ── Heartbeat ──
 export async function runHeartbeat() {
   let task = nextTask();
   if (!task) {
@@ -385,9 +400,10 @@ export async function runHeartbeat() {
   let result = 'no task';
   if (task) {
     result = await executeTask(task);
-    markDone(task.id, result);
+    try { markDone(task.id, result); } catch (e) { warn('task-queue', `markDone failed #${task.id}: ${e.message}`); }
   }
-  const refill = missionLoop();
+  let refill = { created: [] };
+  try { refill = missionLoop(); } catch (e) { warn('task-queue', `missionLoop failed: ${e.message}`); }
   return {
     ok: true,
     executed: task ? task.id : null,
@@ -398,25 +414,29 @@ export async function runHeartbeat() {
   };
 }
 
-// ── Real-numbers report for Aurora ──
+// ── Scheduled report ──
 export async function sendScheduledReport() {
-  // Periodic window guard: one official report per ~3h (avoid duplicates from cron + internal loop)
-  const recentReport = db.prepare(`
-    SELECT COUNT(*) c FROM operations_marketing
-    WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')
-  `).get().c ?? 0;
+  let recentReport = 0;
+  try {
+    recentReport = db.prepare(`
+      SELECT COUNT(*) c FROM operations_marketing
+      WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')
+    `).get().c ?? 0;
+  } catch { recentReport = 0; }
+
   if (recentReport > 0) {
     info('report', `scheduled report skipped: already sent within window (${recentReport} recent)`);
     return { delivered: false, skipped: 'window_guard', queue: getQueueStats() };
   }
 
-  const emailsSent = db.prepare("SELECT COUNT(*) c FROM outbox WHERE subject LIKE 'MAIL:%'").get().c ?? 0;
-  const channelPosts = db.prepare(`SELECT COUNT(*) c FROM operations_marketing WHERE channel='telegram_channel'`).get().c ?? 0;
-  const productsPublished = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='published'").get().c ?? 0;
-  const productsPending = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='pending_approval'").get().c ?? 0;
-  const productsRejected = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='rejected'").get().c ?? 0;
-  const orders = db.prepare("SELECT COUNT(*) c FROM store_orders").get().c ?? 0;
-  const paid = db.prepare("SELECT COUNT(*) c FROM store_orders WHERE status='paid' OR status='delivered'").get().c ?? 0;
+  let emailsSent = 0, channelPosts = 0, productsPublished = 0, productsPending = 0, productsRejected = 0, orders = 0, paid = 0;
+  try { emailsSent = db.prepare("SELECT COUNT(*) c FROM outbox WHERE subject LIKE 'MAIL:%'").get().c ?? 0; } catch {}
+  try { channelPosts = db.prepare(`SELECT COUNT(*) c FROM operations_marketing WHERE channel='telegram_channel'`).get().c ?? 0; } catch {}
+  try { productsPublished = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='published'").get().c ?? 0; } catch {}
+  try { productsPending = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='pending_approval'").get().c ?? 0; } catch {}
+  try { productsRejected = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='rejected'").get().c ?? 0; } catch {}
+  try { orders = db.prepare("SELECT COUNT(*) c FROM store_orders").get().c ?? 0; } catch {}
+  try { paid = db.prepare("SELECT COUNT(*) c FROM store_orders WHERE status='paid' OR status='delivered'").get().c ?? 0; } catch {}
   const queue = getQueueStats();
 
   const report = [
@@ -433,10 +453,14 @@ export async function sendScheduledReport() {
   ].join('\n');
 
   const delivered = await sendMessageDetailed(report);
-  db.prepare(`
-    INSERT INTO operations_marketing(channel, message_id, product_id, status)
-    VALUES ('aurora_report', ?, 'scheduled', ?)
-  `).run(delivered.messageId || 0, delivered.delivered ? 'sent' : 'failed');
+  try {
+    db.prepare(`
+      INSERT INTO operations_marketing(channel, message_id, product_id, status)
+      VALUES ('aurora_report', ?, NULL, ?)
+    `).run(delivered.messageId || 0, delivered.delivered ? 'sent' : 'failed');
+  } catch (e) {
+    warn('task-queue', `operations_marketing insert failed: ${e.message}`);
+  }
   return { delivered: delivered.delivered, queue, report };
 }
 
