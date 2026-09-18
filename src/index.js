@@ -35,22 +35,24 @@ process.on('uncaughtException', caught => {
 const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
 
+// Watchdog: كل 30 ثانية
 setInterval(async () => {
   try {
     await runWatchdog();
+  } catch (caught) {
+    error('watchdog', caught.message);
+  }
+}, 30_000);
 
-// Hourly email check (dedicated interval, supplements watchdog)
+// فحص البريد: كل ساعة (مستقل عن watchdog)
 setInterval(async () => {
   try {
     await checkEmail();
   } catch (caught) {
     error('email_hourly', caught.message);
   }
-}, 60 * 60 * 1000); // every 60 minutes
-  } catch (caught) {
-    error('watchdog', caught.message);
-  }
-}, 30_000);
+}, 60 * 60 * 1000);
+
 await runWatchdog();
 initDelegation();
 await startTelegram();
@@ -122,7 +124,8 @@ setTimeout(async () => {
     await discoverPlatforms();
   } catch (e) { error('scanner', `Initial scan error: ${e.message}`); }
 }, 5 * 60 * 1000);
-// Daily security report + platform discovery (lazy-loaded)
+
+// Daily security report
 setInterval(async () => {
   try {
     const { buildSecurityReport, auditWalletSecurity } = await import('./security.js');
@@ -132,6 +135,8 @@ setInterval(async () => {
     await sendMessageDetailed(report + '\n\nWallet: ' + walletLine, config.telegramChatId);
   } catch (e) { error('daily_security', e.message); }
 }, 24 * 60 * 60 * 1000);
+
+// Daily platform discovery
 setInterval(async () => {
   try {
     const { callModel } = await import('./ai.js');
@@ -143,6 +148,7 @@ setInterval(async () => {
     }
   } catch (e) { error('platform_discovery', e.message); }
 }, 24 * 60 * 60 * 1000);
+
 if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
     try {
@@ -156,6 +162,7 @@ if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
     .then(result => info('daily_research', 'initial daily research run', result))
     .catch(caught => error('daily_research', caught.message));
 }
+
 if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
   setInterval(async () => {
     try {
@@ -166,8 +173,7 @@ if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
   }, 7 * 24 * 60 * 60_000).unref();
 }
 
-
-// Continuous operation: internal heartbeat every 5 min (works without cron-job.org)
+// Continuous operation: internal heartbeat every 5 min
 if (process.env.AURORA_AUTOMATION !== 'false') {
   setInterval(async () => {
     try {
@@ -182,7 +188,7 @@ if (process.env.AURORA_AUTOMATION !== 'false') {
   info('platform', '⏸ FULL_STOP: heartbeat disabled (AURORA_AUTOMATION=false)');
 }
 
-// SQLite maintenance: weekly VACUUM + integrity check to keep DB small
+// SQLite maintenance
 setInterval(async () => {
   try {
     const { db } = await import('./db.js');
@@ -196,16 +202,12 @@ setInterval(async () => {
   }
 }, 7 * 24 * 60 * 60_000).unref();
 
-// Render keepalive: self-ping every 10 minutes to prevent sleep
+// Render keepalive
 setInterval(() => {
   fetch("https://aurora-bot-render.onrender.com/health").catch(() => {});
 }, 10 * 60 * 1000);
 
-// Mutual keepalive with the backup service: each pings the other every 5 min,
-// so both services stay awake 24/7 without any external account or webhook.
-// PEER_KEEPALIVE_URL per service:
-//   primary: https://silent-giants-render-backup.onrender.com/health
-//   backup:  https://aurora-bot-render.onrender.com/health
+// Mutual keepalive
 const peerUrl = process.env.PEER_KEEPALIVE_URL;
 if (peerUrl) {
   info('platform', `mutual keepalive active -> ${peerUrl}`);
@@ -218,7 +220,7 @@ if (peerUrl) {
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
-    info('platform', `${signal} received; stopping`);
+    info('platform', `${signal} stopped; stopping`);
     server.close(() => process.exit(0));
   });
 }
