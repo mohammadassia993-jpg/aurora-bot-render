@@ -54,11 +54,12 @@ export const config = {
   llm7Model: process.env.LLM7_MODEL || 'codestral-latest',
   ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'qwen2.5:0.5b',
-
-
+  // ── KeylessAI (new) ──
+  keylessAiUrl: process.env.KEYLESS_AI_URL || 'https://keylessai.thryx.workers.dev/v1',
+  keylessAiModel: process.env.KEYLESS_AI_MODEL || 'gpt-4o',
 
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',
-  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'logfare',
+  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'keylessai',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   publicReadOnly: process.env.PUBLIC_READ_ONLY === 'true',
   teamUiToken: process.env.TEAM_UI_TOKEN || '',
@@ -84,9 +85,7 @@ export const config = {
   kimiKey: process.env.KIMI_API_KEY || 'sk-3wOZCMBWfpmw6i7Q41C21887D4Fa43AcBc7e2cD54b70639b',
   kimiUrl: process.env.KIMI_BASE_URL || 'https://aihubmix.com/v1',
   kimiModel: process.env.KIMI_MODEL || 'kimi-k3',
-  // Full-stop / silent mode: when AURORA_SILENT_MODE=true, no outbound sends happen.
   silentMode: process.env.AURORA_SILENT_MODE === 'true',
-  // Gate that disables automated loops (scheduler/heartbeat/keepalive) — full stop.
   automationEnabled: process.env.AURORA_AUTOMATION !== 'false',
   mailDeliveryMode: process.env.MAIL_DELIVERY_MODE || 'queue',
   backupMirrorDir: process.env.BACKUP_MIRROR_DIR || '',
@@ -99,8 +98,8 @@ export const config = {
   mailFrom: process.env.MAIL_FROM || process.env.SMTP_USER || "",
   mailReplyTo: process.env.MAIL_REPLY_TO || process.env.MAIL_FROM || process.env.SMTP_USER || "",
   baseRpcUrl: process.env.BASE_RPC_URL || 'https://base.blockscout.com/api/v2',
-      solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-      tonApiUrl: process.env.TON_API_URL || 'https://toncenter.com/api/v3',
-      walletPollMinutes: Number(process.env.WALLET_POLL_MINUTES || 5),
-      retryDelaysMs: (process.env.RETRY_DELAYS_MS || '5000,15000,60000').split(',').map(value => Number(value))
+  solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  tonApiUrl: process.env.TON_API_URL || 'https://toncenter.com/api/v3',
+  walletPollMinutes: Number(process.env.WALLET_POLL_MINUTES || 5),
+  retryDelaysMs: (process.env.RETRY_DELAYS_MS || '5000,15000,60000').split(',').map(value => Number(value))
 };
