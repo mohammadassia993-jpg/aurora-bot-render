@@ -25,7 +25,8 @@ const mimeTypes = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
   '.pdf': 'application/pdf', '.zip': 'application/zip', '.mp4': 'video/mp4',
   '.mov': 'video/quicktime', '.webm': 'video/webm', '.txt': 'text/plain; charset=utf-8',
-  '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.json': 'application/json'
+  '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.json': 'application/json',
+  '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'
 };
 
 async function readBody(request) {
@@ -287,6 +288,19 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
+
+      // ─── Serve dashboard.js (public shell) ───
+      if (url.pathname === '/dashboard.js' && request.method === 'GET') {
+        try {
+          const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
+          response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
+          return response.end(jsContent);
+        } catch (e) {
+          response.writeHead(404, { 'content-type': 'application/javascript; charset=utf-8' });
+          return response.end('// not found');
+        }
+      }
+
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
