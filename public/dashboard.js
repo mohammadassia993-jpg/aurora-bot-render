@@ -1,13 +1,13 @@
 const params = new URLSearchParams(location.search);
 const key = params.get('key') || localStorage.getItem('teamKey') || '';
 if (key) localStorage.setItem('teamKey', key);
-const headers = { 'x-team-key': key };
+const headers = { 'x-team-key': key, 'content-type': 'application/json' };
 const errorBox = document.getElementById('error');
 
 function showError(msg) { errorBox.textContent = msg; errorBox.style.display = 'block'; }
 
-async function fetchJson(path) {
-  const res = await fetch(path, { headers });
+async function fetchJson(path, options = {}) {
+  const res = await fetch(path, { headers, ...options });
   if (!res.ok) throw new Error(`${res.status}`);
   return await res.json();
 }
@@ -28,8 +28,8 @@ async function loadSystem() {
     document.getElementById('system-stats').innerHTML = `
       <div class="stat"><span class="label">الحالة</span><span class="value ok">● نشط</span></div>
       <div class="stat"><span class="label">المشاريع</span><span class="value">${(data.projects || []).length}</span></div>
-      <div class="stat"><span class="label">الرصيد</span><span class="value">${fin.earned || 0} USD</span></div>
-      <div class="stat"><span class="label">Pipeline</span><span class="value">${fin.pipeline || 0} USD</span></div>
+      <div class="stat"><span class="label">الرصيد المكتسب</span><span class="value">${fin.earned || 0} USD</span></div>
+      <div class="stat"><span class="label">Pipeline (محتمل)</span><span class="value warn">${fin.pipeline || 0} USD</span></div>
       <div class="stat"><span class="label">مهام مكتملة</span><span class="value">${fin.completedTasks || 0}</span></div>
       <div class="stat"><span class="label">مهام معلقة</span><span class="value">${fin.pendingTasks || 0}</span></div>
     `;
@@ -67,7 +67,7 @@ async function loadTasks() {
     const data = await fetchJson('/api/team/tasks');
     const tasks = data.tasks || [];
     document.getElementById('tasks-list').innerHTML = tasks.length
-      ? tasks.slice(0, 30).map(t => `<div class="item"><div class="meta">${t.source || ''} • ${t.status || ''}</div><div class="body">${t.title || ''}</div>${t.reward ? `<div class="ok" style="font-size:13px;margin-top:6px">💰 ${t.reward} ${t.currency || ''}</div>` : ''}</div>`).join('')
+      ? tasks.slice(0, 30).map(t => `<div class="item"><div class="meta">${t.source || ''} • ${t.status || ''}</div><div class="body">${t.title || ''}</div>${t.reward ? `<div class="ok" style="font-size:13px;margin-top:6px">💰 ${t.reward} ${t.currency || ''} (محتمل)</div>` : ''}</div>`).join('')
       : '<div class="empty">لا توجد مهام</div>';
   } catch (e) {
     document.getElementById('tasks-list').innerHTML = '<div class="empty">تعذّر التحميل</div>';
@@ -86,10 +86,35 @@ async function loadNotifications() {
   }
 }
 
+async function sendMessage() {
+  const recipient = document.getElementById('msg-recipient').value;
+  const body = document.getElementById('msg-body').value.trim();
+  const status = document.getElementById('send-status');
+  if (!body) { status.textContent = '⚠️ اكتب رسالة أولاً'; status.style.color = '#fbbf24'; return; }
+  status.textContent = 'جاري الإرسال...';
+  status.style.color = '#94a3b8';
+  try {
+    await fetchJson('/api/team/messages', {
+      method: 'POST',
+      body: JSON.stringify({ sender: 'leader', recipient, body })
+    });
+    status.textContent = '✅ تم الإرسال إلى الفريق';
+    status.style.color = '#4ade80';
+    document.getElementById('msg-body').value = '';
+    loadMessages();
+  } catch (e) {
+    status.textContent = '❌ فشل الإرسال: ' + e.message;
+    status.style.color = '#f87171';
+  }
+}
+
 async function loadAll() {
   errorBox.style.display = 'none';
   await Promise.all([loadSystem(), loadAgents(), loadMessages(), loadTasks(), loadNotifications()]);
 }
+
+window.loadAll = loadAll;
+window.sendMessage = sendMessage;
 
 if (!key) showError('⚠️ أضف ?key=... إلى الرابط لتفعيل لوحة التحكم');
 else loadAll();
