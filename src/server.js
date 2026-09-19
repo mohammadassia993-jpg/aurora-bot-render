@@ -87,6 +87,25 @@ async function serveFile(response, absolutePath, downloadName = '', cacheControl
   response.end(content);
 }
 
+// ⭐ إرسال آخر 5 أحداث جديدة للفريق عبر Telegram (بعد كل رسالة قائد)
+async function relayRecentTeamReplies() {
+  try {
+    const { sendMessageDetailed } = await import('./telegram.js');
+    const { config } = await import('./config.js');
+    const chatId = config.telegramChatId || '888229115';
+    const events = db.prepare(`
+      SELECT actor, action, detail, created_at FROM events
+      WHERE actor IN ('aurora','planner','executor','reviewer','scout')
+        AND created_at >= datetime('now', '-60 seconds')
+      ORDER BY id DESC LIMIT 5
+    `).all();
+    for (const ev of events.reverse()) {
+      const msg = `🤖 <b>${ev.actor}</b>\n${String(ev.detail || '').slice(0, 800)}`;
+      await sendMessageDetailed(msg, chatId).catch(() => {});
+    }
+  } catch (e) { /* silent */ }
+}
+
 export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -289,7 +308,7 @@ export async function startServer() {
         }
       }
 
-      // ─── Serve dashboard.js (public shell) ───
+      // ⭐ Serve dashboard.js
       if (url.pathname === '/dashboard.js' && request.method === 'GET') {
         try {
           const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
@@ -457,10 +476,7 @@ export async function startServer() {
             new Promise((_, r) => setTimeout(() => r(new Error('TIMEOUT')), 20000))
           ]);
           return json(response, 200, {
-            model: 'agnes',
-            agnesKeySet: Boolean(config.agnesKey),
-            agnesModel: config.agnesModel,
-            simulationMode: process.env.AI_SIMULATION_MODE,
+            model: 'auto-chain',
             aiPrimaryModel: process.env.AI_PRIMARY_MODEL,
             result: String(result).slice(0, 500),
             length: String(result).length
@@ -545,66 +561,25 @@ export async function startServer() {
         });
         return;
       }
-      if (url.pathname === '/api/sync/database.gz' && request.method === 'POST') {
-        if (config.platformRole !== 'render' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
-          return json(response, 403, { ok: false, error: 'database sync disabled or unauthorized' });
+
+      // ⭐ POST رسالة من القائد — الحل الجديد هنا
+      if (url.pathname === '/api/team/messages' && request.method === 'POST') {
+        const body = await readBody(request);
+        const saved = await createMessage(body);
+        if (saved.sender === 'leader') {
+          const safeBody = String(saved.body || '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]);
+          const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
+          // 1. أرسل رسالة القائد للبوت فوراً
+          sendMessageDetailed(`📤 <b>رسالة من القائد</b>\nإلى: ${target}\n\n${safeBody}`)
+            .then(result => audit('aurora', 'leader_message_relayed', { delivered: result.delivered, messageId: saved.id }))
+            .catch(() => {});
+          // 2. بعد 20 ثانية، أرسل ردود الفريق عبر البوت
+          setTimeout(relayRecentTeamReplies, 20000);
         }
-        const compressed = await readRawBody(request, 40 * 1024 * 1024);
-        let payload;
-        try {
-          payload = zlib.gunzipSync(compressed);
-        } catch {
-          return json(response, 400, { ok: false, error: 'invalid gzip database backup' });
-        }
-        const expectedHash = String(request.headers['x-sha256'] || '');
-        const actualHash = crypto.createHash('sha256').update(payload).digest('hex');
-        if (!payload.subarray(0, 16).equals(Buffer.from('SQLite format 3\0'))) return json(response, 400, { ok: false, error: 'invalid SQLite database' });
-        if (expectedHash && expectedHash !== actualHash) return json(response, 400, { ok: false, error: 'backup checksum mismatch' });
-        await fs.mkdir(path.join(config.root, 'data'), { recursive: true });
-        await fs.writeFile(path.join(config.root, 'data', 'incoming-platform.db'), payload);
-        audit('aurora', 'compressed_database_backup_received', { bytes: payload.byteLength, sha256: actualHash });
-        if (process.env.ALLOW_DATABASE_RESTORE_RESTART === 'true') setTimeout(() => process.exit(0), 1000).unref();
-        return json(response, 202, { ok: true, accepted: true, compressed: true, sha256: actualHash, restoreOnRestart: true });
-      }
-      if (url.pathname === '/api/sync/database' && request.method === 'POST') {
-        if (config.platformRole !== 'render' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
-          return json(response, 403, { ok: false, error: 'database sync disabled or unauthorized' });
-        }
-        const payload = await readRawBody(request);
-        const expectedHash = String(request.headers['x-sha256'] || '');
-        const actualHash = crypto.createHash('sha256').update(payload).digest('hex');
-        if (!payload.subarray(0, 16).equals(Buffer.from('SQLite format 3\0'))) {
-          return json(response, 400, { ok: false, error: 'invalid SQLite database' });
-        }
-        if (expectedHash && expectedHash !== actualHash) {
-          return json(response, 400, { ok: false, error: 'backup checksum mismatch' });
-        }
-        await fs.mkdir(path.join(config.root, 'data'), { recursive: true });
-        const target = path.join(config.root, 'data', 'incoming-platform.db');
-        await fs.writeFile(target, payload);
-        audit('aurora', 'database_backup_received', { bytes: payload.byteLength, sha256: actualHash });
-        if (process.env.ALLOW_DATABASE_RESTORE_RESTART === 'true') {
-          setTimeout(() => process.exit(0), 1000).unref();
-        }
-        return json(response, 202, { ok: true, accepted: true, sha256: actualHash, restoreOnRestart: true });
-      }
-      if (url.pathname === '/api/team/telegram' && request.method === 'POST') {
-        if (!config.databaseSyncToken || !databaseSyncAuthorized(request)) return json(response, 403, { ok: false, error: 'telegram relay unauthorized' });
-        const input = await readBody(request);
-        const sender = String(input.sender || 'telegram').slice(0, 80);
-        const text = String(input.text || '').slice(0, 20000);
-        const messageId = Number(input.messageId || 0);
-        if (!text || !messageId) return json(response, 400, { ok: false, error: 'text and messageId are required' });
-        const exists = db.prepare("SELECT id FROM messages WHERE thread='telegram-relay' AND sender=? AND body=? LIMIT 1").get(sender, text);
-        if (exists) return json(response, 200, { ok: true, duplicated: true });
-        const result = db.prepare("INSERT INTO messages(thread,sender,recipient,body) VALUES ('telegram-relay',?,'team',?)").run(sender, text);
-        db.prepare('INSERT INTO notifications(kind,title,body) VALUES (?,?,?)').run('telegram_message', 'رسالة Telegram موجهة إلى الواجهة', text.slice(0, 800));
-        teamEvents.emit('message', { type: 'telegram', messageId: Number(result.lastInsertRowid) });
-        teamEvents.emit('notification', { type: 'telegram_message' });
-        return json(response, 201, { ok: true, id: Number(result.lastInsertRowid) });
+        return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
       }
 
-      const publicShell = ['/', '/dashboard', '/app'].includes(url.pathname);
+      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js'].includes(url.pathname);
       const localReport = url.pathname === '/report' && isLoopback(request);
       const publicReadOnlyPath =
         (url.pathname === '/content' || config.publicReadOnly) &&
@@ -666,12 +641,9 @@ export async function startServer() {
             internet: health.internet,
             telegram: Boolean(config.telegramToken),
             telegramMode: telegramMode(),
-            dework: config.deworkToken ? 'live' : 'simulation',
-            titan: config.titanUrl ? 'live' : 'simulation',
             emailQueue: mailQueueStats(),
             tunnel: { provider: 'pinggy', url: tunnel.url || '', updatedAt: tunnel.updatedAt || '' },
-            renderBackup: config.backupUrl,
-            koyeb: { bundleReady: true, live: false }
+            renderBackup: config.backupUrl
           },
           agents: dashboard.agents,
           projects: dashboard.projects,
@@ -704,18 +676,6 @@ export async function startServer() {
       if (url.pathname === '/api/team/messages' && request.method === 'GET') {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
-      if (url.pathname === '/api/team/messages' && request.method === 'POST') {
-        const body = await readBody(request);
-        const saved = await createMessage(body);
-        if (saved.sender === 'leader') {
-          const safeBody = String(saved.body || '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]);
-          const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
-          sendMessageDetailed(`<b>رسالة من واجهة AnyClaw</b>\nإلى: ${target}\n${safeBody}`)
-            .then(result => audit('aurora', 'interface_telegram_relayed', { delivered: result.delivered, messageId: saved.id }))
-            .catch(() => {});
-        }
-        return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
-      }
       if (url.pathname === '/api/notifications' && request.method === 'GET') {
         const rows = db.prepare(`
           SELECT id,kind,title,body,read,created_at AS createdAt
@@ -745,25 +705,6 @@ export async function startServer() {
         const body = await readBody(request);
         const count = Math.max(1, Math.min(50, Number(body.count || 10)));
         return json(response, 200, { summary: await runHighThroughput(count) });
-      }
-      if (url.pathname === '/api/deliverables' && request.method === 'GET') {
-        const rows = db.prepare(`
-          SELECT id, category, title, file_path AS filePath, status, created_at AS createdAt
-          FROM deliverables ORDER BY id DESC LIMIT 100
-        `).all();
-        return json(response, 200, { deliverables: rows });
-      }
-      if (url.pathname === '/api/team/tasks/by-stream' && request.method === 'GET') {
-        const streams = ['dework', 'titan', 'jobs', 'opportunity'];
-        const result = {};
-        for (const stream of streams) {
-          result[stream] = db.prepare(`
-            SELECT id, source, title, status, reward, currency, assigned_agent AS assignedAgent,
-                   fit_score AS fitScore, updated_at AS updatedAt
-            FROM tasks WHERE source = ? ORDER BY updated_at DESC, id DESC LIMIT 100
-          `).all(stream);
-        }
-        return json(response, 200, { streams: result, generatedAt: new Date().toISOString() });
       }
       if (url.pathname === '/emergency' && request.method === 'POST') {
         const body = await readBody(request);
