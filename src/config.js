@@ -54,12 +54,12 @@ export const config = {
   llm7Model: process.env.LLM7_MODEL || 'codestral-latest',
   ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'qwen2.5:0.5b',
-  // ── KeylessAI (new) ──
+  danyApiUrl: process.env.DANY_API_URL || 'https://danyapi.cloudpub.ru/v1',
+  danyApiModel: process.env.DANY_API_MODEL || 'deepseek-v4.1-flash',
   keylessAiUrl: process.env.KEYLESS_AI_URL || 'https://keylessai.thryx.workers.dev/v1',
   keylessAiModel: process.env.KEYLESS_AI_MODEL || 'gpt-4o',
-
   gptOssModel: process.env.GPT_OSS_MODEL || 'gpt-oss-120b',
-  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'keylessai',
+  aiPrimaryModel: process.env.AI_PRIMARY_MODEL || 'danyapi',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   publicReadOnly: process.env.PUBLIC_READ_ONLY === 'true',
   teamUiToken: process.env.TEAM_UI_TOKEN || '',
