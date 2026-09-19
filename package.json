@@ -2,7 +2,6 @@
   "name": "aurora-bot-render",
   "version": "1.0.0",
   "type": "module",
-  "description": "Silent Giants Platform — Aurora Bot",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"
@@ -13,10 +12,6 @@
     "imapflow": "^1.0.164",
     "mailparser": "^3.7.1",
     "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.16",
-    "playwright": "^1.48.0"
-  },
-  "engines": {
-    "node": ">=20"
+    "nodemailer": "^6.9.16"
   }
 }
