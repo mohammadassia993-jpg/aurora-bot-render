@@ -1,36 +1,19 @@
 {
-  "name": "aurora-bot",
+  "name": "aurora-bot-render",
   "version": "1.0.0",
-  "description": "Silent Giants – Aurora Bot (local platform + cloud backup entry)",
-  "main": "index.js",
   "type": "module",
+  "description": "Silent Giants Platform — Aurora Bot",
   "scripts": {
-    "start": "node index.js",
-    "platform": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "test": "node --test",
-    "package": "bash scripts/package.sh",
-    "postinstall": "npx puppeteer browsers install chrome || true",
-    "hivemoot": "hivemoot buzz --repo mohammadassia993-jpg/aurora-bot-render"
+    "start": "node src/index.js",
+    "cap:init": "npx cap init",
+    "cap:add": "npx cap add android",
+    "cap:sync": "npx cap sync android"
   },
   "dependencies": {
-    "@hivemoot-dev/cli": "^0.3.8",
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "@wefi-ai/ekyc-suite-mcp": "^1.2.14",
-    "@n8n/mcp-browser": "^0.20.0",
-    "arcbounty-agent-sdk": "^0.7.0",
-    "delegate-os": "^0.3.0",
-    "express": "^4.22.2",
-    "freeweb-mcp": "^3.4.0",
-    "node-cron": "^4.6.0",
-    "nodemailer": "^10.0.1",
-    "playwright": "^1.63.0",
-    "puppeteer": "^25.9.0",
-    "socks-proxy-agent": "^10.1.0",
-    "solc": "^0.8.20",
-    "taskmarket-mcp": "^1.0.3"
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "node-cron": "^3.0.0"
   },
-  "engines": {
-    "node": ">=22"
-  }
+  "devDependencies": {}
 }
