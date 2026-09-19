@@ -20,13 +20,14 @@ export function simulationEnabled() {
 
 export function availableModels() {
   const hasRealKey = Boolean(
-    config.keylessAiUrl ||
+    config.danyApiUrl || config.keylessAiUrl ||
     config.deepSeekKey || config.siliconFlowKey || config.geminiKey ||
     config.gptOssApiUrl || config.openRouterKey || config.agnesKey ||
     config.gensparkKey || config.llm7Key || config.logfareKey
   );
   if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
+    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI (DeepSeek V4.1 Flash)', priority: 0 },
     config.keylessAiUrl && { id: 'keylessai', label: 'KeylessAI (gpt-4o)', priority: 0 },
     config.logfareKey && { id: 'logfare', label: 'Logfare (' + (config.logfareModel || 'gemma-4-26b') + ')', priority: 0 },
     config.llm7Key && { id: 'llm7', label: 'LLM7 (' + (config.llm7Model || 'codestral-latest') + ')', priority: 0 },
@@ -56,7 +57,7 @@ function recordRun(agent, model, success, latencyMs, qualityScore = 80) {
       INSERT INTO agent_runs(agent, model, success, latency_ms, quality_score)
       VALUES (?, ?, ?, ?, ?)
     `).run(agent, model, success ? 1 : 0, Math.round(latencyMs), qualityScore);
-  } catch { /* table may not exist */ }
+  } catch { /* ignore */ }
 }
 
 async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 30000 }) {
@@ -87,11 +88,19 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
 async function dispatchToProvider(modelId, prompt) {
   const messages = [{ role: 'user', content: prompt }];
 
+  if (modelId === 'danyapi') {
+    return await callOpenAICompatible({
+      url: config.danyApiUrl,
+      apiKey: 'not-needed',
+      model: config.danyApiModel,
+      messages
+    });
+  }
   if (modelId === 'keylessai') {
     return await callOpenAICompatible({
       url: config.keylessAiUrl,
       apiKey: 'not-needed',
-      model: config.keylessAiModel || 'gpt-4o',
+      model: config.keylessAiModel,
       messages
     });
   }
