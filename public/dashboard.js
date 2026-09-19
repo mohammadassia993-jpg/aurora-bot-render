@@ -21,9 +21,16 @@ document.querySelectorAll('.tab').forEach(tab => {
   };
 });
 
+let cachedDashboard = null;
+
+async function loadDashboard() {
+  cachedDashboard = await fetchJson('/api/dashboard');
+  return cachedDashboard;
+}
+
 async function loadSystem() {
   try {
-    const data = await fetchJson('/api/dashboard');
+    const data = cachedDashboard || await loadDashboard();
     const fin = data.finance || {};
     const el = document.getElementById('system-stats');
     if (el) el.innerHTML = `
@@ -36,13 +43,13 @@ async function loadSystem() {
     `;
   } catch (e) {
     const el = document.getElementById('system-stats');
-    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل</div>';
+    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل: ' + e.message + '</div>';
   }
 }
 
 async function loadAgents() {
   try {
-    const data = await fetchJson('/api/team/agents');
+    const data = cachedDashboard || await loadDashboard();
     const agents = data.agents || [];
     const el = document.getElementById('agents-list');
     if (el) el.innerHTML = agents.length
@@ -50,49 +57,68 @@ async function loadAgents() {
       : '<div class="empty">لا يوجد وكلاء</div>';
   } catch (e) {
     const el = document.getElementById('agents-list');
-    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل</div>';
+    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل: ' + e.message + '</div>';
   }
 }
 
 async function loadMessages() {
   try {
-    const data = await fetchJson('/api/team/messages');
-    const msgs = data.messages || [];
+    const data = cachedDashboard || await loadDashboard();
+    const events = data.events || [];
+    const chatEvents = events.filter(e => ['leader', 'aurora', 'planner', 'executor', 'reviewer', 'scout'].includes(e.actor));
     const el = document.getElementById('messages-list');
-    if (el) el.innerHTML = msgs.length
-      ? msgs.slice(0, 30).map(m => `<div class="item"><div class="meta">${m.sender || '?'} → ${m.recipient || 'all'}</div><div class="body">${(m.body || '').slice(0, 300)}</div></div>`).join('')
-      : '<div class="empty">لا توجد رسائل</div>';
+    if (!el) return;
+    if (!chatEvents.length) { el.innerHTML = '<div class="empty">لا توجد رسائل — أرسل رسالة تجريبية</div>'; return; }
+    el.innerHTML = chatEvents.slice(0, 40).map(m => `
+      <div class="item">
+        <div class="meta">${m.actor || '?'} • ${(m.created_at || '').slice(11, 19)}</div>
+        <div class="body">${String(m.detail || '').replace(/[*#]/g, '').slice(0, 400)}</div>
+      </div>
+    `).join('');
   } catch (e) {
     const el = document.getElementById('messages-list');
-    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل</div>';
+    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل: ' + e.message + '</div>';
   }
 }
 
 async function loadTasks() {
   try {
-    const data = await fetchJson('/api/team/tasks');
+    const data = await fetchJson('/api/team/tasks').catch(() => ({ tasks: [] }));
     const tasks = data.tasks || [];
     const el = document.getElementById('tasks-list');
-    if (el) el.innerHTML = tasks.length
-      ? tasks.slice(0, 30).map(t => `<div class="item"><div class="meta">${t.source || ''} • ${t.status || ''}</div><div class="body">${t.title || ''}</div>${t.reward ? `<div class="ok" style="font-size:13px;margin-top:6px">💰 ${t.reward} ${t.currency || ''} (محتمل)</div>` : ''}</div>`).join('')
-      : '<div class="empty">لا توجد مهام</div>';
+    if (!el) return;
+    if (!tasks.length) {
+      const dash = cachedDashboard || await loadDashboard();
+      const metrics = dash?.performance?.metrics?.taskCounts || [];
+      el.innerHTML = metrics.map(m => `<div class="stat"><span class="label">${m.status}</span><span class="value">${m.count}</span></div>`).join('')
+        || '<div class="empty">لا توجد مهام</div>';
+      return;
+    }
+    el.innerHTML = tasks.slice(0, 30).map(t => `
+      <div class="item">
+        <div class="meta">${t.source || ''} • ${t.status || ''}</div>
+        <div class="body">${t.title || ''}</div>
+        ${t.reward ? `<div class="ok" style="font-size:13px;margin-top:6px">💰 ${t.reward} ${t.currency || ''}</div>` : ''}
+      </div>
+    `).join('');
   } catch (e) {
     const el = document.getElementById('tasks-list');
-    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل</div>';
+    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل: ' + e.message + '</div>';
   }
 }
 
 async function loadNotifications() {
   try {
-    const data = await fetchJson('/api/notifications');
+    const data = await fetchJson('/api/notifications').catch(() => ({ notifications: [] }));
     const notifs = data.notifications || [];
     const el = document.getElementById('notifications-list');
-    if (el) el.innerHTML = notifs.length
-      ? notifs.slice(0, 30).map(n => `<div class="item"><div class="meta">${n.kind || ''}</div><div class="body">${n.title || ''}</div><div style="color:#94a3b8;font-size:13px;margin-top:4px">${(n.body || '').slice(0, 200)}</div></div>`).join('')
+    if (!el) return;
+    el.innerHTML = notifs.length
+      ? notifs.slice(0, 30).map(n => `<div class="item"><div class="meta">${n.kind || ''}</div><div class="body">${n.title || ''}</div></div>`).join('')
       : '<div class="empty">لا توجد إشعارات</div>';
   } catch (e) {
     const el = document.getElementById('notifications-list');
-    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل</div>';
+    if (el) el.innerHTML = '<div class="empty">تعذّر التحميل: ' + e.message + '</div>';
   }
 }
 
@@ -111,10 +137,14 @@ async function handleSend() {
       method: 'POST',
       body: JSON.stringify({ sender: 'leader', recipient, body })
     });
-    status.textContent = '✅ تم الإرسال إلى الفريق';
+    status.textContent = '✅ تم الإرسال — جاري تحديث الردود...';
     status.style.color = '#4ade80';
     bodyEl.value = '';
-    loadMessages();
+    cachedDashboard = null;
+    setTimeout(async () => {
+      await loadDashboard().catch(() => {});
+      await loadMessages();
+    }, 4000);
   } catch (e) {
     status.textContent = '❌ فشل الإرسال: ' + e.message;
     status.style.color = '#f87171';
@@ -123,6 +153,8 @@ async function handleSend() {
 
 async function loadAll() {
   if (errorBox) errorBox.style.display = 'none';
+  cachedDashboard = null;
+  try { await loadDashboard(); } catch (e) { showError('فشل الاتصال: ' + e.message); return; }
   await Promise.all([loadSystem(), loadAgents(), loadMessages(), loadTasks(), loadNotifications()]);
 }
 
