@@ -1,0 +1,15 @@
+{
+  "appId": "com.silentgiants.aurora",
+  "appName": "عمالقة الصمت",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://silent-giants-render-backup.onrender.com/dashboard?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6vCr",
+    "cleartext": true,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": true
+  }
+}
