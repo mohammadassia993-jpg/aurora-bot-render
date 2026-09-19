@@ -7,27 +7,40 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
-  header { text-align: center; margin-bottom: 24px; padding: 16px; }
-  header h1 { font-size: 24px; color: #a78bfa; margin-bottom: 8px; }
-  header p { color: #94a3b8; font-size: 13px; }
-  .tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap; }
-  .tab { padding: 10px 18px; background: #1e293b; border-radius: 12px; color: #cbd5e1; cursor: pointer; border: 2px solid transparent; font-size: 14px; font-weight: 500; }
+  header { text-align: center; margin-bottom: 20px; padding: 12px; }
+  header h1 { font-size: 22px; color: #a78bfa; margin-bottom: 6px; }
+  header p { color: #94a3b8; font-size: 12px; }
+  .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab { padding: 8px 14px; background: #1e293b; border-radius: 10px; color: #cbd5e1; cursor: pointer; border: 2px solid transparent; font-size: 13px; font-weight: 500; }
   .tab.active { background: #312e81; color: #e0e7ff; border-color: #a78bfa; }
   .panel { display: none; }
   .panel.active { display: block; }
-  .card { background: #1e293b; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155; }
-  .card h2 { color: #a78bfa; font-size: 17px; margin-bottom: 12px; }
-  .stat { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #334155; }
+  .card { background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #334155; }
+  .card h2 { color: #a78bfa; font-size: 15px; margin-bottom: 10px; }
+  .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; font-size: 13px; }
   .stat:last-child { border-bottom: none; }
   .stat .label { color: #94a3b8; }
   .stat .value { color: #e0e7ff; font-weight: 600; }
-  .item { padding: 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; }
-  .item .meta { color: #a78bfa; font-size: 12px; margin-bottom: 6px; }
-  .item .body { color: #e0e7ff; font-size: 14px; line-height: 1.5; }
-  .empty { text-align: center; padding: 30px; color: #64748b; }
-  .error { background: #7f1d1d; padding: 16px; border-radius: 12px; color: #fecaca; margin-bottom: 16px; font-size: 13px; }
+  .item { padding: 10px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; }
+  .item .meta { color: #a78bfa; font-size: 11px; margin-bottom: 4px; }
+  .item .body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
+  .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
+  .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
   .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
-  .reload { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-top: 16px; font-weight: 600; }
+
+  /* ⭐ صندوق الكتابة الكبير */
+  #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
+  #msg-body:focus { border-color: #a78bfa; outline: none; }
+
+  .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
+  .btn-primary:active { background: #4338ca; }
+  .btn-exec { display: inline-block; margin-top: 8px; padding: 6px 12px; background: #065f46; color: #d1fae5; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
+  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
+
+  /* ⭐ السجل الحي */
+  .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
+  .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
+  .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -58,9 +71,9 @@
 
 <div class="panel" id="panel-team">
   <div class="card">
-    <h2>📤 إرسال رسالة للفريق</h2>
+    <h2>📤 إرسال أمر للفريق</h2>
     <div style="margin-bottom: 10px;">
-      <label style="color:#94a3b8; font-size:13px; display:block; margin-bottom:6px;">إلى:</label>
+      <label style="color:#94a3b8; font-size:12px; display:block; margin-bottom:6px;">إلى:</label>
       <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
         <option value="all">الفريق الكامل</option>
         <option value="aurora">أورورا (المنسق)</option>
@@ -70,13 +83,15 @@
         <option value="scout">المستخبر</option>
       </select>
     </div>
-    <textarea id="msg-body" placeholder="اكتب الأمر أو الرسالة..." style="width:100%; min-height:100px; padding:12px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
-    <button id="send-btn" style="display:block; width:100%; padding:12px; background:#312e81; color:#e0e7ff; border:none; border-radius:10px; font-size:15px; cursor:pointer; margin-top:10px; font-weight:600;">📤 إرسال</button>
+    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل... الفريق سيقرأه وينفذه."></textarea>
+    <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
+    <button id="exec-now-btn" class="btn-primary" style="background:#065f46; margin-top:8px;">▶️ تنفيذ مهمة الآن</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
+
   <div class="card">
-    <h2>💬 الرسائل السابقة</h2>
-    <div id="messages-list">جاري التحميل...</div>
+    <h2>📺 السجل الحي (ما يفعله الفريق الآن)</h2>
+    <div id="live-log">جاري التحميل...</div>
   </div>
 </div>
 
@@ -96,6 +111,6 @@
 
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
-<script src="/dashboard.js?v=20260919"></script>
+<script src="/dashboard.js?v=3"></script>
 </body>
 </html>
