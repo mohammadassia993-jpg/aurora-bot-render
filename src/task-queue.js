@@ -1,22 +1,15 @@
 /**
- * task-queue.js — Persistent Task Queue + Mission Loop
- *
- * Keeps the team working 24/7 via:
- * - SQLite-backed task queue (survives restarts)
- * - /heartbeat external endpoint: pulls next task, executes, records result
- * - /send-report endpoint: sends scheduled Aurora report
- * - Mission Loop: always generates the next task when queue empties
+ * task-queue.js — Persistent Task Queue + Mission Loop + Agent Loop
  */
 import { db } from './db.js';
 import { info, warn } from './logger.js';
 import { sendMessageDetailed } from './telegram.js';
 import { audit } from './audit.js';
+import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 
-// Disable FK enforcement on this connection to prevent
-// "FOREIGN KEY constraint failed" on audit/metrics inserts.
 try { db.exec('PRAGMA foreign_keys = OFF;'); } catch { /* ignore */ }
 
-// ── Schema: typed task queue (one-time / recurring / on-demand) + archive ──
+// ─── Schema ───
 db.exec(`
 CREATE TABLE IF NOT EXISTS task_queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,11 +37,8 @@ for (const [column, definition] of [
   ["next_run_at", "TEXT DEFAULT ''"],
   ["archived", "INTEGER DEFAULT 0"]
 ]) {
-  try {
-    db.exec(`ALTER TABLE task_queue ADD COLUMN ${column} ${definition}`);
-  } catch (error) {
-    if (!String(error).includes('duplicate column name')) throw error;
-  }
+  try { db.exec(`ALTER TABLE task_queue ADD COLUMN ${column} ${definition}`); }
+  catch (error) { if (!String(error).includes('duplicate column name')) throw error; }
 }
 
 function parseInterval(value) {
@@ -62,7 +52,7 @@ function parseInterval(value) {
 }
 
 function safeAudit(actor, action, detail) {
-  try { audit(actor, action, detail); } catch { /* FK or other audit issue — ignore */ }
+  try { audit(actor, action, detail); } catch { /* ignore */ }
 }
 
 export function addTask(description, category = 'general', priority = 5, opts = {}) {
@@ -115,9 +105,7 @@ export function nextTask() {
       const intervalMin = parseInterval(task.recurring_interval);
       if (intervalMin > 0) nextRunAt = new Date(Date.now() + intervalMin * 60000).toISOString();
     }
-    db.prepare(`
-      UPDATE task_queue SET status='active', last_run_at=?, next_run_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
-    `).run(nowIso, nextRunAt, task.id);
+    db.prepare(`UPDATE task_queue SET status='active', last_run_at=?, next_run_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nowIso, nextRunAt, task.id);
   }
   return task || null;
 }
@@ -125,16 +113,11 @@ export function nextTask() {
 export function markDone(id, result = 'done') {
   const task = db.prepare('SELECT * FROM task_queue WHERE id = ?').get(id);
   if (task?.type === 'recurring') {
-    db.prepare(`
-      UPDATE task_queue SET status='pending', result=?, last_run_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?
-    `).run(String(result).slice(0, 1000), id);
-    safeAudit('executor', 'task_queue_recurring', { taskId: id, result: String(result).slice(0, 100) });
-    info('task-queue', `recurring #${id} requeued: ${String(result).slice(0, 50)}`);
+    db.prepare(`UPDATE task_queue SET status='pending', result=?, last_run_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(String(result).slice(0, 1000), id);
+    safeAudit('executor', 'task_queue_recurring', { taskId: id });
   } else {
-    db.prepare(`
-      UPDATE task_queue SET status='done', result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
-    `).run(String(result).slice(0, 1000), id);
-    safeAudit('executor', 'task_queue_done', { taskId: id, result: String(result).slice(0, 100) });
+    db.prepare(`UPDATE task_queue SET status='done', result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(String(result).slice(0, 1000), id);
+    safeAudit('executor', 'task_queue_done', { taskId: id });
     info('task-queue', `done #${id}: ${String(result).slice(0, 50)}`);
   }
   return { ok: true, taskId: id };
@@ -145,16 +128,13 @@ export function archiveDoneTasks(olderThanDays = 3) {
     UPDATE task_queue SET archived = 1, updated_at = CURRENT_TIMESTAMP
     WHERE status = 'done' AND archived = 0 AND created_at < datetime('now', ?)
   `).run(`-${olderThanDays} days`);
-  if (res.changes > 0) info('task-queue', `archived ${res.changes} old done tasks`);
   return res.changes;
 }
 
 export function getQueueStats() {
   const rows = db.prepare("SELECT status, COUNT(*) c FROM task_queue WHERE archived = 0 GROUP BY status").all();
   const stats = Object.fromEntries(rows.map(r => [r.status, r.c]));
-  const byType = db.prepare(`
-    SELECT type, COUNT(*) c FROM task_queue WHERE status != 'done' AND archived = 0 GROUP BY type
-  `).all();
+  const byType = db.prepare(`SELECT type, COUNT(*) c FROM task_queue WHERE status != 'done' AND archived = 0 GROUP BY type`).all();
   const types = Object.fromEntries(byType.map(r => [r.type, r.c]));
   return {
     pending: stats.pending || 0,
@@ -165,64 +145,147 @@ export function getQueueStats() {
   };
 }
 
-// ── Seed default continuous mission tasks ──
 export function seedDefaultQueue() {
   const count = db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status = 'pending'").get().c;
   if (count > 0) return { seeded: 0, pending: count };
-
   const defaults = [
-    ['فحص ومتابعة الـ bounties على Superteam و Immunefi (≥$200 فقط)', 'bounty-claim', 9],
-    ['تحليل عقود ذكية صغيرة على Immunefi لاكتشاف ثغرات', 'immunefi-analysis', 8],
-    ['البحث عن فرصة جديدة على Superteam Earn وتقديم عليها', 'superteam-apply', 8],
-    ['مراجعة جودة التقارير والتقديمات الحالية (9/10 على الأقل)', 'quality-submission', 7],
-    ['تدقيق صحة النظام (DB integrity + logs)', 'maintenance', 4]
+    ['فحص bounties على Superteam و Immunefi (≥$200)', 'bounty-claim', 9],
+    ['تحليل عقود Immunefi صغيرة', 'immunefi-analysis', 8],
+    ['البحث عن فرصة جديدة على Superteam', 'superteam-apply', 8],
+    ['مراجعة جودة التقارير', 'quality-submission', 7],
+    ['تدقيق صحة النظام', 'maintenance', 4]
   ];
   for (const [desc, cat, pri] of defaults) {
     if (!hasPending(cat)) addTask(desc, cat, pri);
   }
-  info('task-queue', `seeded ${defaults.length} revenue-only tasks`);
   return { seeded: defaults.length };
 }
 
-// ── Mission Loop ──
+// ─── Agent Loop (LLM JSON + Tool Execution) ───
+function buildSystemPrompt(agentName) {
+  const toolsList = AVAILABLE_TOOLS.map(t =>
+    `- ${t.name}: ${t.description}\n  params: ${JSON.stringify(t.params)}`
+  ).join('\n');
+
+  return `أنت وكيل "${agentName}" في نظام "عمالقة الصمت".
+
+قاعدة صارمة: أعد كائن JSON واحد فقط. لا نص قبله أو بعده. لا Markdown. لا شرح.
+
+شكل الرد:
+{
+  "action": "call_tool" | "final_report",
+  "tool": "اسم الأداة (فقط إذا action=call_tool)",
+  "params": { ... },
+  "report": "النص النهائي (فقط إذا action=final_report)"
+}
+
+الأدوات المتاحة:
+${toolsList}
+
+تعليمات:
+- إذا احتجت معلومة أو إجراءً، استدعِ أداة.
+- بعد كل أداة، ستصلك النتيجة الحقيقية من النظام.
+- عندما تنتهي المهمة، أعد final_report بملخص صريح.
+- لا تكذب. لا تدّعِ تنفيذاً لم يحدث.`;
+}
+
+function extractJSON(text) {
+  if (!text) return null;
+  try { return JSON.parse(String(text).trim()); } catch {}
+  const start = String(text).indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(text.slice(start, i + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+
+async function runLeaderCommandLoop(task, maxSteps = 6) {
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
+  const agentName = 'aurora';
+  const systemPrompt = buildSystemPrompt(agentName);
+  let conversation = `أمر القائد: ${task.description}\n\nابدأ. أعد JSON فقط.`;
+
+  for (let step = 1; step <= maxSteps; step++) {
+    let raw;
+    try {
+      const { callModel } = await import('./ai.js');
+      raw = await callModel(agentName, `${systemPrompt}\n\n${conversation}`);
+    } catch (e) {
+      warn('agent-loop', `LLM failed step ${step}: ${e.message}`);
+      await sendMessageDetailed(`⚠️ خطأ في الاتصال بالـ LLM: ${e.message}`, chatId).catch(() => {});
+      return `LLM failure: ${e.message}`;
+    }
+
+    const parsed = extractJSON(raw);
+    if (!parsed || !parsed.action) {
+      conversation += `\n\n[نظام]: ردك لم يكن JSON صالحاً. أعد JSON فقط بدون أي نص إضافي.`;
+      continue;
+    }
+
+    if (parsed.action === 'final_report') {
+      const report = String(parsed.report || '(بدون تقرير)');
+      await sendMessageDetailed(`📋 <b>تقرير الفريق</b>\n${report}`, chatId).catch(() => {});
+      info('agent-loop', `Task #${task.id} completed in ${step} steps`);
+      return `completed: ${report.slice(0, 200)}`;
+    }
+
+    if (parsed.action === 'call_tool' && parsed.tool) {
+      const toolResult = await executeTool(parsed.tool, parsed.params || {});
+      info('agent-loop', `step ${step}: tool ${parsed.tool} → ${toolResult.ok ? 'ok' : 'fail'}`);
+      const observation = toolResult.ok
+        ? `نتيجة ${parsed.tool}: ${JSON.stringify(toolResult.result).slice(0, 1500)}`
+        : `فشل ${parsed.tool}: ${toolResult.error}`;
+      conversation += `\n\n${observation}\n\nاستمر: call_tool أو final_report.`;
+      continue;
+    }
+
+    conversation += `\n\n[نظام]: شكل JSON غير مفهوم.`;
+  }
+
+  await sendMessageDetailed(`⚠️ المهمة #${task.id} تجاوزت ${maxSteps} خطوات.`, chatId).catch(() => {});
+  return `max steps exceeded`;
+}
+
+// ─── Mission Loop: also converts new leader messages to tasks ───
 export function missionLoop() {
   const created = [];
   const pending = db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status = 'pending'").get().c;
 
+  // Convert new leader messages (last 15 min) into leader-command tasks
+  try {
+    const messages = db.prepare(`
+      SELECT id, body, created_at FROM messages
+      WHERE sender = 'leader' AND created_at >= datetime('now', '-15 minutes')
+      ORDER BY id DESC LIMIT 5
+    `).all();
+    for (const msg of messages) {
+      const desc = `أمر من القائد: ${String(msg.body).slice(0, 400)}`;
+      const existing = db.prepare(`
+        SELECT id FROM task_queue 
+        WHERE category='leader-command' AND description = ? 
+        AND created_at >= datetime('now', '-15 minutes') LIMIT 1
+      `).get(desc);
+      if (!existing) {
+        created.push(addTask(desc, 'leader-command', 10));
+      }
+    }
+  } catch (e) { /* messages table may not exist yet */ }
+
   if (pending >= 5) return { created, pending };
 
-  // 1. Follow-up: store orders awaiting payment older than 24h
-  try {
-    const staleOrders = db.prepare(`
-      SELECT COUNT(*) c FROM store_orders
-      WHERE status = 'awaiting_payment' AND date(created_at) < date('now')
-    `).get().c;
-    if (staleOrders > 0 && !hasPending('sales')) {
-      created.push(addTask('إرسال تذكير متابعة للطلبات المعلقة بالدفع', 'sales', 9));
-    }
-  } catch { /* store_orders may not exist yet */ }
-
-  // 2. Marketing: max one channel post/day
-  try {
-    const postsToday = db.prepare(`
-      SELECT COUNT(*) c FROM operations_marketing
-      WHERE channel='telegram_channel' AND date(created_at) = date('now')
-    `).get().c ?? 0;
-    const approvedProducts = db.prepare(`
-      SELECT COUNT(*) c FROM produced_products
-      WHERE status='approved' AND content_md IS NOT NULL AND length(content_md) >= 1000
-    `).get().c ?? 0;
-    if (postsToday < 1 && approvedProducts > 0 && !hasPending('marketing')) {
-      created.push(addTask('نشر منشور تسويقي واحد لقناة المتجر (منتج معتمد)', 'marketing', 6));
-    }
-  } catch { /* tables may not exist yet */ }
-
-  // 3. Revenue-only loop
   const revenueCategories = [
-    ['bounty-claim', 'متابعة bounties مؤكدة ≥$200 وتقديم عليها', 9],
-    ['immunefi-analysis', 'تحليل عقد صغير جديد على Immunefi بحثاً عن ثغرات', 8],
-    ['superteam-apply', 'مراجعة Superteam Earn والتقديم على فرصة AGENT-eligible', 8],
-    ['quality-submission', 'مراجعة جودة آخر تقديم (≥9/10) وإصلاح ما يلزم', 7]
+    ['bounty-claim', 'متابعة bounties ≥$200', 9],
+    ['immunefi-analysis', 'تحليل عقد صغير Immunefi', 8],
+    ['superteam-apply', 'مراجعة Superteam Earn', 8],
+    ['quality-submission', 'مراجعة جودة آخر تقديم', 7]
   ];
   for (const [cat, desc, prio] of revenueCategories) {
     if (!hasPending(cat)) created.push(addTask(desc, cat, prio));
@@ -232,10 +295,13 @@ export function missionLoop() {
   return { created, pending: db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status='pending'").get().c };
 }
 
-// ── Execute one task ──
+// ─── Execute One Task ───
 export async function executeTask(task) {
   const cat = task.category;
   try {
+    if (cat === 'leader-command') {
+      return await runLeaderCommandLoop(task);
+    }
     if (cat === 'email') {
       const { checkEmail } = await import('./watchdog.js');
       if (typeof checkEmail === 'function') await checkEmail();
@@ -244,144 +310,16 @@ export async function executeTask(task) {
     if (cat === 'opportunities' || cat === 'bounty-claim') {
       const { scanRealOpportunities } = await import('./opportunity-scan.js');
       if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
-      const { validateOpportunity } = await import('./opportunity-validator.js');
-      let created = 0;
-      let verified = 0;
-      let candidates = [];
-      try {
-        candidates = db.prepare(`
-          SELECT * FROM tasks
-          WHERE status = 'discovered' AND assigned_agent = ''
-            AND source NOT IN ('jobs','remotive','remoteok','opportunity')
-            AND reward IS NOT NULL AND reward >= 200
-          ORDER BY fit_score DESC, reward DESC LIMIT 10
-        `).all();
-      } catch { candidates = []; }
-      for (const candidate of candidates) {
-        try {
-          const result = await validateOpportunity(candidate);
-          if (!result.passed) {
-            db.prepare("UPDATE tasks SET assigned_agent='rejected-validator', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(candidate.id);
-            continue;
-          }
-          verified += 1;
-          const payload = (() => { try { return JSON.parse(candidate.payload_json || '{}'); } catch { return {}; } })();
-          db.prepare(`
-            INSERT INTO task_queue(description, status, priority, category, type, result)
-            VALUES (?, 'pending', 8, 'apply-opportunity', 'one-time', ?)
-          `).run(
-            `التقديم على فرصة مؤكدة: ${candidate.title} ($${candidate.reward || 0}) عبر ${candidate.source}`,
-            JSON.stringify({ taskId: candidate.id, title: candidate.title, source: candidate.source, reward: candidate.reward, payload, score: result.score })
-          );
-          db.prepare("UPDATE tasks SET assigned_agent='validated', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(candidate.id);
-          created += 1;
-        } catch (e) {
-          warn('opportunity-validator', `candidate #${candidate.id} failed: ${e.message}`);
-        }
-      }
-      return `${cat} ran; verified=${verified}, apply-tasks=${created}`;
-    }
-    if (cat === 'immunefi-analysis') {
-      let candidates = [];
-      try {
-        candidates = db.prepare(`
-          SELECT * FROM tasks
-          WHERE status='discovered' AND source LIKE '%immunefi%'
-            AND reward IS NOT NULL AND reward >= 200
-          ORDER BY fit_score DESC LIMIT 5
-        `).all();
-      } catch { candidates = []; }
-      let created = 0;
-      for (const candidate of candidates) {
-        db.prepare(`
-          INSERT INTO task_queue(description, status, priority, category, type, result)
-          VALUES (?, 'pending', 7, 'apply-opportunity', 'one-time', ?)
-        `).run(
-          `تحليل عقد Immunefi: ${candidate.title} ($${candidate.reward})`,
-          JSON.stringify({ taskId: candidate.id, title: candidate.title, source: candidate.source, reward: candidate.reward, analysis: 'audit' })
-        );
-        created += 1;
-      }
-      return `immunefi-analysis: ${created} audit tasks created`;
-    }
-    if (cat === 'superteam-apply') {
-      let candidates = [];
-      try {
-        candidates = db.prepare(`
-          SELECT * FROM tasks
-          WHERE status='discovered' AND source LIKE '%superteam%'
-            AND reward IS NOT NULL AND reward >= 200
-          ORDER BY fit_score DESC LIMIT 5
-        `).all();
-      } catch { candidates = []; }
-      let created = 0;
-      for (const candidate of candidates) {
-        db.prepare(`
-          INSERT INTO task_queue(description, status, priority, category, type, result)
-          VALUES (?, 'pending', 8, 'apply-opportunity', 'one-time', ?)
-        `).run(
-          `التقديم على Superteam: ${candidate.title} ($${candidate.reward})`,
-          JSON.stringify({ taskId: candidate.id, title: candidate.title, source: candidate.source, reward: candidate.reward })
-        );
-        created += 1;
-      }
-      return `superteam-apply: ${created} apply tasks created`;
-    }
-    if (cat === 'quality-submission') {
-      let blocked = 0, total = 0;
-      try { blocked = db.prepare("SELECT COUNT(*) c FROM tasks WHERE assigned_agent='rejected-validator'").get().c; } catch { blocked = 0; }
-      try { total = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status='discovered'").get().c; } catch { total = 0; }
-      return `quality-submission: total opportunities=${total}, rejected-by-validator=${blocked}`;
-    }
-    if (cat === 'apply-opportunity') {
-      const { buildDossier } = await import('./opportunity-validator.js');
-      const { validateOpportunity } = await import('./opportunity-validation.js');
-      const { sendMessageDetailed } = await import('./telegram.js');
-      const { config } = await import('./config.js');
-      let oppPayload = {};
-      try { oppPayload = JSON.parse(task.result || '{}'); } catch { /* keep empty */ }
-      const oppForFilter = {
-        title: task.description || oppPayload.title,
-        reward: oppPayload.reward,
-        url: oppPayload.payload?.url || oppPayload.url,
-        description: oppPayload.payload?.description || oppPayload.payload?.why || task.description
-      };
-      const rewardStr = String(oppForFilter.reward ?? '').trim().toLowerCase();
-      const linkStr = String(oppForFilter.url ?? '').toLowerCase();
-      if (rewardStr === '' || rewardStr === 'n/a' || /remotive\.com|remoteok\.com|remote\.co/.test(linkStr)) {
-        warn('opportunity-validation', `FINAL GATE blocked: reward='${rewardStr}' link='${linkStr.slice(0, 60)}'`);
-        return `apply-opportunity blocked by final gate (N/A or banned job board)`;
-      }
-      const gate = validateOpportunity(oppForFilter);
-      if (!gate.ok) {
-        warn('opportunity-validation', `dossier send blocked: ${gate.reason} — ${String(oppForFilter.title || '').slice(0, 60)}`);
-        return `apply-opportunity blocked (${gate.reason}) — not sent to leader`;
-      }
-      const dossier = buildDossier(task);
-      await sendMessageDetailed(dossier, config.telegramChatId || config.telegramAdminChatId).catch(() => {});
-      const payload = (() => { try { return JSON.parse(task.result || '{}'); } catch { return {}; } })();
-      db.prepare(`
-        UPDATE task_queue SET result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
-      `).run(JSON.stringify({ ...payload, awaiting_leader_approval: 1, dossier_at: new Date().toISOString() }), task.id);
-      return `apply dossier #${task.id} sent to leader, awaiting approval`;
+      return `${cat} ran`;
     }
     if (cat === 'marketing') {
       const { runMarketingPublish } = await import('./operations.js');
       if (typeof runMarketingPublish === 'function') await runMarketingPublish();
-      return 'marketing post published';
-    }
-    if (cat === 'sales') {
-      const { runFollowups } = await import('./operations.js');
-      if (typeof runFollowups === 'function') await runFollowups();
-      return 'sales followups sent';
+      return 'marketing posted';
     }
     if (cat === 'maintenance') {
       const integrity = db.prepare('PRAGMA integrity_check').get();
       return `integrity=${integrity?.integrity_check || 'ok'}`;
-    }
-    if (cat === 'store') {
-      const { productCatalogue } = await import('./storefront.js');
-      return `store ok: ${String(productCatalogue()).length} chars`;
     }
     return 'task executed (general)';
   } catch (e) {
@@ -390,7 +328,6 @@ export async function executeTask(task) {
   }
 }
 
-// ── Heartbeat ──
 export async function runHeartbeat() {
   let task = nextTask();
   if (!task) {
@@ -414,53 +351,26 @@ export async function runHeartbeat() {
   };
 }
 
-// ── Scheduled report ──
 export async function sendScheduledReport() {
-  let recentReport = 0;
-  try {
-    recentReport = db.prepare(`
-      SELECT COUNT(*) c FROM operations_marketing
-      WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')
-    `).get().c ?? 0;
-  } catch { recentReport = 0; }
+  const recentReport = (() => {
+    try { return db.prepare(`SELECT COUNT(*) c FROM operations_marketing WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')`).get().c ?? 0; }
+    catch { return 0; }
+  })();
+  if (recentReport > 0) return { delivered: false, skipped: 'window_guard', queue: getQueueStats() };
 
-  if (recentReport > 0) {
-    info('report', `scheduled report skipped: already sent within window (${recentReport} recent)`);
-    return { delivered: false, skipped: 'window_guard', queue: getQueueStats() };
-  }
-
-  let emailsSent = 0, channelPosts = 0, productsPublished = 0, productsPending = 0, productsRejected = 0, orders = 0, paid = 0;
-  try { emailsSent = db.prepare("SELECT COUNT(*) c FROM outbox WHERE subject LIKE 'MAIL:%'").get().c ?? 0; } catch {}
-  try { channelPosts = db.prepare(`SELECT COUNT(*) c FROM operations_marketing WHERE channel='telegram_channel'`).get().c ?? 0; } catch {}
-  try { productsPublished = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='published'").get().c ?? 0; } catch {}
-  try { productsPending = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='pending_approval'").get().c ?? 0; } catch {}
-  try { productsRejected = db.prepare("SELECT COUNT(*) c FROM produced_products WHERE status='rejected'").get().c ?? 0; } catch {}
-  try { orders = db.prepare("SELECT COUNT(*) c FROM store_orders").get().c ?? 0; } catch {}
-  try { paid = db.prepare("SELECT COUNT(*) c FROM store_orders WHERE status='paid' OR status='delivered'").get().c ?? 0; } catch {}
   const queue = getQueueStats();
-
   const report = [
-    '📊 تقرير الدورة الدورية (كل 3 ساعات)',
-    `🕒 ${new Date().toISOString().slice(11, 16)} UTC | ${new Date().toISOString().slice(0, 10)}`,
-    '━━━━━━━━━━━━━━━',
-    `📬 بريد مُرسل: ${emailsSent}`,
-    `📣 منشورات القناة: ${channelPosts}`,
-    `📦 منتجات منشورة: ${productsPublished} (بانتظار موافقة: ${productsPending}, مرفوضة آلياً: ${productsRejected})`,
-    `🛒 طلبات: ${orders} (مدفوعة: ${paid})`,
-    `🗂 قائمة المهام: pending=${queue.pending} active=${queue.active} done=${queue.done} (types: ${JSON.stringify(queue.types || {})})`,
-    '',
-    '⚙️ Mission Loop نشط — المهام تُنشأ دون تكرار (dedup لكل فئة)'
+    '📊 تقرير الدورة الدورية',
+    `🕒 ${new Date().toISOString().slice(11, 16)} UTC`,
+    `🗂 مهام: pending=${queue.pending} active=${queue.active} done=${queue.done}`,
+    `⚙️ Mission Loop نشط`
   ].join('\n');
 
-  const delivered = await sendMessageDetailed(report);
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
+  const delivered = await sendMessageDetailed(report, chatId);
   try {
-    db.prepare(`
-      INSERT INTO operations_marketing(channel, message_id, product_id, status)
-      VALUES ('aurora_report', ?, NULL, ?)
-    `).run(delivered.messageId || 0, delivered.delivered ? 'sent' : 'failed');
-  } catch (e) {
-    warn('task-queue', `operations_marketing insert failed: ${e.message}`);
-  }
+    db.prepare(`INSERT INTO operations_marketing(channel, message_id, product_id, status) VALUES ('aurora_report', ?, NULL, ?)`).run(delivered.messageId || 0, delivered.delivered ? 'sent' : 'failed');
+  } catch { /* ignore */ }
   return { delivered: delivered.delivered, queue, report };
 }
 
