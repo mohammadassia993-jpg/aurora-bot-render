@@ -12,6 +12,10 @@
     "imapflow": "^1.0.164",
     "mailparser": "^3.7.1",
     "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^6.9.16",
+    "socks-proxy-agent": "^8.0.5"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
