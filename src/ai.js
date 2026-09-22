@@ -60,26 +60,67 @@ function recordRun(agent, model, success, latencyMs, qualityScore = 80) {
   } catch { /* ignore */ }
 }
 
+// ─────────────────────────────────────────────────────────────
+// [مُعدَّلة] callOpenAICompatible
+//   - max_tokens: 800 → 2500 (لتفادي قطع ردود الوكلاء)
+//   - temperature: 0.7 → 0.1 (لإلزام الـ LLM بإخراج JSON دقيق)
+//   - إضافة response_format: json_object مع fallback تلقائي
+//   - استخراج محتوى أكثر مرونة (يدعم صيغ مزودين مختلفة)
+// ─────────────────────────────────────────────────────────────
 async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 30000 }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers = { 'content-type': 'application/json' };
     if (apiKey && apiKey !== 'not-needed') headers['authorization'] = `Bearer ${apiKey}`;
-    const res = await fetch(`${url.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 800 }),
-      signal: controller.signal
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+    const endpoint = `${url.replace(/\/$/, '')}/chat/completions`;
+
+    const attempt = async (withJsonMode) => {
+      const body = {
+        model,
+        messages,
+        temperature: withJsonMode ? 0.1 : 0.2,
+        max_tokens: 2500
+      };
+      if (withJsonMode) body.response_format = { type: 'json_object' };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const text = await res.text();
+      return { res, text };
+    };
+
+    // محاولة 1: مع JSON mode
+    let { res, text } = await attempt(true);
+
+    // إذا رفض المزود response_format → أعِد المحاولة بدونها
+    if (!res.ok && res.status === 400 && /response_format|json_object|json mode/i.test(text)) {
+      warn('ai', `provider rejected JSON mode, retrying without: ${text.slice(0, 120)}`);
+      ({ res, text } = await attempt(false));
     }
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('empty response');
-    return content;
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`invalid JSON from provider: ${text.slice(0, 200)}`);
+    }
+
+    const content =
+      data?.choices?.[0]?.message?.content ??
+      data?.choices?.[0]?.text ??
+      data?.output?.text ??
+      data?.content ??
+      data?.response ??
+      null;
+
+    if (!content) throw new Error(`empty response: ${text.slice(0, 200)}`);
+    return typeof content === 'string' ? content : JSON.stringify(content);
   } finally {
     clearTimeout(timer);
   }
