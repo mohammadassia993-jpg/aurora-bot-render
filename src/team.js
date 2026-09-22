@@ -6,7 +6,6 @@ import { config } from './config.js';
 import { callModel } from './ai.js';
 import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
-import { sendMessageDetailed } from './telegram.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', role: 'Supervisor and orchestration', icon: '/icons/aurora.svg', color: '#a78bfa' },
@@ -21,6 +20,25 @@ teamEvents.setMaxListeners(200);
 
 function telegramChatId() {
   return process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
+}
+
+// إرسال آمن عبر dynamic import — يحل مشكلة circular dependency
+async function sendTelegramSafe(text, chatId) {
+  try {
+    const mod = await import('./telegram.js');
+    if (typeof mod.sendMessageDetailed !== 'function') {
+      console.error('[team] sendMessageDetailed not available');
+      return { delivered: false, error: 'NOT_AVAILABLE' };
+    }
+    const result = await mod.sendMessageDetailed(text, chatId);
+    if (!result?.delivered) {
+      console.warn('[team] telegram send failed:', result?.error || 'unknown');
+    }
+    return result;
+  } catch (err) {
+    console.error('[team] sendTelegramSafe failed:', err?.message || err);
+    return { delivered: false, error: err?.message || 'unknown' };
+  }
 }
 
 export function listMessages(limit = 100) {
@@ -46,7 +64,7 @@ export async function createMessage(input) {
   const messageId = Number(result.lastInsertRowid);
   const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
   teamEvents.emit('message', { type: 'created', messageId });
-  generateAgentReplies(message).catch(() => {});
+  generateAgentReplies(message).catch(err => console.error('[team] generateAgentReplies failed:', err?.message || err));
   return message;
 }
 
@@ -63,12 +81,14 @@ async function generateAgentReplies(message) {
     ? ['aurora', 'planner', 'executor', 'reviewer', 'scout']
     : [message.recipient];
 
-  // إعلام القائد ببدء المعالجة على Telegram
   const chatId = telegramChatId();
-  await sendMessageDetailed(
+  console.log('[team] generateAgentReplies started, targets=' + targets.length + ', chatId=' + chatId);
+
+  // إعلام القائد ببدء المعالجة
+  await sendTelegramSafe(
     `📥 <b>استلم الفريق أمرك</b>\n\n«${String(message.body).slice(0, 400)}»\n\n⏳ جارٍ التحليل من ${targets.length} وكلاء...`,
     chatId
-  ).catch(() => {});
+  );
 
   for (const agent of targets.filter(id => AGENTS.some(item => item.id === id))) {
     try {
@@ -78,27 +98,26 @@ async function generateAgentReplies(message) {
       );
       insertAgentMessage(agent, output);
 
-      // إرسال رد كل وكيل على Telegram
       const agentLabel = AGENT_NAMES[agent] || agent;
-      await sendMessageDetailed(
+      await sendTelegramSafe(
         `💬 <b>${agentLabel}</b>\n${String(output).slice(0, 3500)}`,
         chatId
-      ).catch(() => {});
+      );
     } catch (e) {
       const fallback = 'تم استلام الرسالة وحفظها في قائمة العمل؛ سأعود بتحديث بعد معالجة الموارد المتاحة.';
       insertAgentMessage(agent, fallback);
-      await sendMessageDetailed(
+      await sendTelegramSafe(
         `⚠️ <b>${AGENT_NAMES[agent] || agent}</b>\n${fallback}`,
         chatId
-      ).catch(() => {});
+      );
     }
   }
 
   // إشعار ختامي
-  await sendMessageDetailed(
+  await sendTelegramSafe(
     `✅ <b>اكتملت معالجة أمرك</b>\nتم استلام ${targets.length} رد من الفريق.`,
     chatId
-  ).catch(() => {});
+  );
 
   await notify('team_message', `رسالة فريق جديدة من ${message.sender}`, message.body.slice(0, 500));
 }
