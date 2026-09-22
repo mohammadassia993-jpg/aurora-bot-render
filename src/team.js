@@ -18,21 +18,18 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-function telegramChatId() {
-  return process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
-}
-
-// إرسال آمن عبر dynamic import — يحل مشكلة circular dependency
-async function sendTelegramSafe(text, chatId) {
+// استخدام dynamic import لتفادي circular dependency
+// ملاحظة: لا نمرر chatId — نترك sendMessageDetailed يستخدم القيمة الافتراضية (نفس مسار التقارير الدورية التي تعمل)
+async function sendTelegramSafe(text) {
   try {
     const mod = await import('./telegram.js');
     if (typeof mod.sendMessageDetailed !== 'function') {
       console.error('[team] sendMessageDetailed not available');
       return { delivered: false, error: 'NOT_AVAILABLE' };
     }
-    const result = await mod.sendMessageDetailed(text, chatId);
+    const result = await mod.sendMessageDetailed(text);
     if (!result?.delivered) {
-      console.warn('[team] telegram send failed:', result?.error || 'unknown');
+      console.warn('[team] telegram send failed:', result?.error || 'unknown', '| desc:', result?.description || '');
     }
     return result;
   } catch (err) {
@@ -81,13 +78,11 @@ async function generateAgentReplies(message) {
     ? ['aurora', 'planner', 'executor', 'reviewer', 'scout']
     : [message.recipient];
 
-  const chatId = telegramChatId();
-  console.log('[team] generateAgentReplies started, targets=' + targets.length + ', chatId=' + chatId);
+  console.log('[team] generateAgentReplies started, targets=' + targets.length);
 
-  // إعلام القائد ببدء المعالجة
+  // إعلام القائد ببدء المعالجة — بدون تمرير chatId (نستخدم الافتراضي الذي يعمل)
   await sendTelegramSafe(
-    `📥 <b>استلم الفريق أمرك</b>\n\n«${String(message.body).slice(0, 400)}»\n\n⏳ جارٍ التحليل من ${targets.length} وكلاء...`,
-    chatId
+    `📥 <b>استلم الفريق أمرك</b>\n\n«${String(message.body).slice(0, 400)}»\n\n⏳ جارٍ التحليل من ${targets.length} وكلاء...`
   );
 
   for (const agent of targets.filter(id => AGENTS.some(item => item.id === id))) {
@@ -100,23 +95,20 @@ async function generateAgentReplies(message) {
 
       const agentLabel = AGENT_NAMES[agent] || agent;
       await sendTelegramSafe(
-        `💬 <b>${agentLabel}</b>\n${String(output).slice(0, 3500)}`,
-        chatId
+        `💬 <b>${agentLabel}</b>\n${String(output).slice(0, 3500)}`
       );
     } catch (e) {
       const fallback = 'تم استلام الرسالة وحفظها في قائمة العمل؛ سأعود بتحديث بعد معالجة الموارد المتاحة.';
       insertAgentMessage(agent, fallback);
       await sendTelegramSafe(
-        `⚠️ <b>${AGENT_NAMES[agent] || agent}</b>\n${fallback}`,
-        chatId
+        `⚠️ <b>${AGENT_NAMES[agent] || agent}</b>\n${fallback}`
       );
     }
   }
 
   // إشعار ختامي
   await sendTelegramSafe(
-    `✅ <b>اكتملت معالجة أمرك</b>\nتم استلام ${targets.length} رد من الفريق.`,
-    chatId
+    `✅ <b>اكتملت معالجة أمرك</b>\nتم استلام ${targets.length} رد من الفريق.`
   );
 
   await notify('team_message', `رسالة فريق جديدة من ${message.sender}`, message.body.slice(0, 500));
