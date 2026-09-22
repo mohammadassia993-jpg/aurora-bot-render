@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { callModel } from './ai.js';
 import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
+import { sendMessageDetailed } from './telegram.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', role: 'Supervisor and orchestration', icon: '/icons/aurora.svg', color: '#a78bfa' },
@@ -17,6 +18,10 @@ export const AGENTS = [
 
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
+
+function telegramChatId() {
+  return process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
+}
 
 export function listMessages(limit = 100) {
   return db.prepare(`
@@ -45,18 +50,56 @@ export async function createMessage(input) {
   return message;
 }
 
+const AGENT_NAMES = {
+  aurora: 'أورورا',
+  planner: 'المخطط',
+  executor: 'المنفذ',
+  reviewer: 'المراجع',
+  scout: 'المستخبر'
+};
+
 async function generateAgentReplies(message) {
   const targets = message.recipient === 'all'
     ? ['aurora', 'planner', 'executor', 'reviewer', 'scout']
     : [message.recipient];
+
+  // إعلام القائد ببدء المعالجة على Telegram
+  const chatId = telegramChatId();
+  await sendMessageDetailed(
+    `📥 <b>استلم الفريق أمرك</b>\n\n«${String(message.body).slice(0, 400)}»\n\n⏳ جارٍ التحليل من ${targets.length} وكلاء...`,
+    chatId
+  ).catch(() => {});
+
   for (const agent of targets.filter(id => AGENTS.some(item => item.id === id))) {
     try {
-      const output = await callModel(agent, `Team message from leader: ${message.body}\nRespond as the ${agent} agent with a concise actionable Arabic reply.`);
+      const output = await callModel(
+        agent,
+        `Team message from leader: ${message.body}\nRespond as the ${agent} agent with a concise actionable Arabic reply.`
+      );
       insertAgentMessage(agent, output);
-    } catch {
-      insertAgentMessage(agent, 'تم استلام الرسالة وحفظها في قائمة العمل؛ سأعود بتحديث بعد معالجة الموارد المتاحة.');
+
+      // إرسال رد كل وكيل على Telegram
+      const agentLabel = AGENT_NAMES[agent] || agent;
+      await sendMessageDetailed(
+        `💬 <b>${agentLabel}</b>\n${String(output).slice(0, 3500)}`,
+        chatId
+      ).catch(() => {});
+    } catch (e) {
+      const fallback = 'تم استلام الرسالة وحفظها في قائمة العمل؛ سأعود بتحديث بعد معالجة الموارد المتاحة.';
+      insertAgentMessage(agent, fallback);
+      await sendMessageDetailed(
+        `⚠️ <b>${AGENT_NAMES[agent] || agent}</b>\n${fallback}`,
+        chatId
+      ).catch(() => {});
     }
   }
+
+  // إشعار ختامي
+  await sendMessageDetailed(
+    `✅ <b>اكتملت معالجة أمرك</b>\nتم استلام ${targets.length} رد من الفريق.`,
+    chatId
+  ).catch(() => {});
+
   await notify('team_message', `رسالة فريق جديدة من ${message.sender}`, message.body.slice(0, 500));
 }
 
