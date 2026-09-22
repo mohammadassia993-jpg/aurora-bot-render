@@ -16,6 +16,6 @@
     "socks-proxy-agent": "^8.0.5"
   },
   "engines": {
-    "node": ">=20"
+    "node": "20.x"
   }
 }
