@@ -139,7 +139,6 @@ function getNewFailures() {
     const state = loadLastScan();
     const lastId = Number(state.lastErrorId || 0);
 
-    // نقرأ الأخطاء الجديدة غير المحلولة، الأحدث من آخر scan
     const rows = db.prepare(`
       SELECT id, scope, error_type, message, occurrence_count, last_seen, resolved
       FROM errors
@@ -150,11 +149,9 @@ function getNewFailures() {
 
     if (!rows.length) return [];
 
-    // تحديث آخر ID معالج
     const newLastId = Math.max(...rows.map(r => r.id));
     saveLastScan({ ...state, lastErrorId: newLastId });
 
-    // تحويلها لشكل يفهمه processFailure
     return rows.map(r => ({
       scope: r.scope || 'unknown',
       kind: r.error_type || 'unknown',
@@ -346,12 +343,10 @@ export function startSelfHealingGuard() {
 
   info('self-healing-guard', '🛡️ بدء حارس الأعطال الذكي');
 
-  // ذاكرة الملفات: فوراً + كل 6 ساعات
   refreshFileMemory();
   const fileMemoryTimer = setInterval(refreshFileMemory, 6 * 60 * 60 * 1000);
   fileMemoryTimer.unref();
 
-  // مراقبة الأعطال: كل 5 دقائق
   const failureTimer = setInterval(async () => {
     const failures = getNewFailures();
     if (!failures.length) return;
@@ -388,5 +383,10 @@ export function getGuardStats() {
 }
 
 export default { startSelfHealingGuard, refreshFileMemory, getFileMemory, getGuardStats };
+
+// Auto-start when enabled
+if (GUARD_ENABLED) {
+  startSelfHealingGuard();
+}
 
 info('self-healing-guard', `🛡️ module loaded (enabled: ${GUARD_ENABLED})`);
