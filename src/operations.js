@@ -9,6 +9,10 @@
  * Track 6: Continuous autonomous work (no stop)
  * Track 7: Platform policy compliance (agent-allowed check)
  * Track 8: Daily/weekly reports via bot
+ *
+ * ⚠️ كل التتبع التلقائي معطّل افتراضياً.
+ *    لتفعيله: OPERATIONS_AUTO_ENABLED=true
+ *    لمنع رسائل Telegram (منفصل): OPERATIONS_TELEGRAM_DISABLED=true (افتراضي)
  */
 import { db } from './db.js';
 import { audit } from './audit.js';
@@ -20,21 +24,38 @@ import { runConnectors } from './connectors.js';
 import { callModel } from './ai.js';
 import { recordLesson } from './memory.js';
 
+// ─────────────────────────────────────────────
+// مفاتيح التحكم
+// ─────────────────────────────────────────────
+const OPERATIONS_AUTO_ENABLED = process.env.OPERATIONS_AUTO_ENABLED === 'true';
+const OPERATIONS_TELEGRAM_DISABLED = process.env.OPERATIONS_TELEGRAM_DISABLED !== 'false';
+
+async function safeTelegramSend(text, reason = 'operations') {
+  if (OPERATIONS_TELEGRAM_DISABLED) {
+    info('operations', `⏸ Telegram send blocked (OPERATIONS_TELEGRAM_DISABLED=true): ${reason}`);
+    return { delivered: false, skipped: true };
+  }
+  try {
+    return await sendMessageDetailed(text, config.telegramChatId);
+  } catch (e) {
+    warn('operations', `Telegram send failed (${reason}): ${e.message}`);
+    return { delivered: false, error: e.message };
+  }
+}
+
 const TRACK_INTERVALS = {
-  tasks: 12 * 60 * 60 * 1000,      // every 12h: check + submit pending tasks
-  jobs: 24 * 60 * 60 * 1000,       // daily: check job postings
-  marketing: 6 * 60 * 60 * 1000,   // every 6h: publish + find channels
-  followups: 12 * 60 * 60 * 1000,  // every 12h: send follow-ups after 48h
-  reports: 24 * 60 * 60 * 1000,    // daily report
-  research: 12 * 60 * 60 * 1000,   // every 12h: discover new opportunities
-  policy: 24 * 60 * 60 * 1000,      // daily: verify platform agent policies
-  security: 24 * 60 * 60 * 1000,    // daily: security report
-  platforms: 24 * 60 * 60 * 1000    // daily: discover new selling platforms
+  tasks: 12 * 60 * 60 * 1000,
+  jobs: 24 * 60 * 60 * 1000,
+  marketing: 6 * 60 * 60 * 1000,
+  followups: 12 * 60 * 60 * 1000,
+  reports: 24 * 60 * 60 * 1000,
+  research: 12 * 60 * 60 * 1000,
+  policy: 24 * 60 * 60 * 1000,
+  security: 24 * 60 * 60 * 1000,
+  platforms: 24 * 60 * 60 * 1000
 };
 
 const PLATFORM_POLICIES = {
-  // Job boards (remotive.com, remoteok.com, etc.) permanently banned per leader order 2026-09-15.
-  // Only revenue-positive platforms are tracked.
   'superteam.fun': { agentAllowed: true, notes: 'AGENT_ALLOWED/AGENT_ONLY bounties ≥$200' },
   'immunefi.com': { agentAllowed: true, notes: 'bug bounty submissions' },
   'algora.io': { agentAllowed: true, notes: 'code bounties' },
@@ -111,6 +132,10 @@ export async function sendFollowups() {
 }
 
 export async function runTaskSubmissions() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ runTaskSubmissions skipped (OPERATIONS_AUTO_ENABLED=false)');
+    return { skipped: true, reason: 'OPERATIONS_AUTO_ENABLED' };
+  }
   const eligible = db.prepare(`
     SELECT * FROM tasks
     WHERE status IN ('discovered','planned','created','delegated')
@@ -137,14 +162,17 @@ export async function runTaskSubmissions() {
 }
 
 export async function runJobApplications() {
-  // 25 applications every 5 days = 5/day average; we check untouched jobs daily
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ runJobApplications skipped (OPERATIONS_AUTO_ENABLED=false)');
+    return { skipped: true, reason: 'OPERATIONS_AUTO_ENABLED' };
+  }
   const today = new Date().toISOString().slice(0, 10);
   const dayCount = db.prepare(`
     SELECT COUNT(*) c FROM operations_submissions
     WHERE type = 'job' AND date(created_at) = ?
   `).get(today).c;
 
-  const target = 5; // per-day average to hit 25/5d
+  const target = 5;
   const remaining = Math.max(0, target - dayCount);
   if (remaining === 0) return { appliedToday: dayCount, remaining: 0 };
 
@@ -197,10 +225,13 @@ function channelPostText(product) {
 }
 
 export async function runMarketingPublish() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ runMarketingPublish skipped (OPERATIONS_AUTO_ENABLED=false)');
+    return { skipped: true, reason: 'OPERATIONS_AUTO_ENABLED' };
+  }
   const channelId = config.telegramChannelId;
   if (!channelId) { warn('operations', 'TELEGRAM_CHANNEL_ID not configured — skipping channel publish'); return { published: 0, skipped: 'no_channel' }; }
 
-  // Daily limit: max 1 channel post/day
   const postsToday = db.prepare(`
     SELECT COUNT(*) c FROM operations_marketing
     WHERE channel='telegram_channel' AND date(created_at) = date('now')
@@ -210,7 +241,6 @@ export async function runMarketingPublish() {
     return { published: 0, skipped: 'daily_limit' };
   }
 
-  // Only leader-approved products with real generated content (no fake drafts)
   const product = db.prepare(`
     SELECT * FROM produced_products
     WHERE status='approved' AND content_md IS NOT NULL AND length(content_md) >= 1000
@@ -223,7 +253,6 @@ export async function runMarketingPublish() {
 
   const text = channelPostText(product);
 
-  // Similarity filter: skip if >80% identical to last 5 posts
   const recentPosts = db.prepare(`
     SELECT body FROM operations_marketing
     WHERE channel='telegram_channel' AND body IS NOT NULL AND body != ''
@@ -262,6 +291,10 @@ export async function runMarketingPublish() {
 }
 
 export async function runOpportunityDiscovery() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ runOpportunityDiscovery skipped (OPERATIONS_AUTO_ENABLED=false)');
+    return { skipped: true, reason: 'OPERATIONS_AUTO_ENABLED' };
+  }
   try {
     const { runDailyResearch } = await import('./research.js');
     const result = await runDailyResearch();
@@ -269,12 +302,12 @@ export async function runOpportunityDiscovery() {
     const { valid, rejected } = filterValidOpportunities(result.opportunities || []);
     if (valid.length) {
       notify('opportunity_discovery', 'فرص جديدة مكتشفة', `${valid.length} فرصة مؤهلة جديدة (استُبعد ${rejected.length})`);
-      sendMessageDetailed([
+      await safeTelegramSend([
         `📡 فرص جديدة مكتشفة:`,
         `━━━━━━━━━━━`,
         ...valid.slice(0, 5).map((o, i) => `• ${i + 1}. ${o.title} ($${o.reward || 0})`),
         valid.length > 5 ? `... و ${valid.length - 5} أخرى` : ''
-      ].filter(Boolean).join('\n')).catch(() => {});
+      ].filter(Boolean).join('\n'), 'opportunity_discovery');
     } else if (rejected.length) {
       notify('opportunity_discovery', 'فرص مستبعدة', `استُبعد ${rejected.length} فرصة غير صالحة (0$/رابط مفقود/وصف قصير) — لم تُرسل للقائد`);
     }
@@ -286,6 +319,10 @@ export async function runOpportunityDiscovery() {
 }
 
 export async function runPolicyCheck() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ runPolicyCheck skipped (OPERATIONS_AUTO_ENABLED=false)');
+    return { skipped: true, reason: 'OPERATIONS_AUTO_ENABLED' };
+  }
   const policies = Object.entries(PLATFORM_POLICIES).map(([platform, p]) => ({
     platform,
     agentAllowed: p.agentAllowed,
@@ -326,10 +363,12 @@ export function buildDailyOpsReport() {
 }
 
 export async function sendDailyOpsReport() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ sendDailyOpsReport skipped (OPERATIONS_AUTO_ENABLED=false)');
+    return { skipped: true, reason: 'OPERATIONS_AUTO_ENABLED' };
+  }
   const report = buildDailyOpsReport();
-  await sendMessageDetailed(report, config.telegramChatId).catch(e =>
-    warn('operations', `daily ops report failed: ${e.message}`)
-  );
+  await safeTelegramSend(report, 'daily_ops_report');
   notify('operations', 'تقرير تشغيلي يومي', report.slice(0, 800));
   audit('aurora', 'daily_ops_report', {});
   return { sent: true };
@@ -342,11 +381,17 @@ export function getOpsStatus() {
     followupsPending: getPendingFollowups(48).length,
     marketingActive: !!config.telegramChannelId,
     policies: Object.keys(PLATFORM_POLICIES).length,
-    intervals: TRACK_INTERVALS
+    intervals: TRACK_INTERVALS,
+    autoEnabled: OPERATIONS_AUTO_ENABLED,
+    telegramDisabled: OPERATIONS_TELEGRAM_DISABLED
   };
 }
 
 export function startOperations() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ operations orchestrator DISABLED (OPERATIONS_AUTO_ENABLED=false) — no auto tracks registered');
+    return [];
+  }
   const timers = [];
 
   const schedule = (fn, ms, name) => {
@@ -364,11 +409,10 @@ export function startOperations() {
   schedule(sendFollowups, TRACK_INTERVALS.followups, 'followups');
   schedule(runOpportunityDiscovery, TRACK_INTERVALS.research, 'opportunity_discovery');
   schedule(runPolicyCheck, TRACK_INTERVALS.policy, 'policy_check');
-    schedule(sendSecurityReport, TRACK_INTERVALS.security, 'security_report');
-    schedule(discoverNewPlatforms, TRACK_INTERVALS.platforms, 'platform_discovery');
+  schedule(sendSecurityReport, TRACK_INTERVALS.security, 'security_report');
+  schedule(discoverNewPlatforms, TRACK_INTERVALS.platforms, 'platform_discovery');
   schedule(sendDailyOpsReport, TRACK_INTERVALS.reports, 'daily_ops_report');
 
-  // Immediate first runs (non-blocking)
   setTimeout(() => runTaskSubmissions().catch(() => {}), 5000).unref();
   setTimeout(() => runJobApplications().catch(() => {}), 60000).unref();
   setTimeout(() => runMarketingPublish().catch(() => {}), 10000).unref();
@@ -377,20 +421,17 @@ export function startOperations() {
   return timers;
 }
 
-
 // ── Prizes & Bounties Daily Report ──
 export async function getPrizesReport() {
-  // Get all bounty/prize submissions
   const submitted = db.prepare(`
-    SELECT * FROM operations_submissions 
-    WHERE type IN ('task', 'bounty', 'prize') 
+    SELECT * FROM operations_submissions
+    WHERE type IN ('task', 'bounty', 'prize')
     AND status = 'submitted'
     ORDER BY created_at DESC
   `).all();
 
-  // Get all opportunities that look like prizes/bounties
   const rawPrizes = db.prepare(`
-    SELECT * FROM tasks 
+    SELECT * FROM tasks
     WHERE source IN ('jobs', 'opportunity')
     AND (title LIKE '%bounty%' OR title LIKE '%prize%' OR title LIKE '%reward%'
          OR title LIKE '%جوائز%' OR title LIKE '%مسابقة%' OR title LIKE '%جائزة%'
@@ -399,7 +440,6 @@ export async function getPrizesReport() {
     ORDER BY created_at DESC
   `).all();
 
-  // Strict filter: reward > 0 (numeric/N-A handling) + URL + desc > 100 chars.
   const { filterValidOpportunities } = await import('./opportunity-validation.js');
   const normalized = rawPrizes.map(p => {
     let payload = {};
@@ -414,7 +454,6 @@ export async function getPrizesReport() {
     };
   });
   const { valid, rejected } = filterValidOpportunities(normalized);
-  // Keep valid ones for reporting; the rest are silently excluded (never sent).
   const prizeIds = new Set(valid.map(v => v.id));
   const prizes = rawPrizes.filter(p => prizeIds.has(p.id));
 
@@ -451,13 +490,18 @@ export async function getPrizesReport() {
 
 // ── Start daily prizes report ──
 export function startPrizesReport() {
+  if (!OPERATIONS_AUTO_ENABLED) {
+    info('operations', '⏸ prizes report DISABLED (OPERATIONS_AUTO_ENABLED=false)');
+    return null;
+  }
   const t = setInterval(async () => {
+    if (OPERATIONS_TELEGRAM_DISABLED) {
+      info('operations', '⏸ prizes report skipped (OPERATIONS_TELEGRAM_DISABLED=true)');
+      return;
+    }
     try {
-      const mod = await import('./telegram.js');
-      if (mod?.sendMessageDetailed) {
-        const report = await getPrizesReport();
-        await mod.sendMessageDetailed(report, config.telegramChatId);
-      }
+      const report = await getPrizesReport();
+      await safeTelegramSend(report, 'prizes_report');
     } catch (e) { warn('operations', 'prizes report failed: ' + e.message); }
   }, 24 * 60 * 60 * 1000);
   t.unref();
@@ -467,13 +511,14 @@ export function startPrizesReport() {
 
 // ── Daily Security Report ──
 async function sendSecurityReport() {
+  if (!OPERATIONS_AUTO_ENABLED) return { skipped: true };
   try {
     const { buildSecurityReport, auditWalletSecurity } = await import('./security.js');
     const report = buildSecurityReport();
     const wallet = auditWalletSecurity();
     const walletLines = wallet.passed ? 'المحافظ آمنة' : 'مشاكل: ' + (wallet.issues || []).join(', ');
     const fullReport = report + '\n\n' + 'تدقيق المحافظ:\n' + walletLines;
-    await sendMessageDetailed(fullReport, config.telegramChatId);
+    await safeTelegramSend(fullReport, 'security_report');
     audit('aurora', 'daily_security_report', { walletOk: wallet.passed });
     info('operations', 'daily security report sent');
   } catch (e) {
@@ -483,6 +528,7 @@ async function sendSecurityReport() {
 
 // ── Platform Discovery (new selling platforms) ──
 async function discoverNewPlatforms() {
+  if (!OPERATIONS_AUTO_ENABLED) return { skipped: true };
   try {
     const { callModel } = await import('./ai.js');
     const prompt = 'Research 3-5 new digital product selling platforms (Arabic or international) that: support digital products, free registration, have API or automation, target Web3/tech audience. Return JSON: {"platforms":[{"name":"...","url":"...","api":"yes/no","language":"arabic/english","digital_products":"yes","free_registration":"yes"}]}';
@@ -496,7 +542,7 @@ async function discoverNewPlatforms() {
         const lines = ['منصات بيع جديدة مكتشفة:', '', ...platforms.map(p =>
           p.name + ' - ' + p.url + ' | API: ' + (p.api || 'no') + ' | Lang: ' + (p.language || '?')
         )];
-        await sendMessageDetailed(lines.join('\n'), config.telegramChatId);
+        await safeTelegramSend(lines.join('\n'), 'platform_discovery');
         audit('scout', 'platforms_discovered', { count: platforms.length, platforms: platforms.map(p => p.name) });
       }
     }
