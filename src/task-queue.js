@@ -254,12 +254,16 @@ async function runLeaderCommandLoop(task, maxSteps = 6) {
   return `max steps exceeded`;
 }
 
-// ─── Mission Loop: also converts new leader messages to tasks ───
+// ─── Mission Loop ───
 export function missionLoop() {
+  // 🛡️ احترام مفتاح MISSION_LOOP_DISABLED
+  if (process.env.MISSION_LOOP_DISABLED === 'true') {
+    return { created: [], pending: 0, disabled: true };
+  }
+
   const created = [];
   const pending = db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status = 'pending'").get().c;
 
-  // Convert new leader messages (last 15 min) into leader-command tasks
   try {
     const messages = db.prepare(`
       SELECT id, body, created_at FROM messages
@@ -269,8 +273,8 @@ export function missionLoop() {
     for (const msg of messages) {
       const desc = `أمر من القائد: ${String(msg.body).slice(0, 400)}`;
       const existing = db.prepare(`
-        SELECT id FROM task_queue 
-        WHERE category='leader-command' AND description = ? 
+        SELECT id FROM task_queue
+        WHERE category='leader-command' AND description = ?
         AND created_at >= datetime('now', '-15 minutes') LIMIT 1
       `).get(desc);
       if (!existing) {
