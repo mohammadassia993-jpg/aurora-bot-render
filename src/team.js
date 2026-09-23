@@ -18,46 +18,43 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const AGENT_PROFILES = {
-  aurora: { name: 'أورورا', role: 'المنسّقة العامة', mission: 'تنسيق الفريق وتقديم ملخص نهائي شامل.', style: 'منظّمة، حاسمة، شاملة.' },
-  planner: { name: 'المخطط', role: 'المخطّط الاستراتيجي', mission: 'تفكيك المهام إلى خطوات قابلة للتنفيذ.', style: 'تحليلي، منهجي.' },
-  executor: { name: 'المنفذ', role: 'المُنفّذ الميداني', mission: 'تنفيذ الخطوات وإنتاج مخرجات ملموسة.', style: 'عملي، مباشر.' },
-  reviewer: { name: 'المراجع', role: 'مراقب الجودة', mission: 'فحص المخرجات واكتشاف الأخطاء.', style: 'دقيق، ناقد بنّاء.' },
-  scout: { name: 'المستخبر', role: 'راصد الفرص', mission: 'البحث عن المعلومات والفرص.', style: 'فضولي، موضوعي.' }
-};
+// ─────────────────────────────────────────────
+// System Prompt لـ أورورا (الوكيل الوحيد)
+// ─────────────────────────────────────────────
+function buildAuroraPrompt(userMessage) {
+  const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-const AGENT_NAMES = { aurora: 'أورورا', planner: 'المخطط', executor: 'المنفذ', reviewer: 'المراجع', scout: 'المستخبر' };
+  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". القائد محمد عباس كتب لك أمراً، وعليك أن:
 
-function buildAgentSystemPrompt(agentId) {
-  const p = AGENT_PROFILES[agentId] || AGENT_PROFILES.aurora;
-  const t = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  return `أنت "${p.name}" — ${p.role} في فريق "عمالقة الصمت".
+1. تفهمي الأمر بعمق
+2. تحلّلي الموقف من زاوية كل قسم من أقسام الفريق:
+   - المخطط: كيف يخطط؟
+   - المنفذ: كيف ينفذ؟
+   - المراجع: كيف يراجع؟
+   - المستخبر: ماذا يبحث؟
+3. تكتبي تقريراً واحداً موحّداً بصوتك أنتِ (ليس 5 آراء)
 
-مهمتك: ${p.mission}
-أسلوبك: ${p.style}
+قواعد الكتابة:
+- اكتبي بالعربية الفصحى الواضحة.
+- ادخلي في الموضوع مباشرة — بدون "مرحباً" أو "تم استلام".
+- استخدمي تنسيقاً بسيطاً: عنوان + نقاط مرقّمة عند الحاجة.
+- لا تستخدمي JSON، لا أقواس، لا رموز برمجية.
+- لا تختلقي معلومات. إذا لا تعرفي شيئاً، قولي ذلك بوضوح.
+- الطول: بين 100 و400 كلمة.
 
-قواعد صارمة:
-- أعد نصاً عربياً مباشراً فقط. لا JSON، لا أقواس، لا رموز.
-- لا تبدأ بـ "مرحباً" أو "تم استلام".
-- ادخل في الموضوع مباشرة.
-- الطول: بين 30 و 200 كلمة.
-- إذا لا تعرف معلومة، قل ذلك بوضوح ولا تختلق.
+التاريخ: ${timeStr} UTC
 
-التاريخ: ${t} UTC
+أمر القائد:
+"""
+${userMessage}
+"""
 
-رسالة القائد:
-`;
+اكتبي التقرير الموحّد الآن:`;
 }
 
-function getRecentTeamContext(limit = 6) {
-  try {
-    const rows = db.prepare(`SELECT sender, body FROM messages WHERE thread='team' ORDER BY id DESC LIMIT ?`).all(limit);
-    if (!rows.length) return '';
-    return rows.reverse().map(r => `[${r.sender}]: ${String(r.body).slice(0, 150)}`).join('\n');
-  } catch { return ''; }
-}
-
-// تنظيف قوي جداً
+// ─────────────────────────────────────────────
+// تنظيف الردود من JSON
+// ─────────────────────────────────────────────
 function cleanAgentResponse(text) {
   let clean = String(text || '').trim();
 
@@ -67,7 +64,9 @@ function cleanAgentResponse(text) {
       const parsed = JSON.parse(clean);
       if (Array.isArray(parsed) && parsed.length) {
         const f = parsed[0];
-        clean = (typeof f === 'object') ? (f.response || f.report || f.text || f.message || JSON.stringify(f)) : String(f);
+        clean = (typeof f === 'object')
+          ? (f.response || f.report || f.text || f.message || JSON.stringify(f))
+          : String(f);
       } else if (typeof parsed === 'object' && parsed !== null) {
         clean = parsed.response || parsed.report || parsed.text || parsed.message || JSON.stringify(parsed);
       }
@@ -97,23 +96,23 @@ function cleanAgentResponse(text) {
   // بقايا JSON
   clean = clean.replace(/^\s*[\{\[]\s*"?[\w_]+"?\s*:\s*/i, '');
   clean = clean.replace(/\s*[\}\]]\s*$/i, '');
-  clean = clean.replace(/^\s*"\s*|\s*"\s*$/g, '');
+  clean = clean.replace(/^\s*"\s*|\s*"$/g, '');
 
   // أرقام فقط
   if (/^\[?\d{8,}\]?$/.test(clean)) clean = '';
 
-  // نهاية JSON مقطوع (يحتوي { كثير)
+  // JSON طويل مع { كثير
   if ((clean.match(/[{]/g) || []).length > 3) clean = '';
 
   clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
 
-  if (clean.length > 800) clean = clean.slice(0, 800) + '…';
-  if (!clean || clean.length < 15) clean = 'لم أتمكن من توليد ردّ مفيد لهذا الأمر.';
+  if (clean.length > 3800) clean = clean.slice(0, 3800) + '…';
+  if (!clean || clean.length < 15) clean = 'لم أتمكن من معالجة الأمر. يرجى إعادة صياغته بشكل أوضح.';
 
   return clean;
 }
 
-// تنظيف رسالة مخزّنة عند القراءة (يحل الصفحة السوداء)
+// تنظيف الرسائل المخزّنة (لحل الصفحة السوداء)
 function sanitizeStoredBody(body) {
   const s = String(body || '');
   const looksLikeJson =
@@ -170,62 +169,42 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  const targets = message.recipient === 'all'
-    ? ['aurora', 'planner', 'executor', 'reviewer', 'scout']
-    : [message.recipient];
+  console.log('[team] aurora-only mode, message=' + String(message.body).slice(0, 50));
 
-  console.log('[team] generateAgentReplies, targets=' + targets.length);
+  // إعلام القائد ببدء المعالجة
+  await sendTelegramSafe(
+    `📥 <b>أورورا تستلم أمرك</b>\n\n«${String(message.body).slice(0, 300)}»\n\n⏳ جارٍ التحليل...`
+  );
 
-  const teamContext = getRecentTeamContext(6);
-  const replies = {};
-
-  for (const agent of targets.filter(id => AGENTS.some(a => a.id === id))) {
-    try {
-      const systemPrompt = buildAgentSystemPrompt(agent);
-      const fullPrompt = teamContext
-        ? `${systemPrompt}\n\nسياق سابق:\n${teamContext}\n\nالرسالة:\n${message.body}\n\nردّك:`
-        : `${systemPrompt}${message.body}\n\nردّك:`;
-
-      // ← هنا نستخدم noJsonMode
-      const rawOutput = await callModel(agent, fullPrompt, { noJsonMode: true });
-      const cleanOutput = cleanAgentResponse(rawOutput);
-      insertAgentMessage(agent, cleanOutput);
-      replies[agent] = cleanOutput;
-    } catch (e) {
-      console.error('[team] agent failed:', agent, e?.message);
-      const fallback = 'لم أتمكن من معالجة الأمر بسبب خطأ تقني.';
-      insertAgentMessage(agent, fallback);
-      replies[agent] = fallback;
-    }
+  let report;
+  try {
+    const prompt = buildAuroraPrompt(message.body);
+    // noJsonMode — لا نريد JSON
+    const rawOutput = await callModel('aurora', prompt, { noJsonMode: true });
+    report = cleanAgentResponse(rawOutput);
+  } catch (e) {
+    console.error('[team] aurora failed:', e?.message);
+    report = 'لم أتمكن من معالجة الأمر بسبب خطأ تقني. يرجى المحاولة مجدداً.';
   }
 
-  // تقرير موحّد واحد فقط
-  const unified = buildUnifiedReport(message, replies);
-  await sendTelegramSafe(unified);
+  // حفظ في DB
+  insertAgentMessage('aurora', report);
 
-  await notify('team_message', `رسالة فريق جديدة من ${message.sender}`, message.body.slice(0, 500));
-}
-
-function buildUnifiedReport(message, replies) {
-  const lines = [
-    `📋 <b>تقرير الفريق</b>`,
+  // إرسال تقرير واحد فقط
+  const finalText = [
+    `📋 <b>تقرير أورورا</b>`,
     ``,
     `<b>الأمر:</b> «${String(message.body).slice(0, 200)}»`,
-    ``
-  ];
+    ``,
+    `━━━━━━━━━━━━━━━`,
+    ``,
+    report,
+    ``,
+    `⏰ ${new Date().toISOString().slice(11, 16)} UTC`
+  ].join('\n');
 
-  for (const [agent, body] of Object.entries(replies)) {
-    const name = AGENT_NAMES[agent] || agent;
-    lines.push(`<b>💬 ${name}</b>`);
-    lines.push(body.slice(0, 700));
-    lines.push('');
-  }
-
-  lines.push(`⏰ ${new Date().toISOString().slice(11, 16)} UTC`);
-
-  let text = lines.join('\n');
-  if (text.length > 4000) text = text.slice(0, 3950) + '\n…';
-  return text;
+  await sendTelegramSafe(finalText);
+  await notify('team_message', `تقرير جديد من أورورا`, message.body.slice(0, 500));
 }
 
 function insertAgentMessage(agent, body) {
