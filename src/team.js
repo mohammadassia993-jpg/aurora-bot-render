@@ -19,111 +19,142 @@ export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
 // ─────────────────────────────────────────────
-// System Prompt لـ أورورا (الوكيل الوحيد)
+// جمع بيانات حقيقية من قاعدة البيانات
 // ─────────────────────────────────────────────
-function buildAuroraPrompt(userMessage) {
-  const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
-
-  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". القائد محمد عباس كتب لك أمراً، وعليك أن:
-
-1. تفهمي الأمر بعمق
-2. تحلّلي الموقف من زاوية كل قسم من أقسام الفريق:
-   - المخطط: كيف يخطط؟
-   - المنفذ: كيف ينفذ؟
-   - المراجع: كيف يراجع؟
-   - المستخبر: ماذا يبحث؟
-3. تكتبي تقريراً واحداً موحّداً بصوتك أنتِ (ليس 5 آراء)
-
-قواعد الكتابة:
-- اكتبي بالعربية الفصحى الواضحة.
-- ادخلي في الموضوع مباشرة — بدون "مرحباً" أو "تم استلام".
-- استخدمي تنسيقاً بسيطاً: عنوان + نقاط مرقّمة عند الحاجة.
-- لا تستخدمي JSON، لا أقواس، لا رموز برمجية.
-- لا تختلقي معلومات. إذا لا تعرفي شيئاً، قولي ذلك بوضوح.
-- الطول: بين 100 و400 كلمة.
-
-التاريخ: ${timeStr} UTC
-
-أمر القائد:
-"""
-${userMessage}
-"""
-
-اكتبي التقرير الموحّد الآن:`;
-}
-
-// ─────────────────────────────────────────────
-// تنظيف الردود من JSON
-// ─────────────────────────────────────────────
-function cleanAgentResponse(text) {
-  let clean = String(text || '').trim();
-
-  // محاولة JSON
+function collectSystemSnapshot() {
   try {
-    if (clean.startsWith('{') || clean.startsWith('[')) {
-      const parsed = JSON.parse(clean);
-      if (Array.isArray(parsed) && parsed.length) {
-        const f = parsed[0];
-        clean = (typeof f === 'object')
-          ? (f.response || f.report || f.text || f.message || JSON.stringify(f))
-          : String(f);
-      } else if (typeof parsed === 'object' && parsed !== null) {
-        clean = parsed.response || parsed.report || parsed.text || parsed.message || JSON.stringify(parsed);
-      }
-    }
-  } catch { /* not JSON */ }
+    const health = db.prepare(`
+      SELECT component, healthy, detail FROM health_checks
+      WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)
+    `).all();
 
-  // استخراج response/report من JSON مقطوع
-  const rMatch = clean.match(/"response"\s*:\s*"([^"]{15,})"/);
-  if (rMatch) clean = rMatch[1];
-  else {
-    const repMatch = clean.match(/"report"\s*:\s*"([^"]{15,})"/);
-    if (repMatch) clean = repMatch[1];
+    const tasksTotal = db.prepare('SELECT COUNT(*) as c FROM tasks').get().c;
+    const tasksDone = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status='done'").get().c;
+    const tasksPending = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status NOT IN ('done','cancelled')").get().c;
+    const pendingApprovals = db.prepare("SELECT COUNT(*) as c FROM approvals WHERE state='pending'").get().c;
+
+    const recentErrors = db.prepare(`
+      SELECT scope, error_type, COUNT(*) as count FROM errors
+      WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours')
+      GROUP BY scope, error_type
+      LIMIT 5
+    `).all();
+
+    const agents = db.prepare(`
+      SELECT COUNT(DISTINCT agent) as c FROM agent_runs
+      WHERE created_at >= datetime('now', '-1 hour')
+    `).get().c;
+
+    return {
+      health: {
+        total: health.length,
+        healthy: health.filter(h => h.healthy === 1).length,
+        failing: health.filter(h => h.healthy !== 1).map(h => h.component)
+      },
+      tasks: { total: tasksTotal, done: tasksDone, pending: tasksPending },
+      approvals: pendingApprovals,
+      errors: recentErrors,
+      activeAgents: agents
+    };
+  } catch (e) {
+    return { error: e.message };
   }
-
-  // إذا بدأ بـ JSON-like بدون { (مثل: system_healthy","components":...)
-  if (/^[a-zA-Z_][\w\-]*"\s*[,:]/.test(clean) || /^[a-zA-Z_][\w\-]*\s*",/.test(clean)) {
-    const firstMatch = clean.match(/^"?([^",{}]{10,}?)"?\s*[,}]/);
-    if (firstMatch) clean = firstMatch[1];
-  }
-
-  // markdown
-  clean = clean.replace(/^#{1,6}\s+/gm, '')
-               .replace(/\*\*(.+?)\*\*/g, '$1')
-               .replace(/__(.+?)__/g, '$1')
-               .replace(/`([^`]+)`/g, '$1');
-
-  // بقايا JSON
-  clean = clean.replace(/^\s*[\{\[]\s*"?[\w_]+"?\s*:\s*/i, '');
-  clean = clean.replace(/\s*[\}\]]\s*$/i, '');
-  clean = clean.replace(/^\s*"\s*|\s*"$/g, '');
-
-  // أرقام فقط
-  if (/^\[?\d{8,}\]?$/.test(clean)) clean = '';
-
-  // JSON طويل مع { كثير
-  if ((clean.match(/[{]/g) || []).length > 3) clean = '';
-
-  clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
-
-  if (clean.length > 3800) clean = clean.slice(0, 3800) + '…';
-  if (!clean || clean.length < 15) clean = 'لم أتمكن من معالجة الأمر. يرجى إعادة صياغته بشكل أوضح.';
-
-  return clean;
 }
 
-// تنظيف الرسائل المخزّنة (لحل الصفحة السوداء)
+// ─────────────────────────────────────────────
+// بناء تقرير قالب (بدون LLM — لا هلوسة ممكنة)
+// ─────────────────────────────────────────────
+function buildTemplateReport(userMessage, snapshot) {
+  const time = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+  if (snapshot.error) {
+    return [
+      `📋 تقرير حالة النظام`,
+      ``,
+      `⚠️ تعذر قراءة قاعدة البيانات: ${snapshot.error}`,
+      ``,
+      `⏰ ${time} UTC`
+    ].join('\n');
+  }
+
+  const lines = [
+    `📋 تقرير حالة النظام`,
+    ``,
+    `🩺 صحة النظام: ${snapshot.health.healthy}/${snapshot.health.total} مكونات سليمة`,
+  ];
+
+  if (snapshot.health.failing.length > 0) {
+    lines.push(`   ⚠️ مكونات تحتاج مراجعة: ${snapshot.health.failing.join('، ')}`);
+  } else if (snapshot.health.total > 0) {
+    lines.push(`   ✅ جميع المكونات تعمل`);
+  } else {
+    lines.push(`   ℹ️ لم تُسجّل فحوصات صحية بعد`);
+  }
+
+  lines.push(``);
+  lines.push(`📊 المهام:`);
+  lines.push(`   • إجمالي: ${snapshot.tasks.total}`);
+  lines.push(`   • منجزة: ${snapshot.tasks.done}`);
+  lines.push(`   • معلقة: ${snapshot.tasks.pending}`);
+
+  lines.push(``);
+  lines.push(`📬 موافقات معلقة: ${snapshot.approvals}`);
+  lines.push(`👥 وكلاء نشطون (آخر ساعة): ${snapshot.activeAgents}`);
+
+  if (snapshot.errors.length > 0) {
+    lines.push(``);
+    lines.push(`⚠️ أخطاء آخر 24 ساعة (${snapshot.errors.length}):`);
+    for (const err of snapshot.errors) {
+      lines.push(`   • ${err.scope}/${err.error_type} (${err.count}x)`);
+    }
+  } else {
+    lines.push(``);
+    lines.push(`✅ لا أخطاء خلال 24 ساعة`);
+  }
+
+  lines.push(``);
+  lines.push(`⏰ ${time} UTC`);
+
+  return lines.join('\n');
+}
+
+// ─────────────────────────────────────────────
+// (اختياري) تحسين التقرير بـ LLM — إن فشل، نُبقي القالب
+// ─────────────────────────────────────────────
+async function tryEnhanceWithLLM(templateReport) {
+  // معطّل افتراضياً — لا حاجة للـ LLM في التقارير الواقعية
+  if (process.env.TEAM_LLM_ENHANCE !== 'true') return null;
+  try {
+    const prompt = `حسّن صياغة التقرير التالي بالعربية الفصحى، دون تغيير أي رقم أو حقيقة:
+
+${templateReport}
+
+اكتب النسخة المحسّنة فقط، بدون مقدمات.`;
+    const result = await callModel('aurora', prompt, { noJsonMode: true });
+    const clean = String(result || '').trim();
+    return clean.length > 50 ? clean : null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeStoredBody(body) {
   const s = String(body || '');
   const looksLikeJson =
     s.startsWith('{') || s.startsWith('[') ||
     s.includes('"response"') || s.includes('"status"') ||
     s.includes('"components"') || s.includes('"telegram"') ||
-    /^[a-zA-Z_][\w\-]*"\s*[,:]/.test(s) ||
     (s.match(/[{]/g) || []).length > 2;
 
   if (looksLikeJson) {
-    return cleanAgentResponse(s);
+    let clean = s;
+    try {
+      const parsed = JSON.parse(s);
+      if (typeof parsed === 'object' && parsed !== null) {
+        clean = parsed.response || parsed.report || parsed.text || parsed.message || JSON.stringify(parsed);
+      }
+    } catch { /* not JSON */ }
+    return String(clean).slice(0, 2000);
   }
   return s;
 }
@@ -169,42 +200,36 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] aurora-only mode, message=' + String(message.body).slice(0, 50));
+  console.log('[team] template-report mode, message=' + String(message.body).slice(0, 50));
 
-  // إعلام القائد ببدء المعالجة
-  await sendTelegramSafe(
-    `📥 <b>أورورا تستلم أمرك</b>\n\n«${String(message.body).slice(0, 300)}»\n\n⏳ جارٍ التحليل...`
-  );
+  // 1) جمع البيانات الحقيقية
+  const snapshot = collectSystemSnapshot();
+  console.log('[team] snapshot: health=' + snapshot.health?.healthy + '/' + snapshot.health?.total + ', tasks.pending=' + snapshot.tasks?.pending);
 
-  let report;
-  try {
-    const prompt = buildAuroraPrompt(message.body);
-    // noJsonMode — لا نريد JSON
-    const rawOutput = await callModel('aurora', prompt, { noJsonMode: true });
-    report = cleanAgentResponse(rawOutput);
-  } catch (e) {
-    console.error('[team] aurora failed:', e?.message);
-    report = 'لم أتمكن من معالجة الأمر بسبب خطأ تقني. يرجى المحاولة مجدداً.';
+  // 2) بناء تقرير قالب (بدون LLM)
+  let report = buildTemplateReport(message.body, snapshot);
+
+  // 3) (اختياري) تحسين بـ LLM — معطّل افتراضياً
+  const enhanced = await tryEnhanceWithLLM(report);
+  if (enhanced) {
+    report = enhanced;
+    console.log('[team] LLM enhanced report');
+  } else {
+    console.log('[team] using template report (no LLM)');
   }
 
-  // حفظ في DB
+  // 4) حفظ
   insertAgentMessage('aurora', report);
 
-  // إرسال تقرير واحد فقط
+  // 5) إرسال رسالة واحدة
   const finalText = [
-    `📋 <b>تقرير أورورا</b>`,
+    `📋 <b>تقرير النظام</b>`,
     ``,
-    `<b>الأمر:</b> «${String(message.body).slice(0, 200)}»`,
-    ``,
-    `━━━━━━━━━━━━━━━`,
-    ``,
-    report,
-    ``,
-    `⏰ ${new Date().toISOString().slice(11, 16)} UTC`
+    report
   ].join('\n');
 
   await sendTelegramSafe(finalText);
-  await notify('team_message', `تقرير جديد من أورورا`, message.body.slice(0, 500));
+  await notify('team_message', `تقرير جديد`, message.body.slice(0, 500));
 }
 
 function insertAgentMessage(agent, body) {
