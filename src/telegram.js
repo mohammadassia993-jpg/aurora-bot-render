@@ -448,10 +448,27 @@ export async function handleTelegramUpdate(update) {
   info('telegram', `INCOMING: chatId=${chatId} fromId=${fromId} text=${String(msgText).slice(0, 60)} mode=${mode}`);
   info('telegram', `ALLOWLIST: parsed=${JSON.stringify(config.telegramAllowedIds)} len=${config.telegramAllowedIds.length}`);
   info('telegram', `CHATID_ALLOWED=${config.telegramAllowedIds.includes(chatId)} FROMID_ALLOWED=${config.telegramAllowedIds.includes(fromId)}`);
-  // Allowlist check (use either chatId or fromId for maximum compatibility)
+  // Allowlist check + bot-guard integration
   const isBlocked = config.telegramAllowedIds.length > 0 && !(config.telegramAllowedIds.includes(chatId) || config.telegramAllowedIds.includes(fromId));
   if (isBlocked) {
     info('telegram', `blocked sender: chat_id=${chatId} from_id=${fromId} (not in TELEGRAM_ALLOWED_IDS = ${JSON.stringify(config.telegramAllowedIds)})`);
+    try {
+      const guard = await import('./bot-guard.js');
+      const blacklistStatus = guard.isBlacklisted(fromId);
+      if (blacklistStatus.blocked) {
+        info('telegram', `blacklisted user ${fromId} silently ignored (${blacklistStatus.reason})`);
+        return false;
+      }
+      guard.registerBlockedAttempt({
+        userId: fromId,
+        username: update.message?.from?.username || '',
+        chatId,
+        messagePreview: update.message?.text?.slice(0, 200) || '',
+        reason: 'not_in_allowlist'
+      });
+    } catch (e) {
+      warn('telegram', `bot-guard failed: ${e.message}`);
+    }
     return false;
   }
   if (update.update_id) {
