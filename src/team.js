@@ -8,68 +8,42 @@ import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
 
 export const AGENTS = [
-  { id: 'aurora', name: 'أورورا', role: 'Supervisor and orchestration', icon: '/icons/aurora.svg', color: '#a78bfa' },
-  { id: 'planner', name: 'المخطط', role: 'Strategy and task breakdown', icon: '/icons/planner.svg', color: '#60a5fa' },
-  { id: 'executor', name: 'المنفذ', role: 'Implementation and delivery', icon: '/icons/executor.svg', color: '#34d399' },
-  { id: 'reviewer', name: 'المراجع', role: 'Quality and compliance', icon: '/icons/reviewer.svg', color: '#fbbf24' },
-  { id: 'scout', name: 'المستخبر', role: 'Research and opportunities', icon: '/icons/scout.svg', color: '#f472b6' }
+  { id: 'aurora', name: 'أورورا', color: '#a78bfa' },
+  { id: 'planner', name: 'المخطط', color: '#60a5fa' },
+  { id: 'executor', name: 'المنفذ', color: '#34d399' },
+  { id: 'reviewer', name: 'المراجع', color: '#fbbf24' },
+  { id: 'scout', name: 'المستخبر', color: '#f472b6' }
 ];
 
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
 const AGENT_PROFILES = {
-  aurora: {
-    name: 'أورورا',
-    role: 'المنسّقة العامة للفريق',
-    mission: 'تتلقى أوامر القائد، تُوزّع المهام، وتُقدّم ملخصاً نهائياً واضحاً.',
-    style: 'منظّمة، حاسمة، واضحة، شاملة.'
-  },
-  planner: {
-    name: 'المخطط',
-    role: 'المخطّط الاستراتيجي',
-    mission: 'تفكيك المهام إلى خطوات قابلة للتنفيذ وتقدير المخاطر.',
-    style: 'تحليلي، منهجي، واقعي.'
-  },
-  executor: {
-    name: 'المنفّذ',
-    role: 'المُنفّذ الميداني',
-    mission: 'تنفيذ الخطوات فعلياً وإنتاج مخرجات ملموسة.',
-    style: 'عملي، مباشر، إنتاجي.'
-  },
-  reviewer: {
-    name: 'المراجع',
-    role: 'مراقب الجودة',
-    mission: 'فحص المخرجات واكتشاف الأخطاء قبل التسليم النهائي.',
-    style: 'دقيق، ناقد بنّاء، صريح.'
-  },
-  scout: {
-    name: 'المستخبر',
-    role: 'راصد الفرص والمعلومات',
-    mission: 'البحث عن المعلومات والفرص وتقديم ملخصات ذكية.',
-    style: 'فضولي، واسع الاطلاع، موضوعي.'
-  }
+  aurora: { name: 'أورورا', role: 'المنسّقة العامة', mission: 'تنسيق الفريق وتقديم ملخص نهائي شامل.', style: 'منظّمة، حاسمة، شاملة.' },
+  planner: { name: 'المخطط', role: 'المخطّط الاستراتيجي', mission: 'تفكيك المهام إلى خطوات قابلة للتنفيذ.', style: 'تحليلي، منهجي.' },
+  executor: { name: 'المنفذ', role: 'المُنفّذ الميداني', mission: 'تنفيذ الخطوات وإنتاج مخرجات ملموسة.', style: 'عملي، مباشر.' },
+  reviewer: { name: 'المراجع', role: 'مراقب الجودة', mission: 'فحص المخرجات واكتشاف الأخطاء.', style: 'دقيق، ناقد بنّاء.' },
+  scout: { name: 'المستخبر', role: 'راصد الفرص', mission: 'البحث عن المعلومات والفرص.', style: 'فضولي، موضوعي.' }
 };
 
+const AGENT_NAMES = { aurora: 'أورورا', planner: 'المخطط', executor: 'المنفذ', reviewer: 'المراجع', scout: 'المستخبر' };
+
 function buildAgentSystemPrompt(agentId) {
-  const profile = AGENT_PROFILES[agentId] || AGENT_PROFILES.aurora;
-  const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const p = AGENT_PROFILES[agentId] || AGENT_PROFILES.aurora;
+  const t = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  return `أنت "${p.name}" — ${p.role} في فريق "عمالقة الصمت".
 
-  return `أنت "${profile.name}" — ${profile.role} في فريق "عمالقة الصمت".
-
-مهمتك: ${profile.mission}
-أسلوبك: ${profile.style}
+مهمتك: ${p.mission}
+أسلوبك: ${p.style}
 
 قواعد صارمة:
-- أعد نصاً عربياً مباشراً فقط، بدون أي JSON أو أقواس أو رموز.
+- أعد نصاً عربياً مباشراً فقط. لا JSON، لا أقواس، لا رموز.
 - لا تبدأ بـ "مرحباً" أو "تم استلام".
 - ادخل في الموضوع مباشرة.
-- الطول: بين 50 و 300 كلمة.
-- اكتب كما لو كنت تتحدث لشخص حقيقي.
-- إذا احتجت معلومة لا تعرفها، قل ذلك بوضوح.
-- لا تختلق أرقاماً أو حقائق.
+- الطول: بين 30 و 200 كلمة.
+- إذا لا تعرف معلومة، قل ذلك بوضوح ولا تختلق.
 
-التاريخ الحالي: ${timeStr} UTC
+التاريخ: ${t} UTC
 
 رسالة القائد:
 `;
@@ -77,58 +51,82 @@ function buildAgentSystemPrompt(agentId) {
 
 function getRecentTeamContext(limit = 6) {
   try {
-    const rows = db.prepare(`
-      SELECT sender, body FROM messages
-      WHERE thread = 'team'
-      ORDER BY id DESC LIMIT ?
-    `).all(limit);
+    const rows = db.prepare(`SELECT sender, body FROM messages WHERE thread='team' ORDER BY id DESC LIMIT ?`).all(limit);
     if (!rows.length) return '';
-    return rows.reverse().map(r => `[${r.sender}]: ${String(r.body).slice(0, 200)}`).join('\n');
-  } catch {
-    return '';
-  }
+    return rows.reverse().map(r => `[${r.sender}]: ${String(r.body).slice(0, 150)}`).join('\n');
+  } catch { return ''; }
 }
 
+// تنظيف قوي جداً
 function cleanAgentResponse(text) {
   let clean = String(text || '').trim();
 
+  // محاولة JSON
   try {
-    if (clean.startsWith('[') || clean.startsWith('{')) {
+    if (clean.startsWith('{') || clean.startsWith('[')) {
       const parsed = JSON.parse(clean);
       if (Array.isArray(parsed) && parsed.length) {
-        const first = parsed[0];
-        if (typeof first === 'object') {
-          clean = first.response || first.report || first.text || first.message || first.result || JSON.stringify(first);
-        } else {
-          clean = String(first);
-        }
+        const f = parsed[0];
+        clean = (typeof f === 'object') ? (f.response || f.report || f.text || f.message || JSON.stringify(f)) : String(f);
       } else if (typeof parsed === 'object' && parsed !== null) {
-        clean = parsed.response || parsed.report || parsed.text || parsed.message || parsed.result || clean;
+        clean = parsed.response || parsed.report || parsed.text || parsed.message || JSON.stringify(parsed);
       }
     }
   } catch { /* not JSON */ }
 
-  const jsonMatch = clean.match(/\{[\s\S]*?"(?:response|report|text|message)"\s*:\s*"([^"]+)"[\s\S]*?\}/);
-  if (jsonMatch) clean = jsonMatch[1];
+  // استخراج response/report من JSON مقطوع
+  const rMatch = clean.match(/"response"\s*:\s*"([^"]{15,})"/);
+  if (rMatch) clean = rMatch[1];
+  else {
+    const repMatch = clean.match(/"report"\s*:\s*"([^"]{15,})"/);
+    if (repMatch) clean = repMatch[1];
+  }
 
+  // إذا بدأ بـ JSON-like بدون { (مثل: system_healthy","components":...)
+  if (/^[a-zA-Z_][\w\-]*"\s*[,:]/.test(clean) || /^[a-zA-Z_][\w\-]*\s*",/.test(clean)) {
+    const firstMatch = clean.match(/^"?([^",{}]{10,}?)"?\s*[,}]/);
+    if (firstMatch) clean = firstMatch[1];
+  }
+
+  // markdown
   clean = clean.replace(/^#{1,6}\s+/gm, '')
                .replace(/\*\*(.+?)\*\*/g, '$1')
                .replace(/__(.+?)__/g, '$1')
-               .replace(/`([^`]+)`/g, '$1')
-               .replace(/^\s*[-*+]\s+/gm, '• ');
+               .replace(/`([^`]+)`/g, '$1');
 
+  // بقايا JSON
   clean = clean.replace(/^\s*[\{\[]\s*"?[\w_]+"?\s*:\s*/i, '');
   clean = clean.replace(/\s*[\}\]]\s*$/i, '');
   clean = clean.replace(/^\s*"\s*|\s*"\s*$/g, '');
 
-  if (/^\[?\d{10,}\]?$/.test(clean)) clean = '';
+  // أرقام فقط
+  if (/^\[?\d{8,}\]?$/.test(clean)) clean = '';
+
+  // نهاية JSON مقطوع (يحتوي { كثير)
+  if ((clean.match(/[{]/g) || []).length > 3) clean = '';
 
   clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
-  if (clean.length > 3000) clean = clean.slice(0, 3000) + '…';
-  if (!clean || clean.length < 15) {
-    clean = 'لم أتمكن من توليد ردّ مفيد. يرجى إعادة صياغة الأمر بشكل أكثر تحديداً.';
-  }
+
+  if (clean.length > 800) clean = clean.slice(0, 800) + '…';
+  if (!clean || clean.length < 15) clean = 'لم أتمكن من توليد ردّ مفيد لهذا الأمر.';
+
   return clean;
+}
+
+// تنظيف رسالة مخزّنة عند القراءة (يحل الصفحة السوداء)
+function sanitizeStoredBody(body) {
+  const s = String(body || '');
+  const looksLikeJson =
+    s.startsWith('{') || s.startsWith('[') ||
+    s.includes('"response"') || s.includes('"status"') ||
+    s.includes('"components"') || s.includes('"telegram"') ||
+    /^[a-zA-Z_][\w\-]*"\s*[,:]/.test(s) ||
+    (s.match(/[{]/g) || []).length > 2;
+
+  if (looksLikeJson) {
+    return cleanAgentResponse(s);
+  }
+  return s;
 }
 
 async function sendTelegramSafe(text) {
@@ -143,12 +141,14 @@ async function sendTelegramSafe(text) {
 }
 
 export function listMessages(limit = 100) {
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT id, thread, sender, recipient, body, attachment_name AS attachmentName,
            attachment_type AS attachmentType, attachment_size AS attachmentSize,
            attachment_path AS attachmentPath, created_at AS createdAt
     FROM messages ORDER BY id DESC LIMIT ?
   `).all(Math.min(Number(limit) || 100, 300)).reverse();
+
+  return rows.map(r => ({ ...r, body: sanitizeStoredBody(r.body) }));
 }
 
 export async function createMessage(input) {
@@ -169,53 +169,63 @@ export async function createMessage(input) {
   return message;
 }
 
-const AGENT_NAMES = {
-  aurora: 'أورورا',
-  planner: 'المخطط',
-  executor: 'المنفذ',
-  reviewer: 'المراجع',
-  scout: 'المستخبر'
-};
-
 async function generateAgentReplies(message) {
   const targets = message.recipient === 'all'
     ? ['aurora', 'planner', 'executor', 'reviewer', 'scout']
     : [message.recipient];
 
-  console.log('[team] generateAgentReplies started, targets=' + targets.length);
-
-  await sendTelegramSafe(
-    `📥 <b>استلم الفريق أمرك</b>\n\n«${String(message.body).slice(0, 400)}»\n\n⏳ جارٍ التحليل من ${targets.length} وكلاء...`
-  );
+  console.log('[team] generateAgentReplies, targets=' + targets.length);
 
   const teamContext = getRecentTeamContext(6);
+  const replies = {};
 
-  for (const agent of targets.filter(id => AGENTS.some(item => item.id === id))) {
+  for (const agent of targets.filter(id => AGENTS.some(a => a.id === id))) {
     try {
       const systemPrompt = buildAgentSystemPrompt(agent);
       const fullPrompt = teamContext
         ? `${systemPrompt}\n\nسياق سابق:\n${teamContext}\n\nالرسالة:\n${message.body}\n\nردّك:`
         : `${systemPrompt}${message.body}\n\nردّك:`;
 
-      const rawOutput = await callModel(agent, fullPrompt);
+      // ← هنا نستخدم noJsonMode
+      const rawOutput = await callModel(agent, fullPrompt, { noJsonMode: true });
       const cleanOutput = cleanAgentResponse(rawOutput);
       insertAgentMessage(agent, cleanOutput);
-
-      const agentLabel = AGENT_NAMES[agent] || agent;
-      await sendTelegramSafe(`💬 <b>${agentLabel}</b>\n${cleanOutput}`);
+      replies[agent] = cleanOutput;
     } catch (e) {
       console.error('[team] agent failed:', agent, e?.message);
-      const fallback = 'لم أتمكن من معالجة الأمر بسبب خطأ تقني. يرجى المحاولة مجدداً.';
+      const fallback = 'لم أتمكن من معالجة الأمر بسبب خطأ تقني.';
       insertAgentMessage(agent, fallback);
-      await sendTelegramSafe(`⚠️ <b>${AGENT_NAMES[agent] || agent}</b>\n${fallback}`);
+      replies[agent] = fallback;
     }
   }
 
-  await sendTelegramSafe(
-    `✅ <b>اكتملت معالجة أمرك</b>\nتم استلام ${targets.length} رد من الفريق.`
-  );
+  // تقرير موحّد واحد فقط
+  const unified = buildUnifiedReport(message, replies);
+  await sendTelegramSafe(unified);
 
   await notify('team_message', `رسالة فريق جديدة من ${message.sender}`, message.body.slice(0, 500));
+}
+
+function buildUnifiedReport(message, replies) {
+  const lines = [
+    `📋 <b>تقرير الفريق</b>`,
+    ``,
+    `<b>الأمر:</b> «${String(message.body).slice(0, 200)}»`,
+    ``
+  ];
+
+  for (const [agent, body] of Object.entries(replies)) {
+    const name = AGENT_NAMES[agent] || agent;
+    lines.push(`<b>💬 ${name}</b>`);
+    lines.push(body.slice(0, 700));
+    lines.push('');
+  }
+
+  lines.push(`⏰ ${new Date().toISOString().slice(11, 16)} UTC`);
+
+  let text = lines.join('\n');
+  if (text.length > 4000) text = text.slice(0, 3950) + '\n…';
+  return text;
 }
 
 function insertAgentMessage(agent, body) {
@@ -229,9 +239,6 @@ export async function attachmentFile(relativePath) {
   const requested = path.resolve(config.root, '.' + relativePath);
   const root = path.resolve(config.root, 'uploads');
   if (!requested.startsWith(root + path.sep)) return null;
-  try {
-    return await fs.readFile(requested);
-  } catch {
-    return null;
-  }
+  try { return await fs.readFile(requested); }
+  catch { return null; }
 }
