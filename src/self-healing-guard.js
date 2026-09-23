@@ -3,10 +3,10 @@
  *
  * الوظائف:
  * 1. ذاكرة الملفات: يقرأ src/ كل 6 ساعات ويحفظ فهرساً مفصّلاً
- * 2. مراقبة الأعطال: يقرأ logs/failures.log كل 5 دقائق
+ * 2. مراقبة الأعطال: يقرأ جدول errors من DB كل 5 دقائق
  * 3. التحليل العميق: يستدعي LLM7 لتشخيص السبب الجذري
- * 4. الإصلاح الآمن: retry / cache clear / reload
- * 5. التقارير: تنبيه العطل + تقرير الإصلاح
+ * 4. الإصلاح الآمن: retry / cache clear / notify_only
+ * 5. التقارير: تنبيه العطل + تقرير الإصلاح على Telegram
  *
  * التحكم: SELF_HEALING_GUARD_ENABLED=true لتفعيله
  * الافتراضي: معطّل (لا يفعل شيئاً)
@@ -33,6 +33,7 @@ if (!GUARD_ENABLED) {
 db.exec(`
 CREATE TABLE IF NOT EXISTS healing_incidents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_error_id INTEGER DEFAULT 0,
   component TEXT DEFAULT 'unknown',
   error_type TEXT DEFAULT '',
   error_message TEXT DEFAULT '',
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS healing_incidents (
   resolved_at TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS healing_status ON healing_incidents(status, created_at);
+CREATE INDEX IF NOT EXISTS healing_source ON healing_incidents(source_error_id);
 `);
 
 // ─────────────────────────────────────────────
@@ -50,7 +52,6 @@ CREATE INDEX IF NOT EXISTS healing_status ON healing_incidents(status, created_a
 // ─────────────────────────────────────────────
 const SRC_DIR = path.join(config.root, 'src');
 const FILE_MEMORY_PATH = path.join(config.root, 'data', 'file-memory.json');
-const FAILURES_LOG = path.join(config.root, 'logs', 'failures.log');
 const LAST_SCAN_FILE = path.join(config.root, 'data', 'last-guard-scan.json');
 
 // ─────────────────────────────────────────────
@@ -119,11 +120,11 @@ export function getFileMemory() {
 }
 
 // ─────────────────────────────────────────────
-// 2) قراءة الأعطال الجديدة
+// 2) قراءة الأعطال الجديدة من جدول errors
 // ─────────────────────────────────────────────
 function loadLastScan() {
   try { return JSON.parse(fs.readFileSync(LAST_SCAN_FILE, 'utf8')); }
-  catch { return { lastLine: 0, lastFileCount: 0 }; }
+  catch { return { lastErrorId: 0, lastFileCount: 0 }; }
 }
 
 function saveLastScan(state) {
@@ -134,16 +135,36 @@ function saveLastScan(state) {
 }
 
 function getNewFailures() {
-  if (!fs.existsSync(FAILURES_LOG)) return [];
   try {
-    const content = fs.readFileSync(FAILURES_LOG, 'utf8');
-    const lines = content.split('\n').filter(Boolean);
     const state = loadLastScan();
-    const newLines = lines.slice(state.lastLine || 0);
-    saveLastScan({ ...state, lastLine: lines.length });
-    return newLines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const lastId = Number(state.lastErrorId || 0);
+
+    // نقرأ الأخطاء الجديدة غير المحلولة، الأحدث من آخر scan
+    const rows = db.prepare(`
+      SELECT id, scope, error_type, message, occurrence_count, last_seen, resolved
+      FROM errors
+      WHERE id > ? AND resolved = 0
+      ORDER BY id ASC
+      LIMIT 10
+    `).all(lastId);
+
+    if (!rows.length) return [];
+
+    // تحديث آخر ID معالج
+    const newLastId = Math.max(...rows.map(r => r.id));
+    saveLastScan({ ...state, lastErrorId: newLastId });
+
+    // تحويلها لشكل يفهمه processFailure
+    return rows.map(r => ({
+      scope: r.scope || 'unknown',
+      kind: r.error_type || 'unknown',
+      message: r.message || '',
+      attempts: r.occurrence_count || 1,
+      sourceErrorId: r.id,
+      timestamp: r.last_seen
+    }));
   } catch (e) {
-    warn('self-healing-guard', `read failures failed: ${e.message}`);
+    warn('self-healing-guard', `read new failures failed: ${e.message}`);
     return [];
   }
 }
@@ -157,7 +178,6 @@ async function analyzeFailure(failure) {
     const fileMemory = getFileMemory();
     const relevantFiles = fileMemory.files
       .filter(f => f.type === 'file')
-      .filter(f => f.preview && f.preview.toLowerCase().includes('healing') === false)
       .slice(0, 20)
       .map(f => `${f.path} (${f.size} bytes)`);
 
@@ -167,7 +187,7 @@ async function analyzeFailure(failure) {
 - النطاق: ${failure.scope || 'unknown'}
 - النوع: ${failure.kind || 'unknown'}
 - الرسالة: ${String(failure.message || '').slice(0, 500)}
-- عدد المحاولات: ${failure.attempts || 1}
+- عدد المرات: ${failure.attempts || 1}
 
 الملفات المتاحة في المشروع (20 نموذجاً):
 ${relevantFiles.join('\n')}
@@ -282,35 +302,31 @@ async function notifyRepair(failure, analysis, repair) {
 async function processFailure(failure) {
   info('self-healing-guard', `🔍 عطل جديد: ${failure.scope} — ${failure.kind}`);
 
-  // تسجيل في DB
   const insertResult = db.prepare(`
-    INSERT INTO healing_incidents(component, error_type, error_message, status)
-    VALUES (?, ?, ?, 'analyzing')
+    INSERT INTO healing_incidents(source_error_id, component, error_type, error_message, status)
+    VALUES (?, ?, ?, ?, 'analyzing')
   `).run(
+    failure.sourceErrorId || 0,
     failure.scope || 'unknown',
     failure.kind || 'unknown',
     String(failure.message || '').slice(0, 500)
   );
   const incidentId = Number(insertResult.lastInsertRowid);
 
-  // تحليل
   const analysis = await analyzeFailure(failure);
   db.prepare(`
     UPDATE healing_incidents SET root_cause = ?, repair_action = ?, status = 'analyzed'
     WHERE id = ?
   `).run(analysis.root_cause, analysis.repair_action, incidentId);
 
-  // تنبيه
   await notifyIncident(failure, analysis);
 
-  // إصلاح
   const repair = await attemptRepair(analysis, failure);
   db.prepare(`
     UPDATE healing_incidents SET repair_action = ?, status = ?, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(`${repair.action}: ${repair.detail}`, repair.success ? 'resolved' : 'pending', incidentId);
 
-  // تقرير الإصلاح
   await notifyRepair(failure, analysis, repair);
 
   audit('self-healing-guard', 'incident_processed', {
@@ -339,9 +355,8 @@ export function startSelfHealingGuard() {
   const failureTimer = setInterval(async () => {
     const failures = getNewFailures();
     if (!failures.length) return;
-    info('self-healing-guard', `📥 ${failures.length} فشل جديد للمعالجة`);
+    info('self-healing-guard', `📥 ${failures.length} عطل جديد للمعالجة`);
     for (const failure of failures.slice(0, 5)) {
-      if (failure.outcome === 'ok') continue; // تجاهل النجاح
       try {
         await processFailure(failure);
       } catch (e) {
