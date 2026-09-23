@@ -27,15 +27,15 @@ export function availableModels() {
   );
   if (simulationEnabled() && !hasRealKey) return [{ id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 1 }];
   return [
-    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI (DeepSeek V4.1 Flash)', priority: 0 },
-    config.keylessAiUrl && { id: 'keylessai', label: 'KeylessAI (gpt-4o)', priority: 0 },
-    config.logfareKey && { id: 'logfare', label: 'Logfare (' + (config.logfareModel || 'gemma-4-26b') + ')', priority: 0 },
-    config.llm7Key && { id: 'llm7', label: 'LLM7 (' + (config.llm7Model || 'codestral-latest') + ')', priority: 0 },
-    config.agnesKey && { id: 'agnes', label: "Agnes AI (agnes-2.0-flash)", priority: 1 },
+    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 0 },
+    config.keylessAiUrl && { id: 'keylessai', label: 'KeylessAI', priority: 0 },
+    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 0 },
+    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 0 },
+    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 1 },
     config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 1 },
     config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 2 },
-    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS 120B', priority: 2 },
-    config.geminiKey && { id: 'gemini', label: 'Gemini Flash', priority: 3 },
+    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 2 },
+    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 3 },
     config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 3 },
     config.kimiKey && { id: 'kimi-k3', label: 'Kimi K3', priority: 4 },
     { id: 'local-deterministic', label: 'المحاكاة الذكية لأورورا', priority: 99 }
@@ -60,14 +60,7 @@ function recordRun(agent, model, success, latencyMs, qualityScore = 80) {
   } catch { /* ignore */ }
 }
 
-// ─────────────────────────────────────────────────────────────
-// [مُعدَّلة] callOpenAICompatible
-//   - max_tokens: 800 → 2500 (لتفادي قطع ردود الوكلاء)
-//   - temperature: 0.7 → 0.1 (لإلزام الـ LLM بإخراج JSON دقيق)
-//   - إضافة response_format: json_object مع fallback تلقائي
-//   - استخراج محتوى أكثر مرونة (يدعم صيغ مزودين مختلفة)
-// ─────────────────────────────────────────────────────────────
-async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 30000 }) {
+async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 30000, noJsonMode = false }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -79,10 +72,10 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
       const body = {
         model,
         messages,
-        temperature: withJsonMode ? 0.1 : 0.2,
+        temperature: withJsonMode ? 0.1 : 0.3,
         max_tokens: 2500
       };
-      if (withJsonMode) body.response_format = { type: 'json_object' };
+      if (withJsonMode && !noJsonMode) body.response_format = { type: 'json_object' };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers,
@@ -93,11 +86,11 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
       return { res, text };
     };
 
-    // محاولة 1: مع JSON mode
-    let { res, text } = await attempt(true);
+    // إذا noJsonMode → لا نجرب JSON أصلاً
+    let { res, text } = await attempt(!noJsonMode);
 
-    // إذا رفض المزود response_format → أعِد المحاولة بدونها
-    if (!res.ok && res.status === 400 && /response_format|json_object|json mode/i.test(text)) {
+    // fallback تلقائي إذا رفض JSON
+    if (!noJsonMode && !res.ok && res.status === 400 && /response_format|json_object|json mode/i.test(text)) {
       warn('ai', `provider rejected JSON mode, retrying without: ${text.slice(0, 120)}`);
       ({ res, text } = await attempt(false));
     }
@@ -126,104 +119,26 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
   }
 }
 
-async function dispatchToProvider(modelId, prompt) {
+async function dispatchToProvider(modelId, prompt, options = {}) {
   const messages = [{ role: 'user', content: prompt }];
+  const noJsonMode = options.noJsonMode === true;
 
-  if (modelId === 'danyapi') {
-    return await callOpenAICompatible({
-      url: config.danyApiUrl,
-      apiKey: 'not-needed',
-      model: config.danyApiModel,
-      messages
-    });
-  }
-  if (modelId === 'keylessai') {
-    return await callOpenAICompatible({
-      url: config.keylessAiUrl,
-      apiKey: 'not-needed',
-      model: config.keylessAiModel,
-      messages
-    });
-  }
-  if (modelId === 'logfare') {
-    return await callOpenAICompatible({
-      url: config.logfareUrl,
-      apiKey: config.logfareKey,
-      model: config.logfareModel,
-      messages
-    });
-  }
-  if (modelId === 'llm7') {
-    return await callOpenAICompatible({
-      url: config.llm7Url,
-      apiKey: config.llm7Key || 'unused',
-      model: config.llm7Model,
-      messages
-    });
-  }
-  if (modelId === 'agnes') {
-    return await callOpenAICompatible({
-      url: config.agnesUrl,
-      apiKey: config.agnesKey,
-      model: config.agnesModel,
-      messages
-    });
-  }
-  if (modelId === 'deepseek') {
-    return await callOpenAICompatible({
-      url: 'https://api.deepseek.com/v1',
-      apiKey: config.deepSeekKey,
-      model: config.deepSeekModel,
-      messages
-    });
-  }
-  if (modelId === 'siliconflow') {
-    return await callOpenAICompatible({
-      url: 'https://api.siliconflow.cn/v1',
-      apiKey: config.siliconFlowKey,
-      model: config.siliconFlowModel,
-      messages
-    });
-  }
-  if (modelId === 'gpt-oss') {
-    return await callOpenAICompatible({
-      url: config.gptOssApiUrl,
-      apiKey: process.env.GPT_OSS_API_KEY || 'not-needed',
-      model: config.gptOssModel,
-      messages
-    });
-  }
-  if (modelId === 'gemini') {
-    return await callOpenAICompatible({
-      url: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      apiKey: config.geminiKey,
-      model: 'gemini-2.0-flash',
-      messages
-    });
-  }
-  if (modelId === 'openrouter') {
-    return await callOpenAICompatible({
-      url: 'https://openrouter.ai/api/v1',
-      apiKey: config.openRouterKey,
-      model: 'google/gemini-3.6-flash-lite-preview-02-05:free',
-      messages
-    });
-  }
-  if (modelId === 'kimi-k3') {
-    return await callOpenAICompatible({
-      url: config.kimiUrl,
-      apiKey: config.kimiKey,
-      model: config.kimiModel,
-      messages
-    });
-  }
-  if (modelId === 'local-deterministic') {
-    return `مرحباً. أنا أورورا في وضع المحاكاة. سؤالُك: «${prompt.slice(0, 200)}». لم يتم الاتصال بمزود AI حقيقي بعد.`;
-  }
+  if (modelId === 'danyapi') return await callOpenAICompatible({ url: config.danyApiUrl, apiKey: 'not-needed', model: config.danyApiModel, messages, noJsonMode });
+  if (modelId === 'keylessai') return await callOpenAICompatible({ url: config.keylessAiUrl, apiKey: 'not-needed', model: config.keylessAiModel, messages, noJsonMode });
+  if (modelId === 'logfare') return await callOpenAICompatible({ url: config.logfareUrl, apiKey: config.logfareKey, model: config.logfareModel, messages, noJsonMode });
+  if (modelId === 'llm7') return await callOpenAICompatible({ url: config.llm7Url, apiKey: config.llm7Key || 'unused', model: config.llm7Model, messages, noJsonMode });
+  if (modelId === 'agnes') return await callOpenAICompatible({ url: config.agnesUrl, apiKey: config.agnesKey, model: config.agnesModel, messages, noJsonMode });
+  if (modelId === 'deepseek') return await callOpenAICompatible({ url: 'https://api.deepseek.com/v1', apiKey: config.deepSeekKey, model: config.deepSeekModel, messages, noJsonMode });
+  if (modelId === 'siliconflow') return await callOpenAICompatible({ url: 'https://api.siliconflow.cn/v1', apiKey: config.siliconFlowKey, model: config.siliconFlowModel, messages, noJsonMode });
+  if (modelId === 'gpt-oss') return await callOpenAICompatible({ url: config.gptOssApiUrl, apiKey: process.env.GPT_OSS_API_KEY || 'not-needed', model: config.gptOssModel, messages, noJsonMode });
+  if (modelId === 'gemini') return await callOpenAICompatible({ url: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: config.geminiKey, model: 'gemini-2.0-flash', messages, noJsonMode });
+  if (modelId === 'openrouter') return await callOpenAICompatible({ url: 'https://openrouter.ai/api/v1', apiKey: config.openRouterKey, model: 'google/gemini-3.6-flash-lite-preview-02-05:free', messages, noJsonMode });
+  if (modelId === 'kimi-k3') return await callOpenAICompatible({ url: config.kimiUrl, apiKey: config.kimiKey, model: config.kimiModel, messages, noJsonMode });
+  if (modelId === 'local-deterministic') return `مرحباً. أنا أورورا في وضع المحاكاة. سؤالُك: «${prompt.slice(0, 200)}». لم يتم الاتصال بمزود AI حقيقي بعد.`;
   throw new Error(`unknown provider: ${modelId}`);
 }
 
-export async function callModel(agentName, prompt) {
+export async function callModel(agentName, prompt, options = {}) {
   const models = availableModels();
   if (!models.length) {
     recordRun(agentName, 'no-model', false, 0);
@@ -234,10 +149,10 @@ export async function callModel(agentName, prompt) {
   for (const candidate of models) {
     const startedAt = Date.now();
     try {
-      const response = await dispatchToProvider(candidate.id, prompt);
+      const response = await dispatchToProvider(candidate.id, prompt, options);
       const latency = Date.now() - startedAt;
       recordRun(agentName, candidate.id, true, latency);
-      info('ai', `${agentName} → ${candidate.id} ok (${latency}ms)`);
+      info('ai', `${agentName} → ${candidate.id} ok (${latency}ms)${options.noJsonMode ? ' [no-json]' : ''}`);
       return response;
     } catch (error) {
       const latency = Date.now() - startedAt;
