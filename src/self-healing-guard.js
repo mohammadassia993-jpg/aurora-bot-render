@@ -1,15 +1,13 @@
 /**
- * self-healing-guard.js — حارس الأعطال الذكي
+ * self-healing-guard.js — حارس الأعطال الذكي (v2 مع فلاتر)
  *
- * الوظائف:
- * 1. ذاكرة الملفات: يقرأ src/ كل 6 ساعات ويحفظ فهرساً مفصّلاً
- * 2. مراقبة الأعطال: يقرأ جدول errors من DB كل 5 دقائق
- * 3. التحليل العميق: يستدعي LLM7 لتشخيص السبب الجذري
- * 4. الإصلاح الآمن: retry / cache clear / notify_only
- * 5. التقارير: تنبيه العطل + تقرير الإصلاح على Telegram
- *
- * التحكم: SELF_HEALING_GUARD_ENABLED=true لتفعيله
- * الافتراضي: معطّل (لا يفعل شيئاً)
+ * الفلاتر المضافة:
+ * - تجاهل الأخطاء الاختبارية (test, quiet_test, emergency, DEDUP_TEST)
+ * - لا يُرسل إلا للseverity high/critical
+ * - منع التكرار خلال 6 ساعات
+ * - رسالة واحدة بدل رسالتين (عند notify_only)
+ * - حد أقصى 3 إشعارات لكل دورة
+ * - تجاهل الأخطاء الأقدم من ساعة
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,14 +16,27 @@ import { db } from './db.js';
 import { info, warn } from './logger.js';
 import { audit } from './audit.js';
 
-// ─────────────────────────────────────────────
-// مفتاح التحكم
-// ─────────────────────────────────────────────
 const GUARD_ENABLED = process.env.SELF_HEALING_GUARD_ENABLED === 'true';
 
 if (!GUARD_ENABLED) {
   info('self-healing-guard', '⏸ الحارس معطّل (SELF_HEALING_GUARD_ENABLED=false)');
 }
+
+// ─────────────────────────────────────────────
+// فلاتر الضجيج
+// ─────────────────────────────────────────────
+const SKIP_SCOPES = ['test', 'quiet_test', 'emergency'];
+const SKIP_TYPE_PATTERNS = [
+  /^DEDUP_TEST/i,
+  /^EMERGENCY_REQUEST/i,
+  /^TEST_/i,
+  /TEST$/i
+];
+const MIN_SEVERITY = process.env.GUARD_MIN_SEVERITY || 'high';
+const DEDUP_WINDOW_HOURS = Number(process.env.GUARD_DEDUP_HOURS || 6);
+const MAX_INCIDENTS_PER_RUN = 3;
+const MAX_ERROR_AGE_HOURS = 1;
+const SEVERITY_ORDER = { low: 1, medium: 2, high: 3, critical: 4 };
 
 // ─────────────────────────────────────────────
 // Schema
@@ -39,23 +50,22 @@ CREATE TABLE IF NOT EXISTS healing_incidents (
   error_message TEXT DEFAULT '',
   root_cause TEXT DEFAULT '',
   repair_action TEXT DEFAULT '',
+  severity TEXT DEFAULT 'medium',
+  notified INTEGER DEFAULT 0,
   status TEXT DEFAULT 'detected',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   resolved_at TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS healing_status ON healing_incidents(status, created_at);
-CREATE INDEX IF NOT EXISTS healing_source ON healing_incidents(source_error_id);
+CREATE INDEX IF NOT EXISTS healing_dedup ON healing_incidents(component, error_type, created_at);
 `);
 
-// ─────────────────────────────────────────────
-// المسارات
-// ─────────────────────────────────────────────
 const SRC_DIR = path.join(config.root, 'src');
 const FILE_MEMORY_PATH = path.join(config.root, 'data', 'file-memory.json');
 const LAST_SCAN_FILE = path.join(config.root, 'data', 'last-guard-scan.json');
 
 // ─────────────────────────────────────────────
-// 1) ذاكرة الملفات
+// ذاكرة الملفات
 // ─────────────────────────────────────────────
 function scanDirectory(dir, depth = 0, maxDepth = 3) {
   const files = [];
@@ -77,18 +87,12 @@ function scanDirectory(dir, depth = 0, maxDepth = 3) {
             const content = fs.readFileSync(fullPath, 'utf8');
             preview = content.slice(0, 500);
           }
-          files.push({
-            type: 'file',
-            path: relativePath,
-            name: entry.name,
-            size: stats.size,
-            preview
-          });
-        } catch { /* skip unreadable */ }
+          files.push({ type: 'file', path: relativePath, name: entry.name, size: stats.size, preview });
+        } catch { /* skip */ }
       }
     }
   } catch (e) {
-    warn('self-healing-guard', `scan failed for ${dir}: ${e.message}`);
+    warn('self-healing-guard', `scan failed: ${e.message}`);
   }
   return files;
 }
@@ -112,26 +116,42 @@ export function refreshFileMemory() {
 }
 
 export function getFileMemory() {
-  try {
-    return JSON.parse(fs.readFileSync(FILE_MEMORY_PATH, 'utf8'));
-  } catch {
-    return { files: [], totalFiles: 0 };
-  }
+  try { return JSON.parse(fs.readFileSync(FILE_MEMORY_PATH, 'utf8')); }
+  catch { return { files: [], totalFiles: 0 }; }
 }
 
 // ─────────────────────────────────────────────
-// 2) قراءة الأعطال الجديدة من جدول errors
+// قراءة الأعطال + فلاتر
 // ─────────────────────────────────────────────
 function loadLastScan() {
   try { return JSON.parse(fs.readFileSync(LAST_SCAN_FILE, 'utf8')); }
-  catch { return { lastErrorId: 0, lastFileCount: 0 }; }
+  catch { return { lastErrorId: 0 }; }
 }
-
 function saveLastScan(state) {
   try {
     fs.mkdirSync(path.dirname(LAST_SCAN_FILE), { recursive: true });
     fs.writeFileSync(LAST_SCAN_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
   } catch { /* silent */ }
+}
+
+function shouldSkip(failure) {
+  const scope = String(failure.scope || '').toLowerCase();
+  const type = String(failure.kind || '');
+  if (SKIP_SCOPES.some(s => scope === s || scope.includes(`_${s}`) || scope.startsWith(`${s}_`))) return true;
+  if (SKIP_TYPE_PATTERNS.some(p => p.test(type))) return true;
+  return false;
+}
+
+function isRecentDuplicate(scope, errorType) {
+  try {
+    const cutoff = new Date(Date.now() - DEDUP_WINDOW_HOURS * 3600_000).toISOString();
+    const row = db.prepare(`
+      SELECT id FROM healing_incidents
+      WHERE component = ? AND error_type = ? AND created_at >= ?
+      LIMIT 1
+    `).get(scope, errorType, cutoff);
+    return !!row;
+  } catch { return false; }
 }
 
 function getNewFailures() {
@@ -143,8 +163,9 @@ function getNewFailures() {
       SELECT id, scope, error_type, message, occurrence_count, last_seen, resolved
       FROM errors
       WHERE id > ? AND resolved = 0
+        AND last_seen >= datetime('now', '-${MAX_ERROR_AGE_HOURS} hours')
       ORDER BY id ASC
-      LIMIT 10
+      LIMIT 20
     `).all(lastId);
 
     if (!rows.length) return [];
@@ -152,7 +173,7 @@ function getNewFailures() {
     const newLastId = Math.max(...rows.map(r => r.id));
     saveLastScan({ ...state, lastErrorId: newLastId });
 
-    return rows.map(r => ({
+    const candidates = rows.map(r => ({
       scope: r.scope || 'unknown',
       kind: r.error_type || 'unknown',
       message: r.message || '',
@@ -160,6 +181,21 @@ function getNewFailures() {
       sourceErrorId: r.id,
       timestamp: r.last_seen
     }));
+
+    // فلترة: تجاهل الاختبار + تجاهل المكرر
+    const filtered = candidates.filter(f => {
+      if (shouldSkip(f)) {
+        info('self-healing-guard', `⏭️ تجاهل (اختباري): ${f.scope}/${f.kind}`);
+        return false;
+      }
+      if (isRecentDuplicate(f.scope, f.kind)) {
+        info('self-healing-guard', `⏭️ تجاهل (مكرر خلال ${DEDUP_WINDOW_HOURS}h): ${f.scope}/${f.kind}`);
+        return false;
+      }
+      return true;
+    });
+
+    return filtered.slice(0, MAX_INCIDENTS_PER_RUN);
   } catch (e) {
     warn('self-healing-guard', `read new failures failed: ${e.message}`);
     return [];
@@ -167,179 +203,137 @@ function getNewFailures() {
 }
 
 // ─────────────────────────────────────────────
-// 3) التحليل العميق
+// التحليل
 // ─────────────────────────────────────────────
 async function analyzeFailure(failure) {
   try {
     const { callModel } = await import('./ai.js');
     const fileMemory = getFileMemory();
-    const relevantFiles = fileMemory.files
-      .filter(f => f.type === 'file')
-      .slice(0, 20)
-      .map(f => `${f.path} (${f.size} bytes)`);
+    const relevantFiles = fileMemory.files.filter(f => f.type === 'file').slice(0, 15).map(f => `${f.path} (${f.size}B)`);
 
-    const prompt = `أنت مهندس تشخيص أعطال. حلّل الفشل التالي وقدّم تشخيصاً موجزاً.
+    const prompt = `أنت مهندس تشخيص أعطال. حلّل الفشل وقدّم تشخيصاً موجزاً.
 
 الفشل:
-- النطاق: ${failure.scope || 'unknown'}
-- النوع: ${failure.kind || 'unknown'}
-- الرسالة: ${String(failure.message || '').slice(0, 500)}
-- عدد المرات: ${failure.attempts || 1}
+- النطاق: ${failure.scope}
+- النوع: ${failure.kind}
+- الرسالة: ${String(failure.message).slice(0, 400)}
+- التكرار: ${failure.attempts}
 
-الملفات المتاحة في المشروع (20 نموذجاً):
+ملفات المشروع (15 نموذج):
 ${relevantFiles.join('\n')}
 
 أعد JSON فقط:
-{
-  "root_cause": "السبب الجذري المحتمل (جملة واحدة)",
-  "severity": "low|medium|high|critical",
-  "repair_action": "safe_retry|clear_cache|reload_module|notify_only",
-  "explanation": "شرح مختصر بالعربية"
-}`;
+{"root_cause":"...","severity":"low|medium|high|critical","repair_action":"safe_retry|clear_cache|reload_module|notify_only","explanation":"..."}`;
 
     const result = await callModel('reviewer', prompt);
     const clean = String(result).replace(/```json|```/g, '').trim();
     const match = clean.match(/\{[\s\S]*\}/);
-    if (match) {
-      return JSON.parse(match[0]);
-    }
+    if (match) return JSON.parse(match[0]);
   } catch (e) {
     warn('self-healing-guard', `analysis failed: ${e.message}`);
   }
-  return {
-    root_cause: 'unknown',
-    severity: 'medium',
-    repair_action: 'notify_only',
-    explanation: 'تعذر التحليل التلقائي'
-  };
+  return { root_cause: 'unknown', severity: 'medium', repair_action: 'notify_only', explanation: 'تعذر التحليل' };
 }
 
 // ─────────────────────────────────────────────
-// 4) الإصلاح الآمن
+// الإصلاح
 // ─────────────────────────────────────────────
-async function attemptRepair(analysis, failure) {
+async function attemptRepair(analysis) {
   const action = analysis.repair_action || 'notify_only';
-
   switch (action) {
     case 'safe_retry':
-      info('self-healing-guard', `🔧 إصلاح: إعادة محاولة آمنة`);
       return { action, success: true, detail: 'تم تسجيل إعادة المحاولة' };
-
     case 'clear_cache':
-      info('self-healing-guard', `🔧 إصلاح: مسح كاش الملفات`);
       try {
         const cacheDir = path.join(config.root, 'data', 'cache');
-        if (fs.existsSync(cacheDir)) {
-          fs.rmSync(cacheDir, { recursive: true, force: true });
-        }
+        if (fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true });
         return { action, success: true, detail: 'تم مسح الكاش' };
-      } catch (e) {
-        return { action, success: false, detail: e.message };
-      }
-
+      } catch (e) { return { action, success: false, detail: e.message }; }
     case 'reload_module':
-      info('self-healing-guard', `🔧 إصلاح: إعادة تحميل مسجل`);
       return { action, success: true, detail: 'يتطلب إعادة تشغيل (يدوي)' };
-
-    case 'notify_only':
     default:
       return { action: 'notify_only', success: true, detail: 'انتظر تدخّل القائد' };
   }
 }
 
 // ─────────────────────────────────────────────
-// 5) الإشعارات على Telegram
+// الإشعار الموحّد
 // ─────────────────────────────────────────────
-async function notifyIncident(failure, analysis) {
+async function notifyUnified(failure, analysis, repair) {
   try {
     const { sendMessageDetailed } = await import('./telegram.js');
-    const severityEmoji = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴' }[analysis.severity] || '⚠️';
-    const text = [
-      `${severityEmoji} <b>حارس الأعطال — تنبيه</b>`,
-      '',
-      `📍 النطاق: <code>${failure.scope || 'unknown'}</code>`,
-      `🔍 النوع: ${failure.kind || 'unknown'}`,
-      `📄 الرسالة: <i>${String(failure.message || '').slice(0, 200)}</i>`,
-      '',
-      `🧠 <b>التشخيص:</b> ${analysis.root_cause}`,
-      `⚙️ <b>الإجراء المقترح:</b> ${analysis.repair_action}`,
-      `💬 ${analysis.explanation}`,
-      '',
-      `⏰ ${new Date().toISOString()}`
-    ].join('\n');
-    await sendMessageDetailed(text);
-  } catch (e) {
-    warn('self-healing-guard', `incident notify failed: ${e.message}`);
-  }
-}
+    const sevEmoji = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴' }[analysis.severity] || '⚠️';
+    const repairEmoji = repair.success ? '✅' : '⚠️';
 
-async function notifyRepair(failure, analysis, repair) {
-  try {
-    const { sendMessageDetailed } = await import('./telegram.js');
-    const statusEmoji = repair.success ? '✅' : '⚠️';
     const text = [
-      `${statusEmoji} <b>حارس الأعطال — تقرير الإصلاح</b>`,
+      `${sevEmoji} <b>حارس الأعطال</b> — ${analysis.severity}`,
       '',
-      `📍 النطاق: <code>${failure.scope || 'unknown'}</code>`,
-      `🧠 السبب الجذري: ${analysis.root_cause}`,
-      `🔧 الإجراء المُنفَّذ: ${repair.action}`,
-      `📊 النتيجة: ${repair.detail}`,
+      `📍 <code>${failure.scope}</code> — <code>${failure.kind}</code>`,
+      `📄 <i>${String(failure.message).slice(0, 180)}</i>`,
       '',
-      `⏰ ${new Date().toISOString()}`
+      `🧠 <b>السبب:</b> ${analysis.root_cause}`,
+      `🔧 <b>الإجراء:</b> ${repair.action}`,
+      `${repairEmoji} <b>النتيجة:</b> ${repair.detail}`,
+      '',
+      `⏰ ${new Date().toISOString().slice(11, 19)}`
     ].join('\n');
+
     await sendMessageDetailed(text);
   } catch (e) {
-    warn('self-healing-guard', `repair notify failed: ${e.message}`);
+    warn('self-healing-guard', `notify failed: ${e.message}`);
   }
 }
 
 // ─────────────────────────────────────────────
-// 6) المعالج الرئيسي
+// المعالج الرئيسي
 // ─────────────────────────────────────────────
 async function processFailure(failure) {
-  info('self-healing-guard', `🔍 عطل جديد: ${failure.scope} — ${failure.kind}`);
+  info('self-healing-guard', `🔍 معالجة: ${failure.scope}/${failure.kind}`);
 
   const insertResult = db.prepare(`
     INSERT INTO healing_incidents(source_error_id, component, error_type, error_message, status)
     VALUES (?, ?, ?, ?, 'analyzing')
-  `).run(
-    failure.sourceErrorId || 0,
-    failure.scope || 'unknown',
-    failure.kind || 'unknown',
-    String(failure.message || '').slice(0, 500)
-  );
+  `).run(failure.sourceErrorId || 0, failure.scope, failure.kind, String(failure.message).slice(0, 500));
   const incidentId = Number(insertResult.lastInsertRowid);
 
   const analysis = await analyzeFailure(failure);
+
+  // فلتر severity
+  const sevLevel = SEVERITY_ORDER[analysis.severity] || 2;
+  const minLevel = SEVERITY_ORDER[MIN_SEVERITY] || 3;
+  const shouldNotify = sevLevel >= minLevel;
+
   db.prepare(`
-    UPDATE healing_incidents SET root_cause = ?, repair_action = ?, status = 'analyzed'
+    UPDATE healing_incidents SET root_cause = ?, repair_action = ?, severity = ?, status = 'analyzed'
     WHERE id = ?
-  `).run(analysis.root_cause, analysis.repair_action, incidentId);
+  `).run(analysis.root_cause, analysis.repair_action, analysis.severity, incidentId);
 
-  await notifyIncident(failure, analysis);
+  if (!shouldNotify) {
+    info('self-healing-guard', `⏭️ لا إشعار (severity=${analysis.severity} < ${MIN_SEVERITY})`);
+    db.prepare(`UPDATE healing_incidents SET status='resolved', resolved_at=CURRENT_TIMESTAMP WHERE id = ?`).run(incidentId);
+    return { incidentId, analysis, repair: null, notified: false };
+  }
 
-  const repair = await attemptRepair(analysis, failure);
+  const repair = await attemptRepair(analysis);
   db.prepare(`
-    UPDATE healing_incidents SET repair_action = ?, status = ?, resolved_at = CURRENT_TIMESTAMP
+    UPDATE healing_incidents SET repair_action = ?, status = ?, notified = 1, resolved_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(`${repair.action}: ${repair.detail}`, repair.success ? 'resolved' : 'pending', incidentId);
 
-  await notifyRepair(failure, analysis, repair);
+  await notifyUnified(failure, analysis, repair);
 
   audit('self-healing-guard', 'incident_processed', {
-    incidentId, scope: failure.scope, kind: failure.kind, repaired: repair.success
+    incidentId, scope: failure.scope, kind: failure.kind, severity: analysis.severity, repaired: repair.success
   });
 
-  return { incidentId, analysis, repair };
+  return { incidentId, analysis, repair, notified: true };
 }
 
 // ─────────────────────────────────────────────
-// 7) تشغيل الحارس
+// التشغيل
 // ─────────────────────────────────────────────
 export function startSelfHealingGuard() {
-  if (!GUARD_ENABLED) {
-    return { disabled: true };
-  }
+  if (!GUARD_ENABLED) return { disabled: true };
 
   info('self-healing-guard', '🛡️ بدء حارس الأعطال الذكي');
 
@@ -350,43 +344,30 @@ export function startSelfHealingGuard() {
   const failureTimer = setInterval(async () => {
     const failures = getNewFailures();
     if (!failures.length) return;
-    info('self-healing-guard', `📥 ${failures.length} عطل جديد للمعالجة`);
-    for (const failure of failures.slice(0, 5)) {
-      try {
-        await processFailure(failure);
-      } catch (e) {
-        warn('self-healing-guard', `process failure failed: ${e.message}`);
-      }
+    info('self-healing-guard', `📥 ${failures.length} عطل جديد`);
+    for (const failure of failures) {
+      try { await processFailure(failure); }
+      catch (e) { warn('self-healing-guard', `process failed: ${e.message}`); }
     }
   }, 5 * 60 * 1000);
   failureTimer.unref();
 
-  info('self-healing-guard', '✅ الحارس نشط (ذاكرة الملفات + مراقبة الأعطال)');
-  return { started: true, intervals: { fileMemory: '6h', failureMonitor: '5min' } };
+  info('self-healing-guard', `✅ الحارس نشط — فلاتر: skip=${SKIP_SCOPES.length} scopes, min=${MIN_SEVERITY}, dedup=${DEDUP_WINDOW_HOURS}h, max=${MAX_INCIDENTS_PER_RUN}/run`);
+  return { started: true };
 }
 
-// ─────────────────────────────────────────────
-// إحصائيات
-// ─────────────────────────────────────────────
 export function getGuardStats() {
   try {
     const total = db.prepare('SELECT COUNT(*) c FROM healing_incidents').get().c;
     const resolved = db.prepare("SELECT COUNT(*) c FROM healing_incidents WHERE status='resolved'").get().c;
-    const recent = db.prepare(`
-      SELECT component, error_type, status, created_at FROM healing_incidents
-      ORDER BY id DESC LIMIT 10
-    `).all();
-    return { total, resolved, pending: total - resolved, recent };
-  } catch (e) {
-    return { error: e.message };
-  }
+    const notified = db.prepare("SELECT COUNT(*) c FROM healing_incidents WHERE notified=1").get().c;
+    const recent = db.prepare(`SELECT component, error_type, severity, status, created_at FROM healing_incidents ORDER BY id DESC LIMIT 10`).all();
+    return { total, resolved, pending: total - resolved, notified, recent };
+  } catch (e) { return { error: e.message }; }
 }
 
 export default { startSelfHealingGuard, refreshFileMemory, getFileMemory, getGuardStats };
 
-// Auto-start when enabled
-if (GUARD_ENABLED) {
-  startSelfHealingGuard();
-}
+if (GUARD_ENABLED) startSelfHealingGuard();
 
 info('self-healing-guard', `🛡️ module loaded (enabled: ${GUARD_ENABLED})`);
