@@ -8,6 +8,10 @@
  *
  * Speed: 3 templates or ebooks every 30 minutes
  * Approval: 1-of-10 sampling (show 1 product per 10 for leader review)
+ *
+ * ملاحظات الحماية:
+ * - لا يُرسل "عينة موافقة" على Telegram إلا بـ PRODUCTION_SAMPLES_ENABLED=true
+ * - لا يُحفظ أي منتج يحتوي على "وضع المحاكاة"
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +28,24 @@ const PROD_DIR = path.join(config.root, 'data', 'production');
 const PRODUCTS_DIR = path.join(PROD_DIR, 'output');
 const CATALOG_FILE = path.join(PROD_DIR, 'catalog.json');
 fs.mkdirSync(PRODUCTS_DIR, { recursive: true });
+
+// ─────────────────────────────────────────────
+// مفاتيح التحكم
+// ─────────────────────────────────────────────
+const PRODUCTION_SAMPLES_ENABLED = process.env.PRODUCTION_SAMPLES_ENABLED === 'true';
+
+// أنماط "وضع المحاكاة" — إذا وُجدت، نرفض المحتوى
+const SIMULATION_PATTERNS = [
+  'وضع المحاكاة',
+  'لم يتم الاتصال بمزود AI',
+  'أنا أورورا في وضع',
+  'local-deterministic'
+];
+
+function isSimulationContent(text) {
+  const lower = String(text);
+  return SIMULATION_PATTERNS.some(p => lower.includes(p));
+}
 
 // ── Product Categories (per Kimi's plan) ──
 const CATEGORIES = {
@@ -61,9 +83,9 @@ const PRODUCT_IDEAS = {
   ],
   ebook: [
     { title: 'دليل المبتدئين في DePIN', desc: 'كتاب إلكتروني شامل عن شبكات DePIN', price: 25, format: 'pdf' },
-    { title: '规矩书 العقود الذكية', desc: 'دليل شامل للعقود الذكية للمبتدئين', price: 20, format: 'pdf' },
-    { title: '安全管理 أصولك الرقمية', desc: 'دليل أمن المحافظ الرقمية والqmprotect', price: 15, format: 'pdf' },
-    { title: 'قناة الدخل من Web3', desc: 'أساليب ربح الدخل من منصات Web3', price: 30, format: 'pdf' },
+    { title: 'دليل العقود الذكية', desc: 'دليل شامل للعقود الذكية للمبتدئين', price: 20, format: 'pdf' },
+    { title: 'أمان المحافظ الرقمية', desc: 'دليل أمن المحافظ الرقمية', price: 15, format: 'pdf' },
+    { title: 'قنوات الدخل من Web3', desc: 'أساليب ربح الدخل من منصات Web3', price: 30, format: 'pdf' },
     { title: 'دليل التحليل الفني للرموز', desc: 'أساسيات التحليل الفني لأسواق العملات الرقمية', price: 22, format: 'pdf' }
   ],
   svg: [
@@ -77,7 +99,7 @@ const PRODUCT_IDEAS = {
     { title: 'دورة التحليل الفني', desc: '6 محطات مع تطبيقات عملية', price: 40, format: 'video' }
   ],
   audio: [
-    { title: 'بودكاست Web3 أسبوعي - الحلقية 1', desc: 'ملف صوتي عن أخبار Web3', price: 5, format: 'mp3' },
+    { title: 'بودكاست Web3 أسبوعي - الحلقة 1', desc: 'ملف صوتي عن أخبار Web3', price: 5, format: 'mp3' },
     { title: 'ملف صوتي: مقدمة في DeFi', desc: 'شرح صوتي شامل عن DeFi', price: 8, format: 'mp3' }
   ],
   digital_art: [
@@ -85,7 +107,7 @@ const PRODUCT_IDEAS = {
     { title: 'أفاتارات رقمية', desc: '5 أفاتارات فنية رقمية', price: 15, format: 'png' }
   ],
   simple_software: [
-    { title: 'حاسبة محافظ Web3', desc: 'أداة بسيطة ل计算 محفظة رقمية', price: 20, format: 'js' },
+    { title: 'حاسبة محافظ Web3', desc: 'أداة بسيطة لحساب محفظة رقمية', price: 20, format: 'js' },
     { title: 'مولد عناوين محافظ', desc: 'أداة لإنشاء عناوين محافظ اختبارية', price: 12, format: 'js' }
   ],
   '3d_file': [
@@ -149,6 +171,13 @@ ${STYLE_GUIDE.brand}
     const content = await callModel('production', prompt);
     const cleanContent = String(content).trim();
 
+    // 🛡️ فلتر 1: رفض "وضع المحاكاة"
+    if (isSimulationContent(cleanContent)) {
+      warn('production', `⛔ محتوى محاكاة مرفوض لـ "${idea.title}" — لن يُحفظ`);
+      return null;
+    }
+
+    // 🛡️ فلتر 2: رفض المحتوى القصير
     if (cleanContent.length < 100) {
       warn('production', `Content too short for ${idea.title}: ${cleanContent.length} chars`);
       return null;
@@ -217,9 +246,11 @@ export async function startContinuousProduction() {
 
     const product = await generateProduct(idea);
     if (product) {
-      // Check if we need to send approval sample (1 of 10)
-      if (productionCount % 10 === 0) {
+      // 🛡️ فلتر 3: "عينة موافقة" لا تُرسل إلا بموافقة صريحة
+      if (productionCount % 10 === 0 && PRODUCTION_SAMPLES_ENABLED) {
         await sendApprovalSample(product);
+      } else if (productionCount % 10 === 0) {
+        info('production', `📊 عينة موافقة #${productionCount} لم تُرسل (PRODUCTION_SAMPLES_ENABLED غير مُفعّل)`);
       }
     }
 
@@ -250,6 +281,13 @@ async function sendApprovalSample(product) {
 
   try {
     const content = fs.readFileSync(product.filepath, 'utf8');
+
+    // 🛡️ فلتر 4: لا ترسل إذا كان المحتوى محاكاة
+    if (isSimulationContent(content)) {
+      warn('production', `⛔ لن أُرسل عينة موافقة لمحتوى محاكاة: ${product.title}`);
+      return;
+    }
+
     const preview = content.slice(0, 1500);
     await sendMessageDetailed(sampleMsg + preview, config.telegramChatId);
     info('production', `📬 Approval sample sent for: ${product.title}`);
