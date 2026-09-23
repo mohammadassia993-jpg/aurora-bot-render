@@ -15,79 +15,120 @@ export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
 // ═══════════════════════════════════════════════════════════
-// 1) كشف أسماء الملفات في السؤال
+// فهرس الملفات — يُبنى مرة واحدة عند البدء
+// ═══════════════════════════════════════════════════════════
+let FILE_INDEX = null;
+let FILE_INDEX_BUILT_AT = 0;
+
+async function buildFileIndex() {
+  const now = Date.now();
+  if (FILE_INDEX && (now - FILE_INDEX_BUILT_AT) < 10 * 60 * 1000) {
+    return FILE_INDEX;
+  }
+
+  const index = new Map();
+  const rootsToScan = [
+    config.root,
+    process.cwd(),
+    path.join(process.cwd(), 'src'),
+    '/opt/render/project/src',
+    '/opt/render/project/src/src'
+  ];
+
+  async function scan(dir, depth = 0) {
+    if (depth > 4) return;
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'data') continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await scan(full, depth + 1);
+        } else if (entry.isFile()) {
+          // اسم الملف → مسار كامل
+          if (!index.has(entry.name)) {
+            index.set(entry.name, full);
+          }
+        }
+      }
+    } catch { /* skip inaccessible */ }
+  }
+
+  for (const root of rootsToScan) {
+    try {
+      const stats = await fs.stat(root);
+      if (stats.isDirectory()) {
+        await scan(root);
+      }
+    } catch { /* skip */ }
+  }
+
+  FILE_INDEX = index;
+  FILE_INDEX_BUILT_AT = now;
+  console.log('[team] file index built: ' + index.size + ' files from ' + rootsToScan.length + ' roots');
+  return index;
+}
+
+async function readFileByName(filename) {
+  try {
+    const index = await buildFileIndex();
+    const fullPath = index.get(filename);
+
+    if (!fullPath) {
+      console.warn('[team] file not in index: ' + filename);
+      return null;
+    }
+
+    const stats = await fs.stat(fullPath);
+    if (stats.size > 200 * 1024) {
+      console.warn('[team] file too large: ' + filename + ' (' + stats.size + ' bytes)');
+      return null;
+    }
+
+    const content = await fs.readFile(fullPath, 'utf8');
+    console.log('[team] loaded: ' + fullPath + ' (' + stats.size + ' bytes)');
+    return { path: fullPath, size: stats.size, content: content.slice(0, 12000) };
+  } catch (e) {
+    console.warn('[team] read failed for ' + filename + ': ' + e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// كشف أسماء الملفات في السؤال
 // ═══════════════════════════════════════════════════════════
 function detectMentionedFiles(text) {
   const files = new Set();
-  const patterns = [
-    // src/file.js
-    /(?:src\/)?([\w\-]+\.js)/gi,
-    // file.json
-    /([\w\-]+\.json)/gi,
-    // file.md
-    /([\w\-]+\.md)/gi
-  ];
+  const str = String(text);
 
-  for (const pattern of patterns) {
-    const matches = String(text).matchAll(pattern);
-    for (const m of matches) {
-      let name = m[1] || m[0];
-      // تجاهل الامتدادات الوهمية
-      if (name.includes('..') || name.length < 3) continue;
-      files.add(name);
-    }
+  // ابحث عن أي شيء ينتهي بـ .js .json .md .txt .env .yml .yaml
+  const regex = /([\w\-]+\.(?:js|json|md|txt|env|yml|yaml|html|css))/gi;
+  const matches = str.matchAll(regex);
+  for (const m of matches) {
+    const name = m[1];
+    if (name.includes('..') || name.length < 3) continue;
+    files.add(name);
   }
 
-  // لو لم يُذكر ملف صريح، لا نقرأ شيئاً
-  return [...files].slice(0, 3);
-}
-
-async function readFileIfExists(filename) {
-  try {
-    // ابحث في الجذر و src/
-    const candidates = [
-      path.join(config.root, filename),
-      path.join(config.root, 'src', filename),
-      path.join(config.root, 'public', filename)
-    ];
-
-    for (const fullPath of candidates) {
-      try {
-        const stats = await fs.stat(fullPath);
-        if (stats.isFile() && stats.size < 200 * 1024) {
-          const content = await fs.readFile(fullPath, 'utf8');
-          return {
-            path: path.relative(config.root, fullPath),
-            size: stats.size,
-            content: content.slice(0, 8000) // 8KB كحد أقصى
-          };
-        }
-      } catch { /* skip */ }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const result = [...files].slice(0, 3);
+  console.log('[team] detected files in message: ' + (result.join(', ') || 'none'));
+  return result;
 }
 
 async function collectFileContexts(userMessage) {
   const mentioned = detectMentionedFiles(userMessage);
   if (!mentioned.length) return [];
 
-  console.log('[team] detected files:', mentioned.join(', '));
   const contexts = [];
   for (const filename of mentioned) {
-    const fileData = await readFileIfExists(filename);
-    if (fileData) {
-      contexts.push(fileData);
-      console.log('[team] loaded:', fileData.path, '(' + fileData.size + ' bytes)');
-    }
+    const data = await readFileByName(filename);
+    if (data) contexts.push(data);
   }
   return contexts;
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2) جمع بيانات النظام
+// جمع بيانات النظام
 // ═══════════════════════════════════════════════════════════
 function collectSystemSnapshot() {
   try {
@@ -132,14 +173,15 @@ function collectSystemSnapshot() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 3) System Prompt
+// System Prompt
 // ═══════════════════════════════════════════════════════════
 function buildAuroraPrompt(userMessage, ctx, fileContexts) {
   let filesSection = '';
   if (fileContexts.length > 0) {
     filesSection = '\n════════ محتوى الملفات المذكورة في السؤال ════════\n\n';
     for (const f of fileContexts) {
-      filesSection += `── ${f.path} (${f.size} bytes) ──\n\`\`\`\n${f.content}\n\`\`\`\n\n`;
+      filesSection += `── ${f.path} (${f.size} bytes) ──\n`;
+      filesSection += '```\n' + f.content + '\n```\n\n';
     }
   } else {
     filesSection = '\n════════ ملاحظة ════════\n';
@@ -162,7 +204,7 @@ ${filesSection}
 3. إذا ذكر القائد ملفاً ولم تجديه، قولي: "لم أجد الملف — تأكد من الاسم أو المسار".
 4. لا تختلقي معلومات. لا تتكلمي عن أشياء غير موجودة (لا خصوم، لا حروب، لا استخبارات).
 5. اكتبي بالعربية الفصحى، بدون مقدمات.
-6. إذا طلب القائد تحسينات على ملف: اقرئي الملف أعلاه، حلّلي الكود، ثم اقترحي 3 تحسينات محددة بأمثلة كود.
+6. إذا طلب القائد تحسينات على ملف: اقرئي الملف أعلاه بعناية، حلّلي الكود، ثم اقترحي 3 تحسينات محددة بأمثلة كود.
 7. إذا سأل عن حالة النظام: اذكري المكونات السليمة والمشاكل والمهام.
 8. الطول: حسب السؤال.
 
@@ -174,9 +216,9 @@ ${userMessage}
 }
 
 // ═══════════════════════════════════════════════════════════
-// 4) فلتر الهلوسة
+// فلتر الهلوسة
 // ═══════════════════════════════════════════════════════════
-const FORBIDDEN_TERMS = ['الخصوم', 'الأعداء', 'الحدود', 'الحرب', 'المعارك', 'الجيش', 'العسكري', 'الجاسوس', 'military', 'enemy', 'troops'];
+const FORBIDDEN_TERMS = ['الخصوم', 'الأعداء', 'الحدود', 'الحرب', 'المعارك', 'الجيش', 'العسكري', 'الجاسوس'];
 
 function hasHallucination(text) {
   const lower = String(text).toLowerCase();
@@ -204,7 +246,7 @@ function cleanAgentResponse(text) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 5) توليد الرد
+// توليد الرد
 // ═══════════════════════════════════════════════════════════
 async function generateSmartReply(userMessage, ctx, fileContexts) {
   const prompt = buildAuroraPrompt(userMessage, ctx, fileContexts);
@@ -213,12 +255,12 @@ async function generateSmartReply(userMessage, ctx, fileContexts) {
     try {
       const raw = await callModel('aurora', prompt, { noJsonMode: true });
       const clean = cleanAgentResponse(raw);
-      if (!clean || clean.length < 10) { console.warn('[team] empty, attempt', attempt); continue; }
-      if (hasHallucination(clean)) { console.warn('[team] hallucination, attempt', attempt); continue; }
+      if (!clean || clean.length < 10) { console.warn('[team] empty, attempt ' + attempt); continue; }
+      if (hasHallucination(clean)) { console.warn('[team] hallucination, attempt ' + attempt); continue; }
       console.log('[team] reply ok, length=' + clean.length);
       return clean;
     } catch (e) {
-      console.error('[team] attempt', attempt, 'failed:', e?.message);
+      console.error('[team] attempt ' + attempt + ' failed: ' + e?.message);
     }
   }
 
@@ -231,7 +273,7 @@ function buildDataFallback(ctx) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 6) Helpers
+// Helpers
 // ═══════════════════════════════════════════════════════════
 function sanitizeStoredBody(body) {
   const s = String(body || '');
@@ -282,18 +324,28 @@ export async function createMessage(input) {
   const messageId = Number(result.lastInsertRowid);
   const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
   teamEvents.emit('message', { type: 'created', messageId });
-  generateAgentReplies(message).catch(err => console.error('[team] generateAgentReplies failed:', err?.message));
+  generateAgentReplies(message).catch(err => console.error('[team] generateAgentReplies failed: ' + err?.message));
   return message;
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] smart+files mode, message=' + String(message.body).slice(0, 50));
+  console.log('[team] === processing: ' + String(message.body).slice(0, 60) + ' ===');
 
+  // 1) بناء فهرس الملفات (يُخزّن 10 دقائق)
+  await buildFileIndex();
+
+  // 2) جمع بيانات النظام
   const ctx = collectSystemSnapshot();
-  const fileContexts = await collectFileContexts(message.body);
-  console.log('[team] ctx health=' + ctx.health?.healthy + '/' + ctx.health?.total + ', files=' + fileContexts.length);
+  console.log('[team] health=' + ctx.health?.healthy + '/' + ctx.health?.total);
 
+  // 3) قراءة الملفات المذكورة
+  const fileContexts = await collectFileContexts(message.body);
+  console.log('[team] files read: ' + fileContexts.length);
+
+  // 4) توليد الرد
   const reply = await generateSmartReply(message.body, ctx, fileContexts);
+
+  // 5) حفظ + إرسال
   insertAgentMessage('aurora', reply);
   await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
   await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
