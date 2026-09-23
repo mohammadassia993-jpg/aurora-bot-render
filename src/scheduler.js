@@ -6,6 +6,8 @@
  * - Every 2 hours: register competitions & contracts
  * - Every 15 min: health check
  * - Continuous: product production
+ *
+ * ملاحظة: المهام التي ترسل على Telegram يمكن إيقافها بـ SCHEDULER_ACTIVE=false
  */
 import cron from 'node-cron';
 import { info, warn, error as errLog } from './logger.js';
@@ -14,6 +16,13 @@ import { EpisodicMemory } from './persistent-memory.js';
 
 const jobs = [];
 
+// ─────────────────────────────────────────────
+// مفتاح التحكم في المهام المُزعجة (Telegram + noise)
+// الافتراضي: true (يعمل كما هو)
+// للإيقاف: أضف SCHEDULER_ACTIVE=false في Render Environment
+// ─────────────────────────────────────────────
+const SCHEDULER_ACTIVE = process.env.SCHEDULER_ACTIVE !== 'false';
+
 /** Start all scheduled jobs */
 export function startScheduler() {
   if (process.env.AURORA_AUTOMATION === 'false') {
@@ -21,6 +30,7 @@ export function startScheduler() {
     return { disabled: true };
   }
   info('scheduler', '🚀 Starting scheduler agent...');
+  info('scheduler', `⚙️ SCHEDULER_ACTIVE=${SCHEDULER_ACTIVE} (المهام المُزعجة ${SCHEDULER_ACTIVE ? 'مفعّلة' : 'معطّلة'})`);
 
   // ── 0. Bundle 92-tasks generation (daily at 05:00 UTC) ──
   jobs.push(cron.schedule('0 5 * * *', async () => {
@@ -42,41 +52,93 @@ export function startScheduler() {
     } catch (e) { errLog('scheduler', `Morning scan failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
-  // ── 2a. Morning report (10:00 UTC) ──
-  jobs.push(cron.schedule('0 10 * * *', async () => {
-    info('scheduler', '🌅 Morning report...');
-    try {
-      const { default: reporter } = await import('./reporter.js');
-      await reporter.sendReport('morning');
-    } catch (e) { errLog('scheduler', `Morning report failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
+  // ─────────────────────────────────────────────
+  // المهام المُزعجة — تُوقف بـ SCHEDULER_ACTIVE=false
+  // ─────────────────────────────────────────────
+  if (SCHEDULER_ACTIVE) {
 
-  // ── 2b. Afternoon report (16:00 UTC) ──
-  jobs.push(cron.schedule('0 16 * * *', async () => {
-    info('scheduler', '📊 Afternoon report...');
-    try {
-      const { default: reporter } = await import('./reporter.js');
-      await reporter.sendReport('afternoon');
-    } catch (e) { errLog('scheduler', `Afternoon report failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
+    // ── 2a. Morning report (10:00 UTC) ──
+    jobs.push(cron.schedule('0 10 * * *', async () => {
+      info('scheduler', '🌅 Morning report...');
+      try {
+        const { default: reporter } = await import('./reporter.js');
+        await reporter.sendReport('morning');
+      } catch (e) { errLog('scheduler', `Morning report failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
 
-  // ── 2c. Evening report (22:00 UTC) ──
-  jobs.push(cron.schedule('0 22 * * *', async () => {
-    info('scheduler', '🌙 Evening report...');
-    try {
-      const { default: reporter } = await import('./reporter.js');
-      await reporter.sendReport('evening');
-    } catch (e) { errLog('scheduler', `Evening report failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
+    // ── 2b. Afternoon report (16:00 UTC) ──
+    jobs.push(cron.schedule('0 16 * * *', async () => {
+      info('scheduler', '📊 Afternoon report...');
+      try {
+        const { default: reporter } = await import('./reporter.js');
+        await reporter.sendReport('afternoon');
+      } catch (e) { errLog('scheduler', `Afternoon report failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
 
-  // ── 2d. Night report (04:00 UTC) ──
-  jobs.push(cron.schedule('0 4 * * *', async () => {
-    info('scheduler', '🌙 Night report...');
-    try {
-      const { default: reporter } = await import('./reporter.js');
-      await reporter.sendReport('night');
-    } catch (e) { errLog('scheduler', `Night report failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
+    // ── 2c. Evening report (22:00 UTC) ──
+    jobs.push(cron.schedule('0 22 * * *', async () => {
+      info('scheduler', '🌙 Evening report...');
+      try {
+        const { default: reporter } = await import('./reporter.js');
+        await reporter.sendReport('evening');
+      } catch (e) { errLog('scheduler', `Evening report failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
+
+    // ── 2d. Night report (04:00 UTC) ──
+    jobs.push(cron.schedule('0 4 * * *', async () => {
+      info('scheduler', '🌙 Night report...');
+      try {
+        const { default: reporter } = await import('./reporter.js');
+        await reporter.sendReport('night');
+      } catch (e) { errLog('scheduler', `Night report failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
+
+    // ── 15. Scheduled report every 3 hours (real numbers → Aurora) ──
+    jobs.push(cron.schedule('0 */3 * * *', async () => {
+      info('scheduler', '📬 3-hour report...');
+      try {
+        const { sendScheduledReport } = await import('./task-queue.js');
+        const result = await sendScheduledReport();
+        if (!result.delivered) warn('scheduler', `3-hour report not delivered: ${JSON.stringify(result).slice(0,200)}`);
+      } catch (e) { errLog('scheduler', `3-hour report failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
+
+    // ── 18. Follow-up checker (every 15 minutes) ──
+    jobs.push(cron.schedule('*/15 * * * *', async () => {
+      info('scheduler', '📬 Follow-up check...');
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync('bash scripts/followup_15min.sh', { timeout: 60000, env: process.env });
+      } catch (e) { errLog('scheduler', `Follow-up failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
+
+    // ── 19. Event Pipeline: Researcher (every 5 minutes) ──
+    jobs.push(cron.schedule('*/5 * * * *', async () => {
+      info('scheduler', '🔎 Pipeline researcher cycle...');
+      try {
+        const { runResearcher } = await import('./pipeline.js');
+        await runResearcher();
+      } catch (e) { errLog('scheduler', `Researcher failed: ${e.message}`); }
+    }, { timezone: 'UTC' }));
+
+    // ── 20. Event Pipeline: Planner → Executor → Reviewer → Orchestrator (every 1 minute) ──
+    jobs.push(cron.schedule('* * * * *', async () => {
+      try {
+        const pipe = await import('./pipeline.js');
+        for (let i = 0; i < 3; i++) {
+          if (await pipe.runPlanner()) {} else break;
+        }
+        for (let i = 0; i < 3; i++) {
+          if (await pipe.runExecutor()) {} else break;
+        }
+        for (let i = 0; i < 3; i++) {
+          if (await pipe.runReviewer()) {} else break;
+        }
+        await pipe.runOrchestrator();
+      } catch (e) { errLog('scheduler', `Pipeline loop error: ${e.message}`); }
+    }, { timezone: 'UTC' }));
+
+  } // ← نهاية المهام المُزعجة
 
   // ── 2e. Marketing cycle (every 4 hours) ──
   jobs.push(cron.schedule('0 */4 * * *', async () => {
@@ -222,16 +284,6 @@ export function startScheduler() {
     } catch (e) { warn('scheduler', `⚠️ Team report failed: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
-  // ── 15. Scheduled report every 3 hours (real numbers → Aurora) ──
-  jobs.push(cron.schedule('0 */3 * * *', async () => {
-    info('scheduler', '📬 3-hour report...');
-    try {
-      const { sendScheduledReport } = await import('./task-queue.js');
-      const result = await sendScheduledReport();
-      if (!result.delivered) warn('scheduler', `3-hour report not delivered: ${JSON.stringify(result).slice(0,200)}`);
-    } catch (e) { errLog('scheduler', `3-hour report failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
-
   // ── 16. Heartbeat fallback: run queue task every 5 min ──
   jobs.push(cron.schedule('*/5 * * * *', async () => {
     try {
@@ -247,41 +299,6 @@ export function startScheduler() {
       const { execSync } = await import('node:child_process');
       execSync('bash scripts/watch_bounties.sh', { timeout: 60000, env: process.env });
     } catch (e) { errLog('scheduler', `Bounty watch failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
-
-  // ── 18. Follow-up checker (every 15 minutes) ──
-  jobs.push(cron.schedule('*/15 * * * *', async () => {
-    info('scheduler', '📬 Follow-up check...');
-    try {
-      const { execSync } = await import('node:child_process');
-      execSync('bash scripts/followup_15min.sh', { timeout: 60000, env: process.env });
-    } catch (e) { errLog('scheduler', `Follow-up failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
-
-  // ── 19. Event Pipeline: Researcher (every 5 minutes) ──
-  jobs.push(cron.schedule('*/5 * * * *', async () => {
-    info('scheduler', '🔎 Pipeline researcher cycle...');
-    try {
-      const { runResearcher } = await import('./pipeline.js');
-      await runResearcher();
-    } catch (e) { errLog('scheduler', `Researcher failed: ${e.message}`); }
-  }, { timezone: 'UTC' }));
-
-  // ── 20. Event Pipeline: Planner → Executor → Reviewer → Orchestrator (every 1 minute) ──
-  jobs.push(cron.schedule('* * * * *', async () => {
-    try {
-      const pipe = await import('./pipeline.js');
-      for (let i = 0; i < 3; i++) {
-        if (await pipe.runPlanner()) {} else break;
-      }
-      for (let i = 0; i < 3; i++) {
-        if (await pipe.runExecutor()) {} else break;
-      }
-      for (let i = 0; i < 3; i++) {
-        if (await pipe.runReviewer()) {} else break;
-      }
-      await pipe.runOrchestrator();
-    } catch (e) { errLog('scheduler', `Pipeline loop error: ${e.message}`); }
   }, { timezone: 'UTC' }));
 
   // ── Record scheduler start in memory ──
