@@ -15,9 +15,81 @@ export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
 // ═══════════════════════════════════════════════════════════
-// 1) جمع بيانات حقيقية وشاملة
+// 1) كشف أسماء الملفات في السؤال
 // ═══════════════════════════════════════════════════════════
-function collectFullContext() {
+function detectMentionedFiles(text) {
+  const files = new Set();
+  const patterns = [
+    // src/file.js
+    /(?:src\/)?([\w\-]+\.js)/gi,
+    // file.json
+    /([\w\-]+\.json)/gi,
+    // file.md
+    /([\w\-]+\.md)/gi
+  ];
+
+  for (const pattern of patterns) {
+    const matches = String(text).matchAll(pattern);
+    for (const m of matches) {
+      let name = m[1] || m[0];
+      // تجاهل الامتدادات الوهمية
+      if (name.includes('..') || name.length < 3) continue;
+      files.add(name);
+    }
+  }
+
+  // لو لم يُذكر ملف صريح، لا نقرأ شيئاً
+  return [...files].slice(0, 3);
+}
+
+async function readFileIfExists(filename) {
+  try {
+    // ابحث في الجذر و src/
+    const candidates = [
+      path.join(config.root, filename),
+      path.join(config.root, 'src', filename),
+      path.join(config.root, 'public', filename)
+    ];
+
+    for (const fullPath of candidates) {
+      try {
+        const stats = await fs.stat(fullPath);
+        if (stats.isFile() && stats.size < 200 * 1024) {
+          const content = await fs.readFile(fullPath, 'utf8');
+          return {
+            path: path.relative(config.root, fullPath),
+            size: stats.size,
+            content: content.slice(0, 8000) // 8KB كحد أقصى
+          };
+        }
+      } catch { /* skip */ }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function collectFileContexts(userMessage) {
+  const mentioned = detectMentionedFiles(userMessage);
+  if (!mentioned.length) return [];
+
+  console.log('[team] detected files:', mentioned.join(', '));
+  const contexts = [];
+  for (const filename of mentioned) {
+    const fileData = await readFileIfExists(filename);
+    if (fileData) {
+      contexts.push(fileData);
+      console.log('[team] loaded:', fileData.path, '(' + fileData.size + ' bytes)');
+    }
+  }
+  return contexts;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 2) جمع بيانات النظام
+// ═══════════════════════════════════════════════════════════
+function collectSystemSnapshot() {
   try {
     const health = db.prepare(`
       SELECT component, healthy, detail FROM health_checks
@@ -25,30 +97,17 @@ function collectFullContext() {
     `).all();
 
     const tasksByStatus = db.prepare(`SELECT status, COUNT(*) c FROM tasks GROUP BY status`).all();
-    const tasksRecent = db.prepare(`
-      SELECT title, status, source, created_at FROM tasks
-      ORDER BY id DESC LIMIT 5
-    `).all();
-
     const recentErrors = db.prepare(`
       SELECT scope, error_type, message, last_seen FROM errors
       WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours')
       ORDER BY last_seen DESC LIMIT 5
     `).all();
-
-    const recentMessages = db.prepare(`
-      SELECT sender, body, created_at FROM messages
-      WHERE thread='team' AND sender != 'aurora'
-      ORDER BY id DESC LIMIT 3
-    `).all();
-
     const pendingApprovals = db.prepare(`SELECT COUNT(*) c FROM approvals WHERE state='pending'`).get().c;
     const activeAgents = db.prepare(`
       SELECT agent, COUNT(*) c FROM agent_runs
       WHERE created_at >= datetime('now', '-24 hours')
       GROUP BY agent ORDER BY c DESC LIMIT 5
     `).all();
-
     const products = db.prepare(`
       SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published
       FROM produced_products
@@ -61,15 +120,11 @@ function collectFullContext() {
         healthy: health.filter(h => h.healthy === 1).length,
         failing: health.filter(h => h.healthy !== 1).map(h => ({ name: h.component, reason: h.detail || '' }))
       },
-      tasks: {
-        byStatus: tasksByStatus,
-        recent: tasksRecent
-      },
+      tasks: tasksByStatus,
       errors: recentErrors,
       approvals: pendingApprovals,
       agents: activeAgents,
-      products: products,
-      previousMessages: recentMessages.map(m => `[${m.sender}]: ${String(m.body).slice(0, 150)}`)
+      products: products
     };
   } catch (e) {
     return { error: e.message };
@@ -77,45 +132,51 @@ function collectFullContext() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2) System Prompt قوي — يعلّم الـ LLM كيف يتحدث
+// 3) System Prompt
 // ═══════════════════════════════════════════════════════════
-function buildAuroraPrompt(userMessage, ctx) {
+function buildAuroraPrompt(userMessage, ctx, fileContexts) {
+  let filesSection = '';
+  if (fileContexts.length > 0) {
+    filesSection = '\n════════ محتوى الملفات المذكورة في السؤال ════════\n\n';
+    for (const f of fileContexts) {
+      filesSection += `── ${f.path} (${f.size} bytes) ──\n\`\`\`\n${f.content}\n\`\`\`\n\n`;
+    }
+  } else {
+    filesSection = '\n════════ ملاحظة ════════\n';
+    filesSection += 'لم يُذكر أي ملف في سؤالك، أو لم أتمكن من قراءته.\n';
+    filesSection += 'إذا كنت تريد تحليل ملف، اذكر اسمه صراحة (مثل: config.js أو team.js).\n';
+  }
+
   return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". أنتِ ذكية، صريحة، ودودة. تتحدثين مع قائدك محمد عباس.
 
-════════ بيانات النظام الحقيقية (استخدميها فقط) ════════
+════════ بيانات النظام ════════
 
 ${JSON.stringify(ctx, null, 2)}
 
-════════ قواعد صارمة (لا تكسريها) ════════
+${filesSection}
+
+════════ قواعد صارمة ════════
 
 1. تحدثي كإنسان حقيقي، بأسلوب طبيعي ودافئ.
-2. استخدمي فقط الأرقام والحقائق الموجودة في البيانات أعلاه.
-3. لا تختلقي أي معلومة غير موجودة. إذا لم تجدي المعلومة، قولي: "لا توجد بيانات لدي عن هذا".
-4. لا تتحدثي عن أشياء غير موجودة في البيانات (لا "خصوم"، لا "حدود"، لا "أعداء").
-5. اكتبي بالعربية الفصحى الواضحة، بدون مقدمات مثل "بالتأكيد" أو "حسناً".
-6. إذا سألك القائد عن "حالة النظام":
-   - اذكري عدد المكونات السليمة من الإجمالي
-   - اذكري المكونات التي بها مشاكل (إن وُجدت)
-   - اذكري عدد المهام المعلقة والمنجزة
-   - اذكري الأخطاء الأخيرة إن وُجدت
-7. إذا سألك عن شيء آخر (نص، ترجمة، تحليل)، أجيبي بذكاء وطبيعية.
-8. الطول: حسب السؤال — قصير للأسئلة القصيرة، مفصل للطلبات المعقدة.
+2. استخدمي البيانات الحقيقية والملفات المرفقة أعلاه.
+3. إذا ذكر القائد ملفاً ولم تجديه، قولي: "لم أجد الملف — تأكد من الاسم أو المسار".
+4. لا تختلقي معلومات. لا تتكلمي عن أشياء غير موجودة (لا خصوم، لا حروب، لا استخبارات).
+5. اكتبي بالعربية الفصحى، بدون مقدمات.
+6. إذا طلب القائد تحسينات على ملف: اقرئي الملف أعلاه، حلّلي الكود، ثم اقترحي 3 تحسينات محددة بأمثلة كود.
+7. إذا سأل عن حالة النظام: اذكري المكونات السليمة والمشاكل والمهام.
+8. الطول: حسب السؤال.
 
 ════════ أمر القائد ════════
 
 ${userMessage}
 
-════════ الآن اكتبي ردّك (بدون أي JSON، بدون أقواس، فقط نص عربي طبيعي):`;
+════════ اكتبي ردّك الآن (نص عربي طبيعي فقط):`;
 }
 
 // ═══════════════════════════════════════════════════════════
-// 3) فلتر الهلوسة — يرفض الردود الغريبة
+// 4) فلتر الهلوسة
 // ═══════════════════════════════════════════════════════════
-const FORBIDDEN_TERMS = [
-  'الخصوم', 'الأعداء', 'العدو', 'الحدود', 'الحرب', 'المعارك', 'الجيش',
-  'العسكري', 'التسريبات', 'الاستخبارات العسكرية', 'الجاسوس',
-  'military', 'enemy', 'troops', 'warfare'
-];
+const FORBIDDEN_TERMS = ['الخصوم', 'الأعداء', 'الحدود', 'الحرب', 'المعارك', 'الجيش', 'العسكري', 'الجاسوس', 'military', 'enemy', 'troops'];
 
 function hasHallucination(text) {
   const lower = String(text).toLowerCase();
@@ -124,8 +185,6 @@ function hasHallucination(text) {
 
 function cleanAgentResponse(text) {
   let clean = String(text || '').trim();
-
-  // إزالة JSON إن وُجد
   try {
     if (clean.startsWith('{') || clean.startsWith('[')) {
       const parsed = JSON.parse(clean);
@@ -134,70 +193,45 @@ function cleanAgentResponse(text) {
       }
     }
   } catch { /* not JSON */ }
-
-  // إزالة علامات markdown
   clean = clean.replace(/^#{1,6}\s+/gm, '')
                .replace(/\*\*(.+?)\*\*/g, '$1')
                .replace(/__(.+?)__/g, '$1')
                .replace(/`([^`]+)`/g, '$1')
                .replace(/^\s*\{[\s\S]*\}\s*$/gm, '');
-
-  // تنظيف
   clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
-
   if (clean.length > 3500) clean = clean.slice(0, 3500) + '…';
-
   return clean || null;
 }
 
 // ═══════════════════════════════════════════════════════════
-// 4) الرد مع آلية retry إذا هلوس
+// 5) توليد الرد
 // ═══════════════════════════════════════════════════════════
-async function generateSmartReply(userMessage, ctx) {
-  const prompt = buildAuroraPrompt(userMessage, ctx);
+async function generateSmartReply(userMessage, ctx, fileContexts) {
+  const prompt = buildAuroraPrompt(userMessage, ctx, fileContexts);
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const raw = await callModel('aurora', prompt, { noJsonMode: true });
       const clean = cleanAgentResponse(raw);
-
-      if (!clean || clean.length < 10) {
-        console.warn('[team] empty response, attempt', attempt);
-        continue;
-      }
-
-      if (hasHallucination(clean)) {
-        console.warn('[team] hallucination detected, attempt', attempt, '→ retrying');
-        continue;
-      }
-
-      console.log('[team] smart reply ok, length=' + clean.length);
+      if (!clean || clean.length < 10) { console.warn('[team] empty, attempt', attempt); continue; }
+      if (hasHallucination(clean)) { console.warn('[team] hallucination, attempt', attempt); continue; }
+      console.log('[team] reply ok, length=' + clean.length);
       return clean;
     } catch (e) {
       console.error('[team] attempt', attempt, 'failed:', e?.message);
     }
   }
 
-  // Fallback حقيقي مبني على البيانات
-  return buildDataFallback(userMessage, ctx);
+  return buildDataFallback(ctx);
 }
 
-function buildDataFallback(userMessage, ctx) {
-  if (ctx.error) {
-    return `تعذر قراءة بيانات النظام: ${ctx.error}`;
-  }
-  return [
-    `حالة النظام الآن:`,
-    `• المكونات السليمة: ${ctx.health.healthy} من ${ctx.health.total}`,
-    `• المهام المعلقة: ${ctx.tasks.byStatus.find(t => t.status === 'pending')?.c || 0}`,
-    `• الأخطاء الأخيرة: ${ctx.errors.length}`,
-    ``,
-    `(تعذر توليد تحليل مفصل — حاول مرة أخرى)`
-  ].join('\n');
+function buildDataFallback(ctx) {
+  if (ctx.error) return `تعذر قراءة بيانات النظام: ${ctx.error}`;
+  return `حالة النظام: ${ctx.health.healthy} من ${ctx.health.total} مكونات سليمة. حاول مرة أخرى.`;
 }
 
 // ═══════════════════════════════════════════════════════════
-// 5) Helpers
+// 6) Helpers
 // ═══════════════════════════════════════════════════════════
 function sanitizeStoredBody(body) {
   const s = String(body || '');
@@ -220,7 +254,6 @@ async function sendTelegramSafe(text) {
     if (typeof mod.sendMessageDetailed !== 'function') return { delivered: false };
     return await mod.sendMessageDetailed(text);
   } catch (err) {
-    console.error('[team] send failed:', err?.message);
     return { delivered: false, error: err?.message };
   }
 }
@@ -232,7 +265,6 @@ export function listMessages(limit = 100) {
            attachment_path AS attachmentPath, created_at AS createdAt
     FROM messages ORDER BY id DESC LIMIT ?
   `).all(Math.min(Number(limit) || 100, 300)).reverse();
-
   return rows.map(r => ({ ...r, body: sanitizeStoredBody(r.body) }));
 }
 
@@ -255,18 +287,14 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] smart mode, message=' + String(message.body).slice(0, 50));
+  console.log('[team] smart+files mode, message=' + String(message.body).slice(0, 50));
 
-  // جمع البيانات
-  const ctx = collectFullContext();
-  console.log('[team] ctx: health=' + ctx.health?.healthy + '/' + ctx.health?.total);
+  const ctx = collectSystemSnapshot();
+  const fileContexts = await collectFileContexts(message.body);
+  console.log('[team] ctx health=' + ctx.health?.healthy + '/' + ctx.health?.total + ', files=' + fileContexts.length);
 
-  // توليد رد ذكي
-  const reply = await generateSmartReply(message.body, ctx);
-
+  const reply = await generateSmartReply(message.body, ctx, fileContexts);
   insertAgentMessage('aurora', reply);
-
-  // إرسال على Telegram
   await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
   await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
 }
