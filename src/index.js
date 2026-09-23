@@ -27,6 +27,11 @@ import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
 
 // ─────────────────────────────────────────────
+// 🛡️ تحميل bot-guard مبكراً لضمان حماية البوت من أول لحظة
+// ─────────────────────────────────────────────
+import './bot-guard.js';
+
+// ─────────────────────────────────────────────
 // مفتاح التحكم في التقارير اليومية
 // الافتراضي: true (يعمل كما هو)
 // للإيقاف: أضف DAILY_REPORTS_ENABLED=false في Render Environment
