@@ -8,6 +8,8 @@
  * - New platforms discovered
  * - Lessons learned
  * - Tomorrow's plan
+ *
+ * ملاحظة: يمكن تعطيل إرسال تقارير Telegram بـ REPORTS_TELEGRAM_DISABLED=true
  */
 import { db } from './db.js';
 import { info, warn } from './logger.js';
@@ -21,12 +23,24 @@ import { getPrizeStats, getPrizes } from './prize-scanner.js';
 import { getDiscoveryStats, getDiscoveredPlatforms } from './platform-discovery.js';
 import { getPublisherStats } from './multi-publisher.js';
 
+// ─────────────────────────────────────────────
+// مفتاح التحكم في إرسال تقارير Telegram
+// الافتراضي: true (لا يُرسل) — القائد يتحكم
+// لتفعيل الإرسال: REPORTS_TELEGRAM_DISABLED=false
+// ─────────────────────────────────────────────
+const REPORTS_TELEGRAM_DISABLED = process.env.REPORTS_TELEGRAM_DISABLED !== 'false';
+
 class ReporterAgent {
   constructor() {
     this.reportsSent = 0;
   }
 
   async sendDailyReport() {
+    if (REPORTS_TELEGRAM_DISABLED) {
+      info('reporter', '⏸ تقارير Telegram معطّلة (REPORTS_TELEGRAM_DISABLED=true) — لن يتم الإرسال');
+      return { success: true, skipped: true, reason: 'REPORTS_TELEGRAM_DISABLED' };
+    }
+
     info('reporter', '📊 Generating daily report...');
 
     const today = new Date().toISOString().split('T')[0];
@@ -36,25 +50,20 @@ class ReporterAgent {
     const totalTasks = db.prepare('SELECT COUNT(*) c FROM tasks').get();
     const pendingTasks = db.prepare("SELECT COUNT(*) c FROM tasks WHERE status NOT IN ('done', 'cancelled')").get();
 
-    // 92 Tasks (bounty/task submissions)
     const tasks92Total = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('superteam', 'dework', 'gitcoin', 'bounty', 'prize_scan')").get().c;
     const tasks92Completed = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('superteam', 'dework', 'gitcoin', 'bounty', 'prize_scan') AND status = 'done'").get().c;
     const tasks92Submitted = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('superteam', 'dework', 'gitcoin', 'bounty', 'prize_scan') AND status IN ('submitted', 'done')").get().c;
 
-    // Store Products
     const storeProducts = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('store', 'production')").get().c;
     const storePublished = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('store', 'production') AND status = 'done'").get().c;
 
-    // Contracts
     const contractsTotal = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source = 'contract' OR title LIKE '%عقد%'").get().c;
     const contractsActive = db.prepare("SELECT COUNT(*) c FROM tasks WHERE (source = 'contract' OR title LIKE '%عقد%') AND status NOT IN ('done', 'cancelled')").get().c;
 
-    // Jobs & Opportunities
     const jobsTotal = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job', 'job_apply', 'job_scan')").get().c;
     const jobsApplied = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job', 'job_apply', 'job_scan') AND status IN ('applied', 'submitted', 'done')").get().c;
     const jobsSuccess = db.prepare("SELECT COUNT(*) c FROM tasks WHERE source IN ('job', 'job_apply', 'job_scan') AND status = 'done'").get().c;
 
-    // Revenue
     const revenue = db.prepare("SELECT COALESCE(SUM(reward), 0) c FROM tasks WHERE status = 'done' AND reward > 0").get().c;
 
     const prodStats = getProductionStats();
@@ -163,7 +172,6 @@ ${reportData.lessons}
       warn('reporter', `Report generation failed: ${e.message}`);
     }
 
-    // Fallback
     const fallbackReport = this.buildFallbackReport(reportData);
     try {
       await sendMessageDetailed(fallbackReport, config.telegramChatId);
@@ -246,6 +254,10 @@ ${reportData.lessons}
   }
 
   async sendReport(type = 'morning') {
+    if (REPORTS_TELEGRAM_DISABLED) {
+      info('reporter', `⏸ تقرير ${type} لم يُرسل (REPORTS_TELEGRAM_DISABLED=true)`);
+      return { success: true, skipped: true, reason: 'REPORTS_TELEGRAM_DISABLED' };
+    }
     if (type === 'morning') return this.sendMorningReport();
     if (type === 'evening') return this.sendEveningReport();
     return this.sendDailyReport();
@@ -260,6 +272,11 @@ ${reportData.lessons}
   }
 
   async _sendReport(typeLabel, type) {
+    if (REPORTS_TELEGRAM_DISABLED) {
+      info('reporter', `⏸ تقرير ${typeLabel} لم يُرسل (REPORTS_TELEGRAM_DISABLED=true)`);
+      return { success: true, skipped: true, reason: 'REPORTS_TELEGRAM_DISABLED' };
+    }
+
     info('reporter', `📊 Generating ${typeLabel} report...`);
 
     const tasksToday = db.prepare("SELECT COUNT(*) c FROM tasks WHERE date(created_at) = date('now')").get();
@@ -272,7 +289,7 @@ ${reportData.lessons}
     const pubStats = getPublisherStats();
     const revenue = db.prepare("SELECT COALESCE(SUM(reward),0) c FROM tasks WHERE status='done' AND reward>0").get().c;
 
-    const morningPrompt = `أنشئ تقريراً مботاً كاملاً لفريق عمالقة الصمت بالعربية. 
+    const morningPrompt = `أنشئ تقريراً مكتوباً كاملاً لفريق عمالقة الصمت بالعربية.
 التقرير صباحي (07:00 صباحاً). حدد: ملخص إنجازات الأمس + المنتجات المنشورة + العقود والجوائز + الوظائف + الإيرادات + الدروس + خطة اليوم.
 
 بيانات اليوم:
@@ -282,9 +299,9 @@ ${reportData.lessons}
 - منصات: ${discStats.total} مكتشفة، نشر: ${pubStats.queued}
 - الإيرادات: \$${revenue}
 
-لا JSON، لا أكواد. رد عربي طبيعى بأسلوب احترافى.`;
+لا JSON، لا أكواد. رد عربي طبيعي بأسلوب احترافي.`;
 
-    const eveningPrompt = `أنشئ تقريراً م-botaaً مسائياً لفريق عمالقة الصمت بالعربية. 
+    const eveningPrompt = `أنشئ تقريراً مكتوباً مسائياً لفريق عمالقة الصمت بالعربية.
 التقرير مسائي (20:00 مساءً). حدد: كل ما هو جديد اليوم + تفاعلات العملاء + إيرادات جديدة + تحديات + خطة الغد.
 
 بيانات اليوم:
@@ -294,7 +311,7 @@ ${reportData.lessons}
 - منصات: ${discStats.total} مكتشفة، نشر: ${pubStats.queued}
 - الإيرادات: \$${revenue}
 
-لا JSON، لا أكواد. رد عربي طبيعى بأسلوب احترافى.`;
+لا JSON، لا أكواد. رد عربي طبيعي بأسلوب احترافي.`;
 
     const prompt = type === 'morning' ? morningPrompt : eveningPrompt;
 
