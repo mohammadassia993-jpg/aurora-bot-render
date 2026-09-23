@@ -27,9 +27,10 @@ import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
 
 // ─────────────────────────────────────────────
-// 🛡️ تحميل bot-guard مبكراً لضمان حماية البوت من أول لحظة
+// 🛡️ تحميل الحماة مبكراً لضمان جاهزيتهم من أول لحظة
 // ─────────────────────────────────────────────
 import './bot-guard.js';
+import './self-healing-guard.js';
 
 // ─────────────────────────────────────────────
 // مفتاح التحكم في التقارير اليومية
