@@ -8,153 +8,208 @@ import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
 
 export const AGENTS = [
-  { id: 'aurora', name: 'أورورا', color: '#a78bfa' },
-  { id: 'planner', name: 'المخطط', color: '#60a5fa' },
-  { id: 'executor', name: 'المنفذ', color: '#34d399' },
-  { id: 'reviewer', name: 'المراجع', color: '#fbbf24' },
-  { id: 'scout', name: 'المستخبر', color: '#f472b6' }
+  { id: 'aurora', name: 'أورورا', color: '#a78bfa' }
 ];
 
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-// ─────────────────────────────────────────────
-// جمع بيانات حقيقية من قاعدة البيانات
-// ─────────────────────────────────────────────
-function collectSystemSnapshot() {
+// ═══════════════════════════════════════════════════════════
+// 1) جمع بيانات حقيقية وشاملة
+// ═══════════════════════════════════════════════════════════
+function collectFullContext() {
   try {
     const health = db.prepare(`
       SELECT component, healthy, detail FROM health_checks
       WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)
     `).all();
 
-    const tasksTotal = db.prepare('SELECT COUNT(*) as c FROM tasks').get().c;
-    const tasksDone = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status='done'").get().c;
-    const tasksPending = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status NOT IN ('done','cancelled')").get().c;
-    const pendingApprovals = db.prepare("SELECT COUNT(*) as c FROM approvals WHERE state='pending'").get().c;
-
-    const recentErrors = db.prepare(`
-      SELECT scope, error_type, COUNT(*) as count FROM errors
-      WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours')
-      GROUP BY scope, error_type
-      LIMIT 5
+    const tasksByStatus = db.prepare(`SELECT status, COUNT(*) c FROM tasks GROUP BY status`).all();
+    const tasksRecent = db.prepare(`
+      SELECT title, status, source, created_at FROM tasks
+      ORDER BY id DESC LIMIT 5
     `).all();
 
-    const agents = db.prepare(`
-      SELECT COUNT(DISTINCT agent) as c FROM agent_runs
-      WHERE created_at >= datetime('now', '-1 hour')
-    `).get().c;
+    const recentErrors = db.prepare(`
+      SELECT scope, error_type, message, last_seen FROM errors
+      WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours')
+      ORDER BY last_seen DESC LIMIT 5
+    `).all();
+
+    const recentMessages = db.prepare(`
+      SELECT sender, body, created_at FROM messages
+      WHERE thread='team' AND sender != 'aurora'
+      ORDER BY id DESC LIMIT 3
+    `).all();
+
+    const pendingApprovals = db.prepare(`SELECT COUNT(*) c FROM approvals WHERE state='pending'`).get().c;
+    const activeAgents = db.prepare(`
+      SELECT agent, COUNT(*) c FROM agent_runs
+      WHERE created_at >= datetime('now', '-24 hours')
+      GROUP BY agent ORDER BY c DESC LIMIT 5
+    `).all();
+
+    const products = db.prepare(`
+      SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published
+      FROM produced_products
+    `).get();
 
     return {
+      time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
       health: {
         total: health.length,
         healthy: health.filter(h => h.healthy === 1).length,
-        failing: health.filter(h => h.healthy !== 1).map(h => h.component)
+        failing: health.filter(h => h.healthy !== 1).map(h => ({ name: h.component, reason: h.detail || '' }))
       },
-      tasks: { total: tasksTotal, done: tasksDone, pending: tasksPending },
-      approvals: pendingApprovals,
+      tasks: {
+        byStatus: tasksByStatus,
+        recent: tasksRecent
+      },
       errors: recentErrors,
-      activeAgents: agents
+      approvals: pendingApprovals,
+      agents: activeAgents,
+      products: products,
+      previousMessages: recentMessages.map(m => `[${m.sender}]: ${String(m.body).slice(0, 150)}`)
     };
   } catch (e) {
     return { error: e.message };
   }
 }
 
-// ─────────────────────────────────────────────
-// بناء تقرير قالب (بدون LLM — لا هلوسة ممكنة)
-// ─────────────────────────────────────────────
-function buildTemplateReport(userMessage, snapshot) {
-  const time = new Date().toISOString().slice(0, 16).replace('T', ' ');
+// ═══════════════════════════════════════════════════════════
+// 2) System Prompt قوي — يعلّم الـ LLM كيف يتحدث
+// ═══════════════════════════════════════════════════════════
+function buildAuroraPrompt(userMessage, ctx) {
+  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". أنتِ ذكية، صريحة، ودودة. تتحدثين مع قائدك محمد عباس.
 
-  if (snapshot.error) {
-    return [
-      `📋 تقرير حالة النظام`,
-      ``,
-      `⚠️ تعذر قراءة قاعدة البيانات: ${snapshot.error}`,
-      ``,
-      `⏰ ${time} UTC`
-    ].join('\n');
-  }
+════════ بيانات النظام الحقيقية (استخدميها فقط) ════════
 
-  const lines = [
-    `📋 تقرير حالة النظام`,
-    ``,
-    `🩺 صحة النظام: ${snapshot.health.healthy}/${snapshot.health.total} مكونات سليمة`,
-  ];
+${JSON.stringify(ctx, null, 2)}
 
-  if (snapshot.health.failing.length > 0) {
-    lines.push(`   ⚠️ مكونات تحتاج مراجعة: ${snapshot.health.failing.join('، ')}`);
-  } else if (snapshot.health.total > 0) {
-    lines.push(`   ✅ جميع المكونات تعمل`);
-  } else {
-    lines.push(`   ℹ️ لم تُسجّل فحوصات صحية بعد`);
-  }
+════════ قواعد صارمة (لا تكسريها) ════════
 
-  lines.push(``);
-  lines.push(`📊 المهام:`);
-  lines.push(`   • إجمالي: ${snapshot.tasks.total}`);
-  lines.push(`   • منجزة: ${snapshot.tasks.done}`);
-  lines.push(`   • معلقة: ${snapshot.tasks.pending}`);
+1. تحدثي كإنسان حقيقي، بأسلوب طبيعي ودافئ.
+2. استخدمي فقط الأرقام والحقائق الموجودة في البيانات أعلاه.
+3. لا تختلقي أي معلومة غير موجودة. إذا لم تجدي المعلومة، قولي: "لا توجد بيانات لدي عن هذا".
+4. لا تتحدثي عن أشياء غير موجودة في البيانات (لا "خصوم"، لا "حدود"، لا "أعداء").
+5. اكتبي بالعربية الفصحى الواضحة، بدون مقدمات مثل "بالتأكيد" أو "حسناً".
+6. إذا سألك القائد عن "حالة النظام":
+   - اذكري عدد المكونات السليمة من الإجمالي
+   - اذكري المكونات التي بها مشاكل (إن وُجدت)
+   - اذكري عدد المهام المعلقة والمنجزة
+   - اذكري الأخطاء الأخيرة إن وُجدت
+7. إذا سألك عن شيء آخر (نص، ترجمة، تحليل)، أجيبي بذكاء وطبيعية.
+8. الطول: حسب السؤال — قصير للأسئلة القصيرة، مفصل للطلبات المعقدة.
 
-  lines.push(``);
-  lines.push(`📬 موافقات معلقة: ${snapshot.approvals}`);
-  lines.push(`👥 وكلاء نشطون (آخر ساعة): ${snapshot.activeAgents}`);
+════════ أمر القائد ════════
 
-  if (snapshot.errors.length > 0) {
-    lines.push(``);
-    lines.push(`⚠️ أخطاء آخر 24 ساعة (${snapshot.errors.length}):`);
-    for (const err of snapshot.errors) {
-      lines.push(`   • ${err.scope}/${err.error_type} (${err.count}x)`);
-    }
-  } else {
-    lines.push(``);
-    lines.push(`✅ لا أخطاء خلال 24 ساعة`);
-  }
+${userMessage}
 
-  lines.push(``);
-  lines.push(`⏰ ${time} UTC`);
-
-  return lines.join('\n');
+════════ الآن اكتبي ردّك (بدون أي JSON، بدون أقواس، فقط نص عربي طبيعي):`;
 }
 
-// ─────────────────────────────────────────────
-// (اختياري) تحسين التقرير بـ LLM — إن فشل، نُبقي القالب
-// ─────────────────────────────────────────────
-async function tryEnhanceWithLLM(templateReport) {
-  // معطّل افتراضياً — لا حاجة للـ LLM في التقارير الواقعية
-  if (process.env.TEAM_LLM_ENHANCE !== 'true') return null;
+// ═══════════════════════════════════════════════════════════
+// 3) فلتر الهلوسة — يرفض الردود الغريبة
+// ═══════════════════════════════════════════════════════════
+const FORBIDDEN_TERMS = [
+  'الخصوم', 'الأعداء', 'العدو', 'الحدود', 'الحرب', 'المعارك', 'الجيش',
+  'العسكري', 'التسريبات', 'الاستخبارات العسكرية', 'الجاسوس',
+  'military', 'enemy', 'troops', 'warfare'
+];
+
+function hasHallucination(text) {
+  const lower = String(text).toLowerCase();
+  return FORBIDDEN_TERMS.some(term => lower.includes(term.toLowerCase()));
+}
+
+function cleanAgentResponse(text) {
+  let clean = String(text || '').trim();
+
+  // إزالة JSON إن وُجد
   try {
-    const prompt = `حسّن صياغة التقرير التالي بالعربية الفصحى، دون تغيير أي رقم أو حقيقة:
-
-${templateReport}
-
-اكتب النسخة المحسّنة فقط، بدون مقدمات.`;
-    const result = await callModel('aurora', prompt, { noJsonMode: true });
-    const clean = String(result || '').trim();
-    return clean.length > 50 ? clean : null;
-  } catch {
-    return null;
-  }
-}
-
-function sanitizeStoredBody(body) {
-  const s = String(body || '');
-  const looksLikeJson =
-    s.startsWith('{') || s.startsWith('[') ||
-    s.includes('"response"') || s.includes('"status"') ||
-    s.includes('"components"') || s.includes('"telegram"') ||
-    (s.match(/[{]/g) || []).length > 2;
-
-  if (looksLikeJson) {
-    let clean = s;
-    try {
-      const parsed = JSON.parse(s);
+    if (clean.startsWith('{') || clean.startsWith('[')) {
+      const parsed = JSON.parse(clean);
       if (typeof parsed === 'object' && parsed !== null) {
         clean = parsed.response || parsed.report || parsed.text || parsed.message || JSON.stringify(parsed);
       }
+    }
+  } catch { /* not JSON */ }
+
+  // إزالة علامات markdown
+  clean = clean.replace(/^#{1,6}\s+/gm, '')
+               .replace(/\*\*(.+?)\*\*/g, '$1')
+               .replace(/__(.+?)__/g, '$1')
+               .replace(/`([^`]+)`/g, '$1')
+               .replace(/^\s*\{[\s\S]*\}\s*$/gm, '');
+
+  // تنظيف
+  clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
+
+  if (clean.length > 3500) clean = clean.slice(0, 3500) + '…';
+
+  return clean || null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 4) الرد مع آلية retry إذا هلوس
+// ═══════════════════════════════════════════════════════════
+async function generateSmartReply(userMessage, ctx) {
+  const prompt = buildAuroraPrompt(userMessage, ctx);
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const raw = await callModel('aurora', prompt, { noJsonMode: true });
+      const clean = cleanAgentResponse(raw);
+
+      if (!clean || clean.length < 10) {
+        console.warn('[team] empty response, attempt', attempt);
+        continue;
+      }
+
+      if (hasHallucination(clean)) {
+        console.warn('[team] hallucination detected, attempt', attempt, '→ retrying');
+        continue;
+      }
+
+      console.log('[team] smart reply ok, length=' + clean.length);
+      return clean;
+    } catch (e) {
+      console.error('[team] attempt', attempt, 'failed:', e?.message);
+    }
+  }
+
+  // Fallback حقيقي مبني على البيانات
+  return buildDataFallback(userMessage, ctx);
+}
+
+function buildDataFallback(userMessage, ctx) {
+  if (ctx.error) {
+    return `تعذر قراءة بيانات النظام: ${ctx.error}`;
+  }
+  return [
+    `حالة النظام الآن:`,
+    `• المكونات السليمة: ${ctx.health.healthy} من ${ctx.health.total}`,
+    `• المهام المعلقة: ${ctx.tasks.byStatus.find(t => t.status === 'pending')?.c || 0}`,
+    `• الأخطاء الأخيرة: ${ctx.errors.length}`,
+    ``,
+    `(تعذر توليد تحليل مفصل — حاول مرة أخرى)`
+  ].join('\n');
+}
+
+// ═══════════════════════════════════════════════════════════
+// 5) Helpers
+// ═══════════════════════════════════════════════════════════
+function sanitizeStoredBody(body) {
+  const s = String(body || '');
+  const looksLikeJson = s.startsWith('{') || s.startsWith('[') || (s.match(/[{]/g) || []).length > 2;
+  if (looksLikeJson) {
+    try {
+      const parsed = JSON.parse(s);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return String(parsed.response || parsed.report || parsed.text || '').slice(0, 2000) || 'رد قديم';
+      }
     } catch { /* not JSON */ }
-    return String(clean).slice(0, 2000);
+    return 'رد قديم';
   }
   return s;
 }
@@ -200,36 +255,20 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] template-report mode, message=' + String(message.body).slice(0, 50));
+  console.log('[team] smart mode, message=' + String(message.body).slice(0, 50));
 
-  // 1) جمع البيانات الحقيقية
-  const snapshot = collectSystemSnapshot();
-  console.log('[team] snapshot: health=' + snapshot.health?.healthy + '/' + snapshot.health?.total + ', tasks.pending=' + snapshot.tasks?.pending);
+  // جمع البيانات
+  const ctx = collectFullContext();
+  console.log('[team] ctx: health=' + ctx.health?.healthy + '/' + ctx.health?.total);
 
-  // 2) بناء تقرير قالب (بدون LLM)
-  let report = buildTemplateReport(message.body, snapshot);
+  // توليد رد ذكي
+  const reply = await generateSmartReply(message.body, ctx);
 
-  // 3) (اختياري) تحسين بـ LLM — معطّل افتراضياً
-  const enhanced = await tryEnhanceWithLLM(report);
-  if (enhanced) {
-    report = enhanced;
-    console.log('[team] LLM enhanced report');
-  } else {
-    console.log('[team] using template report (no LLM)');
-  }
+  insertAgentMessage('aurora', reply);
 
-  // 4) حفظ
-  insertAgentMessage('aurora', report);
-
-  // 5) إرسال رسالة واحدة
-  const finalText = [
-    `📋 <b>تقرير النظام</b>`,
-    ``,
-    report
-  ].join('\n');
-
-  await sendTelegramSafe(finalText);
-  await notify('team_message', `تقرير جديد`, message.body.slice(0, 500));
+  // إرسال على Telegram
+  await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
+  await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
 }
 
 function insertAgentMessage(agent, body) {
