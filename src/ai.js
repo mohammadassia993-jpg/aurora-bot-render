@@ -5,7 +5,6 @@ import { db, recordError } from './db.js';
 import { info, warn } from './logger.js';
 
 const providerState = new Map();
-
 const FAILURE_THRESHOLD = 3;
 const BLOCK_DURATION_MS = 60000;
 const INTER_PROVIDER_DELAY_MS = 500;
@@ -36,17 +35,11 @@ function recordSuccess(modelId) {
   providerState.set(modelId, { failures: 0, blockedUntil: 0 });
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function modelScores() {
   try {
-    return db.prepare(`
-      SELECT model, AVG(success) AS success_rate, AVG(latency_ms) AS avg_latency,
-             AVG(quality_score) AS avg_quality
-      FROM agent_runs GROUP BY model ORDER BY avg_quality DESC, success_rate DESC, avg_latency ASC
-    `).all();
+    return db.prepare(`SELECT model, AVG(success) AS success_rate, AVG(latency_ms) AS avg_latency, AVG(quality_score) AS avg_quality FROM agent_runs GROUP BY model ORDER BY avg_quality DESC, success_rate DESC, avg_latency ASC`).all();
   } catch { return []; }
 }
 
@@ -55,28 +48,22 @@ export function simulationEnabled() {
 }
 
 export function availableModels() {
-  const hasRealKey = Boolean(
-    config.kiloGatewayUrl || config.llm7Key || config.agnesKey || config.deepSeekKey ||
-    config.geminiKey || config.siliconFlowKey || config.openRouterKey || config.kimiKey ||
-    config.orcaRouterKey
-  );
-  if (simulationEnabled() && !hasRealKey) {
-    return [{ id: 'local-deterministic', label: 'محاكاة', priority: 99 }];
-  }
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
   return [
-    config.kiloGatewayUrl && { id: 'kilo', label: 'Kilo Gateway', priority: 0 },
-    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 1 },
-    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 2 },
-    config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 2 },
-    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 3 },
-    config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 3 },
-    config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 4 },
-    config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 4 },
-    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 5 },
-    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 6 },
-    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 7 },
-    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 8 },
+    GITHUB_TOKEN && { id: 'github-models', label: 'GitHub Models (GPT-4o-mini)', priority: 0 },
+    { id: 'pollinations', label: 'Pollinations AI', priority: 1 },
+    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 2 },
+    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 3 },
+    config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 3 },
+    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 4 },
+    config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 4 },
+    config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 5 },
+    config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 5 },
+    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 6 },
+    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 7 },
+    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 8 },
+    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 9 },
     { id: 'local-deterministic', label: 'محاكاة', priority: 99 }
   ].filter(Boolean);
 }
@@ -92,11 +79,8 @@ export function selectModel() {
 
 function recordRun(agent, model, success, latencyMs, qualityScore = 80) {
   try {
-    db.prepare(`
-      INSERT INTO agent_runs(agent, model, success, latency_ms, quality_score)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(agent, model, success ? 1 : 0, Math.round(latencyMs), qualityScore);
-  } catch { /* ignore */ }
+    db.prepare(`INSERT INTO agent_runs(agent, model, success, latency_ms, quality_score) VALUES (?, ?, ?, ?, ?)`).run(agent, model, success ? 1 : 0, Math.round(latencyMs), qualityScore);
+  } catch {}
 }
 
 async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 60000, noJsonMode = false }) {
@@ -104,26 +88,12 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers = { 'content-type': 'application/json' };
-    if (apiKey && apiKey !== 'not-needed' && apiKey !== 'anonymous') {
-      headers['authorization'] = 'Bearer ' + apiKey;
-    }
+    if (apiKey && apiKey !== 'not-needed' && apiKey !== 'anonymous') headers['authorization'] = 'Bearer ' + apiKey;
     const endpoint = url.replace(/\/$/, '') + '/chat/completions';
-
-    const body = {
-      model,
-      messages,
-      temperature: 0.6,
-      max_tokens: 2500
-    };
+    const body = { model, messages, temperature: 0.6, max_tokens: 2500 };
     if (!noJsonMode) body.response_format = { type: 'json_object' };
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-
+    const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
     const text = await res.text();
     if (!res.ok) {
       const error = new Error('HTTP ' + res.status + ': ' + text.slice(0, 200));
@@ -131,20 +101,9 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
       error.transient = (res.status === 429 || res.status === 503 || res.status === 502 || res.status === 504);
       throw error;
     }
-
-    let data;
-    try { data = JSON.parse(text); }
-    catch { throw new Error('invalid JSON: ' + text.slice(0, 200)); }
-
-    const content =
-      data?.choices?.[0]?.message?.content ??
-      data?.choices?.[0]?.text ??
-      data?.output?.text ??
-      data?.content ??
-      data?.response ??
-      null;
-
-    if (!content) throw new Error('empty response: ' + text.slice(0, 200));
+    let data; try { data = JSON.parse(text); } catch { throw new Error('invalid JSON: ' + text.slice(0, 200)); }
+    const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.output?.text ?? data?.content ?? data?.response ?? null;
+    if (!content) throw new Error('empty response');
     return typeof content === 'string' ? content : JSON.stringify(content);
   } finally {
     clearTimeout(timer);
@@ -154,8 +113,10 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
 async function dispatchToProvider(modelId, prompt, options = {}) {
   const messages = [{ role: 'user', content: prompt }];
   const noJsonMode = options.noJsonMode === true;
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-  if (modelId === 'kilo') return await callOpenAICompatible({ url: config.kiloGatewayUrl, apiKey: config.kiloGatewayKey, model: config.kiloGatewayModel, messages, noJsonMode });
+  if (modelId === 'github-models') return await callOpenAICompatible({ url: 'https://models.inference.ai.azure.com', apiKey: GITHUB_TOKEN, model: 'gpt-4o-mini', messages, noJsonMode });
+  if (modelId === 'pollinations') return await callOpenAICompatible({ url: 'https://text.pollinations.ai/openai', apiKey: 'not-needed', model: 'openai', messages, noJsonMode });
   if (modelId === 'llm7') return await callOpenAICompatible({ url: config.llm7Url, apiKey: config.llm7Key || 'unused', model: config.llm7Model, messages, noJsonMode });
   if (modelId === 'agnes') return await callOpenAICompatible({ url: config.agnesUrl, apiKey: config.agnesKey, model: config.agnesModel, messages, noJsonMode });
   if (modelId === 'deepseek') return await callOpenAICompatible({ url: 'https://api.deepseek.com/v1', apiKey: config.deepSeekKey, model: config.deepSeekModel, messages, noJsonMode });
@@ -167,7 +128,7 @@ async function dispatchToProvider(modelId, prompt, options = {}) {
   if (modelId === 'danyapi') return await callOpenAICompatible({ url: config.danyApiUrl, apiKey: 'not-needed', model: config.danyApiModel, messages, noJsonMode });
   if (modelId === 'logfare') return await callOpenAICompatible({ url: config.logfareUrl, apiKey: config.logfareKey, model: config.logfareModel, messages, noJsonMode });
   if (modelId === 'gpt-oss') return await callOpenAICompatible({ url: config.gptOssApiUrl, apiKey: process.env.GPT_OSS_API_KEY || 'not-needed', model: config.gptOssModel, messages, noJsonMode });
-  if (modelId === 'local-deterministic') return 'لا يوجد مزود AI متاح حالياً.';
+  if (modelId === 'local-deterministic') return 'لا يوجد مزود AI حقيقي حالياً.';
   throw new Error('unknown provider: ' + modelId);
 }
 
@@ -177,19 +138,15 @@ export async function callModel(agentName, prompt, options = {}) {
     recordRun(agentName, 'no-model', false, 0);
     return 'عذراً، لا يوجد مزود AI مُهيَّأ.';
   }
-
   let lastError = null;
   let firstAttempt = true;
-
   for (const candidate of models) {
     if (isProviderBlocked(candidate.id)) {
       info('ai', agentName + ' -> ' + candidate.id + ' skipped (circuit breaker)');
       continue;
     }
-
     if (!firstAttempt) await sleep(INTER_PROVIDER_DELAY_MS);
     firstAttempt = false;
-
     const startedAt = Date.now();
     try {
       const response = await dispatchToProvider(candidate.id, prompt, options);
@@ -201,21 +158,15 @@ export async function callModel(agentName, prompt, options = {}) {
     } catch (error) {
       const latency = Date.now() - startedAt;
       recordRun(agentName, candidate.id, false, latency);
-      if (!error.transient) {
-        recordFailure(candidate.id);
-      } else {
-        info('ai', agentName + ' -> ' + candidate.id + ' transient (not counted)');
-      }
+      if (!error.transient) recordFailure(candidate.id);
+      else info('ai', agentName + ' -> ' + candidate.id + ' transient');
       warn('ai', agentName + ' -> ' + candidate.id + ' failed: ' + error.message);
       lastError = error;
     }
   }
-
   recordRun(agentName, 'all-failed', false, 0);
   try { recordError('ai', 'ALL_PROVIDERS_FAILED', lastError?.message || 'unknown'); } catch {}
   return 'عذراً، جميع مزودي AI فشلوا. حاول بعد قليل.';
 }
 
-export function modelPerformance() {
-  return modelScores();
-}
+export function modelPerformance() { return modelScores(); }
