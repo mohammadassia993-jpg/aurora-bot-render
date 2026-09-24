@@ -1,23 +1,18 @@
 /**
  * task-queue.js — Persistent Task Queue + Mission Loop + Agent Loop
- *
- * ملاحظة: كل دوال الإرسال على Telegram محظورة افتراضياً
- * لتفعيلها: TELEGRAM_SCHEDULED_REPORTS=true
+ * مع نظام الشفاء الذاتي (runWithHealing)
  */
 import { db } from './db.js';
 import { info, warn } from './logger.js';
 import { sendMessageDetailed } from './telegram.js';
 import { audit } from './audit.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
+import { runWithHealing } from './self-healing.js';
 
 try { db.exec('PRAGMA foreign_keys = OFF;'); } catch { /* ignore */ }
 
-// ═══════════════════════════════════════════════════════════
-// مفتاح الحظر: كل التقارير الدورية محظورة افتراضياً
-// ═══════════════════════════════════════════════════════════
 const TELEGRAM_SCHEDULED_REPORTS = process.env.TELEGRAM_SCHEDULED_REPORTS === 'true';
 
-// ─── Schema ───
 db.exec(`
 CREATE TABLE IF NOT EXISTS task_queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +40,7 @@ for (const [column, definition] of [
   ["next_run_at", "TEXT DEFAULT ''"],
   ["archived", "INTEGER DEFAULT 0"]
 ]) {
-  try { db.exec(`ALTER TABLE task_queue ADD COLUMN ${column} ${definition}`); }
+  try { db.exec('ALTER TABLE task_queue ADD COLUMN ' + column + ' ' + definition); }
   catch (error) { if (!String(error).includes('duplicate column name')) throw error; }
 }
 
@@ -75,7 +70,7 @@ export function addTask(description, category = 'general', priority = 5, opts = 
     INSERT INTO task_queue(description, status, priority, category, type, recurring_interval, next_run_at)
     VALUES (?, 'pending', ?, ?, ?, ?, ?)
   `).run(description, priority, category, type, recurring, nextRunAt);
-  info('task-queue', `queue +${res.lastInsertRowid} [${category}/${type}] ${description.slice(0, 60)}`);
+  info('task-queue', 'queue +' + res.lastInsertRowid + ' [' + category + '/' + type + '] ' + description.slice(0, 60));
   return res.lastInsertRowid;
 }
 
@@ -113,7 +108,7 @@ export function nextTask() {
       const intervalMin = parseInterval(task.recurring_interval);
       if (intervalMin > 0) nextRunAt = new Date(Date.now() + intervalMin * 60000).toISOString();
     }
-    db.prepare(`UPDATE task_queue SET status='active', last_run_at=?, next_run_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nowIso, nextRunAt, task.id);
+    db.prepare('UPDATE task_queue SET status=\'active\', last_run_at=?, next_run_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(nowIso, nextRunAt, task.id);
   }
   return task || null;
 }
@@ -121,12 +116,12 @@ export function nextTask() {
 export function markDone(id, result = 'done') {
   const task = db.prepare('SELECT * FROM task_queue WHERE id = ?').get(id);
   if (task?.type === 'recurring') {
-    db.prepare(`UPDATE task_queue SET status='pending', result=?, last_run_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(String(result).slice(0, 1000), id);
+    db.prepare('UPDATE task_queue SET status=\'pending\', result=?, last_run_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(String(result).slice(0, 1000), id);
     safeAudit('executor', 'task_queue_recurring', { taskId: id });
   } else {
-    db.prepare(`UPDATE task_queue SET status='done', result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(String(result).slice(0, 1000), id);
+    db.prepare('UPDATE task_queue SET status=\'done\', result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(String(result).slice(0, 1000), id);
     safeAudit('executor', 'task_queue_done', { taskId: id });
-    info('task-queue', `done #${id}: ${String(result).slice(0, 50)}`);
+    info('task-queue', 'done #' + id + ': ' + String(result).slice(0, 50));
   }
   return { ok: true, taskId: id };
 }
@@ -135,14 +130,14 @@ export function archiveDoneTasks(olderThanDays = 3) {
   const res = db.prepare(`
     UPDATE task_queue SET archived = 1, updated_at = CURRENT_TIMESTAMP
     WHERE status = 'done' AND archived = 0 AND created_at < datetime('now', ?)
-  `).run(`-${olderThanDays} days`);
+  `).run('-' + olderThanDays + ' days');
   return res.changes;
 }
 
 export function getQueueStats() {
   const rows = db.prepare("SELECT status, COUNT(*) c FROM task_queue WHERE archived = 0 GROUP BY status").all();
   const stats = Object.fromEntries(rows.map(r => [r.status, r.c]));
-  const byType = db.prepare(`SELECT type, COUNT(*) c FROM task_queue WHERE status != 'done' AND archived = 0 GROUP BY type`).all();
+  const byType = db.prepare("SELECT type, COUNT(*) c FROM task_queue WHERE status != 'done' AND archived = 0 GROUP BY type").all();
   const types = Object.fromEntries(byType.map(r => [r.type, r.c]));
   return {
     pending: stats.pending || 0,
@@ -169,10 +164,9 @@ export function seedDefaultQueue() {
   return { seeded: defaults.length };
 }
 
-// ─── Agent Loop ───
 function buildSystemPrompt(agentName) {
   const toolsList = AVAILABLE_TOOLS.map(t =>
-    `- ${t.name}: ${t.description}\n  params: ${JSON.stringify(t.params)}`
+    '- ' + t.name + ': ' + t.description + '\n  params: ' + JSON.stringify(t.params)
   ).join('\n');
 
   return `أنت وكيل "${agentName}" في نظام "عمالقة الصمت".
@@ -219,51 +213,48 @@ async function runLeaderCommandLoop(task, maxSteps = 6) {
   const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
   const agentName = 'aurora';
   const systemPrompt = buildSystemPrompt(agentName);
-  let conversation = `أمر القائد: ${task.description}\n\nابدأ. أعد JSON فقط.`;
+  let conversation = 'أمر القائد: ' + task.description + '\n\nابدأ. أعد JSON فقط.';
 
   for (let step = 1; step <= maxSteps; step++) {
     let raw;
     try {
       const { callModel } = await import('./ai.js');
-      raw = await callModel(agentName, `${systemPrompt}\n\n${conversation}`);
+      raw = await callModel(agentName, systemPrompt + '\n\n' + conversation);
     } catch (e) {
-      warn('agent-loop', `LLM failed step ${step}: ${e.message}`);
-      return `LLM failure: ${e.message}`;
+      warn('agent-loop', 'LLM failed step ' + step + ': ' + e.message);
+      return 'LLM failure: ' + e.message;
     }
 
     const parsed = extractJSON(raw);
     if (!parsed || !parsed.action) {
-      conversation += `\n\n[نظام]: ردك لم يكن JSON صالحاً. أعد JSON فقط بدون أي نص إضافي.`;
+      conversation += '\n\n[نظام]: ردك لم يكن JSON صالحاً. أعد JSON فقط بدون أي نص إضافي.';
       continue;
     }
 
     if (parsed.action === 'final_report') {
       const report = String(parsed.report || '(بدون تقرير)');
-      // لا نُرسل على Telegram من هنا
-      info('agent-loop', `Task #${task.id} completed: ${report.slice(0, 100)}`);
-      return `completed: ${report.slice(0, 200)}`;
+      info('agent-loop', 'Task #' + task.id + ' completed: ' + report.slice(0, 100));
+      return 'completed: ' + report.slice(0, 200);
     }
 
     if (parsed.action === 'call_tool' && parsed.tool) {
       const toolResult = await executeTool(parsed.tool, parsed.params || {});
-      info('agent-loop', `step ${step}: tool ${parsed.tool} → ${toolResult.ok ? 'ok' : 'fail'}`);
+      info('agent-loop', 'step ' + step + ': tool ' + parsed.tool + ' -> ' + (toolResult.ok ? 'ok' : 'fail'));
       const observation = toolResult.ok
-        ? `نتيجة ${parsed.tool}: ${JSON.stringify(toolResult.result).slice(0, 1500)}`
-        : `فشل ${parsed.tool}: ${toolResult.error}`;
-      conversation += `\n\n${observation}\n\nاستمر: call_tool أو final_report.`;
+        ? 'نتيجة ' + parsed.tool + ': ' + JSON.stringify(toolResult.result).slice(0, 1500)
+        : 'فشل ' + parsed.tool + ': ' + toolResult.error;
+      conversation += '\n\n' + observation + '\n\nاستمر: call_tool أو final_report.';
       continue;
     }
 
-    conversation += `\n\n[نظام]: شكل JSON غير مفهوم.`;
+    conversation += '\n\n[نظام]: شكل JSON غير مفهوم.';
   }
 
-  info('agent-loop', `Task #${task.id} max steps exceeded`);
-  return `max steps exceeded`;
+  info('agent-loop', 'Task #' + task.id + ' max steps exceeded');
+  return 'max steps exceeded';
 }
 
-// ─── Mission Loop ───
 export function missionLoop() {
-  // 🛡️ حظر كامل — لا يعالج رسائل القائد
   if (process.env.MISSION_LOOP_DISABLED !== 'false') {
     return { created: [], pending: 0, disabled: true };
   }
@@ -278,7 +269,7 @@ export function missionLoop() {
       ORDER BY id DESC LIMIT 5
     `).all();
     for (const msg of messages) {
-      const desc = `أمر من القائد: ${String(msg.body).slice(0, 400)}`;
+      const desc = 'أمر من القائد: ' + String(msg.body).slice(0, 400);
       const existing = db.prepare(`
         SELECT id FROM task_queue
         WHERE category='leader-command' AND description = ?
@@ -291,7 +282,7 @@ export function missionLoop() {
   if (pending >= 5) return { created, pending };
 
   const revenueCategories = [
-    ['bounty-claim', 'متابعة bounties ≥$200', 9],
+    ['bounty-claim', 'متابعة bounties >=$200', 9],
     ['immunefi-analysis', 'تحليل عقد صغير Immunefi', 8],
     ['superteam-apply', 'مراجعة Superteam Earn', 8],
     ['quality-submission', 'مراجعة جودة آخر تقديم', 7]
@@ -304,37 +295,62 @@ export function missionLoop() {
   return { created, pending: db.prepare("SELECT COUNT(*) c FROM task_queue WHERE status='pending'").get().c };
 }
 
-// ─── Execute One Task ───
-export async function executeTask(task) {
+// ═══════════════════════════════════════════════════════════
+// executeTaskRaw — التنفيذ الفعلي (يُغلّف بـ runWithHealing)
+// ═══════════════════════════════════════════════════════════
+async function executeTaskRaw(task) {
   const cat = task.category;
-  try {
-    if (cat === 'leader-command') {
-      return await runLeaderCommandLoop(task);
-    }
-    if (cat === 'email') {
-      const { checkEmail } = await import('./watchdog.js');
-      if (typeof checkEmail === 'function') await checkEmail();
-      return 'email checked';
-    }
-    if (cat === 'opportunities' || cat === 'bounty-claim') {
-      const { scanRealOpportunities } = await import('./opportunity-scan.js');
-      if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
-      return `${cat} ran`;
-    }
-    if (cat === 'marketing') {
-      const { runMarketingPublish } = await import('./operations.js');
-      if (typeof runMarketingPublish === 'function') await runMarketingPublish();
-      return 'marketing posted';
-    }
-    if (cat === 'maintenance') {
-      const integrity = db.prepare('PRAGMA integrity_check').get();
-      return `integrity=${integrity?.integrity_check || 'ok'}`;
-    }
-    return 'task executed (general)';
-  } catch (e) {
-    warn('task-queue', `execute failed #${task.id}: ${e.message}`);
-    return `FAILED: ${e.message}`;
+
+  if (cat === 'leader-command') return await runLeaderCommandLoop(task);
+
+  if (cat === 'email') {
+    const { checkEmail } = await import('./watchdog.js');
+    if (typeof checkEmail === 'function') await checkEmail();
+    return 'email checked';
   }
+
+  if (cat === 'opportunities' || cat === 'bounty-claim') {
+    const { scanRealOpportunities } = await import('./opportunity-scan.js');
+    if (typeof scanRealOpportunities === 'function') await scanRealOpportunities();
+    return cat + ' ran';
+  }
+
+  if (cat === 'marketing') {
+    const { runMarketingPublish } = await import('./operations.js');
+    if (typeof runMarketingPublish === 'function') await runMarketingPublish();
+    return 'marketing posted';
+  }
+
+  if (cat === 'maintenance') {
+    const integrity = db.prepare('PRAGMA integrity_check').get();
+    return 'integrity=' + (integrity?.integrity_check || 'ok');
+  }
+
+  return 'task executed (general)';
+}
+
+// ═══════════════════════════════════════════════════════════
+// executeTask — يُغلّف بـ runWithHealing (retry + تسجيل)
+// ═══════════════════════════════════════════════════════════
+export async function executeTask(task) {
+  const healingResult = await runWithHealing(
+    () => executeTaskRaw(task),
+    {
+      scope: 'task:' + task.category + '#' + task.id,
+      onFallback: async (error, kind) => {
+        info('task-queue', 'task #' + task.id + ' failed (' + kind + '): ' + error.message);
+        try {
+          const { recordLesson } = await import('./memory.js');
+          recordLesson('executor', task.id, 'task_failure', 'fail:' + task.category, String(error.message).slice(0, 300), 1.2);
+        } catch { /* ignore */ }
+      }
+    }
+  );
+
+  if (healingResult.ok) {
+    return healingResult.result;
+  }
+  return 'FAILED (' + healingResult.kind + '): ' + (healingResult.error?.message || 'unknown');
 }
 
 export async function runHeartbeat() {
@@ -346,10 +362,10 @@ export async function runHeartbeat() {
   let result = 'no task';
   if (task) {
     result = await executeTask(task);
-    try { markDone(task.id, result); } catch (e) { warn('task-queue', `markDone failed #${task.id}: ${e.message}`); }
+    try { markDone(task.id, result); } catch (e) { warn('task-queue', 'markDone failed #' + task.id + ': ' + e.message); }
   }
   let refill = { created: [] };
-  try { refill = missionLoop(); } catch (e) { warn('task-queue', `missionLoop failed: ${e.message}`); }
+  try { refill = missionLoop(); } catch (e) { warn('task-queue', 'missionLoop failed: ' + e.message); }
   return {
     ok: true,
     executed: task ? task.id : null,
@@ -360,36 +376,31 @@ export async function runHeartbeat() {
   };
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🛡️ sendScheduledReport — محظور افتراضياً
-// ═══════════════════════════════════════════════════════════
 export async function sendScheduledReport() {
-  // حظر مباشر داخل الدالة — لا يعتمد على متغيرات خارجية
   if (!TELEGRAM_SCHEDULED_REPORTS) {
-    info('task-queue', '⏸ sendScheduledReport محظور (TELEGRAM_SCHEDULED_REPORTS != true)');
-    return { delivered: false, blocked: true, reason: 'SCHEDULED_REPORTS_DISABLED' };
+    info('task-queue', 'sendScheduledReport blocked');
+    return { delivered: false, blocked: true };
   }
 
   const recentReport = (() => {
-    try { return db.prepare(`SELECT COUNT(*) c FROM operations_marketing WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')`).get().c ?? 0; }
+    try { return db.prepare("SELECT COUNT(*) c FROM operations_marketing WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')").get().c ?? 0; }
     catch { return 0; }
   })();
   if (recentReport > 0) return { delivered: false, skipped: 'window_guard', queue: getQueueStats() };
 
   const queue = getQueueStats();
   const report = [
-    '📊 تقرير الدورة الدورية',
-    `🕒 ${new Date().toISOString().slice(11, 16)} UTC`,
-    `🗂 مهام: pending=${queue.pending} active=${queue.active} done=${queue.done}`,
-    `⚙️ Mission Loop نشط`
+    'تقرير الدورة الدورية',
+    'الوقت: ' + new Date().toISOString().slice(11, 16) + ' UTC',
+    'مهام: pending=' + queue.pending + ' active=' + queue.active + ' done=' + queue.done
   ].join('\n');
 
   const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.CHAT_ID || '888229115';
   const delivered = await sendMessageDetailed(report, chatId);
   try {
-    db.prepare(`INSERT INTO operations_marketing(channel, message_id, product_id, status) VALUES ('aurora_report', ?, NULL, ?)`).run(delivered.messageId || 0, delivered.delivered ? 'sent' : 'failed');
+    db.prepare("INSERT INTO operations_marketing(channel, message_id, product_id, status) VALUES ('aurora_report', ?, NULL, ?)").run(delivered.messageId || 0, delivered.delivered ? 'sent' : 'failed');
   } catch { /* ignore */ }
   return { delivered: delivered.delivered, queue, report };
 }
 
-export default { addTask, addRecurringTask, nextTask, markDone, runHeartbeat, sendScheduledReport, missionLoop, seedDefaultQueue, getQueueStats, archiveDoneTasks, hasPending };
+export default { addTask, addRecurringTask, nextTask, markDone, runHeartbeat, sendScheduledReport, missionLoop, seedDefaultQueue, getQueueStats, archiveDoneTasks, hasPending, executeTask };
