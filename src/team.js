@@ -15,8 +15,8 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 5;
-const STEP_DELAY_MS = 1500;
+const MAX_AGENT_STEPS = 12;
+const STEP_DELAY_MS = 1000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -64,12 +64,12 @@ function buildAgentPrompt(userMessage, ctx) {
     return `• ${t.name}: ${t.description}\n${paramsList}`;
   }).join('\n\n');
 
-  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت".
+  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". لديك صلاحية كاملة لتنفيذ المهام.
 
 بيانات النظام:
 ${JSON.stringify(ctx, null, 2)}
 
-الأدوات المتاحة:
+الأدوات المتاحة (15):
 ${toolsDesc}
 
 قواعد صارمة:
@@ -79,13 +79,23 @@ ${toolsDesc}
   "action": "tool" | "final",
   "tool": "اسم الأداة",
   "params": { ... },
-  "text": "ملخص قصير جداً (سطر أو اثنان)"
+  "text": "الإجابة النهائية"
 }
 
-- عند action=final: النص يجب أن يكون **ملخصاً قصيراً فقط** (سطر أو اثنان).
-- لا تكتب قوائم مفصلة — النظام يعرض النتائج الحقيقية تلقائياً.
+- عند action=final: النص يجب أن يكون **ملخصاً قصيراً** (سطر أو اثنان) — النظام يعرض النتائج الحقيقية تلقائياً.
 - لا تختلقي أسماء ملفات أو معلومات.
-- استخدمي action="tool" لجمع المعلومات، ثم action="final" لإنهاء المهمة.
+- استخدمي action="tool" لجمع المعلومات أو التنفيذ، ثم action="final" لإنهاء المهمة.
+- يمكنك استخدام حتى 12 خطوة — لا تتوقفي حتى تُكملي المهمة.
+- للأوامر المعقدة: اجمعي → حلّلي → نفّذي → أكملي.
+- لا تستسلمي عند أول خطأ. جرّبي حلاً بديلاً.
+
+مهام شائعة:
+- قراءة ملف → read_file
+- البحث في الملفات → grep_files
+- قائمة ملفات → list_files
+- بحث ويب → web_search
+- تعديل متغير Render → render_env_set
+- إرسال رسالة → send_telegram
 
 أمر القائد: ${userMessage}
 
@@ -95,15 +105,12 @@ ${toolsDesc}
 function parseAgentResponse(raw) {
   const str = String(raw || '').trim();
   if (!str) return null;
-
   try {
     const parsed = JSON.parse(str);
     if (parsed && typeof parsed === 'object') return parsed;
   } catch { /* not pure JSON */ }
-
   const start = str.indexOf('{');
   if (start === -1) return null;
-
   let depth = 0;
   for (let i = start; i < str.length; i++) {
     if (str[i] === '{') depth++;
@@ -138,21 +145,15 @@ function cleanText(text) {
   return clean;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎯 التنسيق المباشر لنتائج الأدوات (بدون LLM)
-// ═══════════════════════════════════════════════════════════
 function formatToolResult(toolName, toolResult, originalParams) {
   if (!toolResult || !toolResult.ok) {
     return `❌ فشل ${toolName}: ${toolResult?.error || 'unknown'}`;
   }
-
   const data = toolResult.result;
 
   if (toolName === 'grep_files') {
-    if (!data || !data.results || data.results.length === 0) {
-      return `🔍 لا توجد نتائج لـ "${originalParams?.pattern}"`;
-    }
-    const lines = [`🔍 <b>نتائج البحث عن "${originalParams?.pattern}"</b>`, `📊 عدد النتائج: ${data.results_count}`, ''];
+    if (!data || !data.results || data.results.length === 0) return `🔍 لا نتائج لـ "${originalParams?.pattern}"`;
+    const lines = [`🔍 نتائج البحث عن "${originalParams?.pattern}"`, `📊 العدد: ${data.results_count}`, ''];
     for (const r of data.results.slice(0, 20)) {
       lines.push(`📄 <code>${r.file}</code>:${r.line}`);
       lines.push(`    ${String(r.text).slice(0, 150)}`);
@@ -162,27 +163,22 @@ function formatToolResult(toolName, toolResult, originalParams) {
 
   if (toolName === 'read_file') {
     if (!data || !data.content) return `📄 الملف فارغ`;
-    return `📄 <b>محتوى ${originalParams?.file_path}:</b>\n<pre>${String(data.content).slice(0, 3000)}</pre>`;
+    return `📄 ${originalParams?.file_path}:\n<pre>${String(data.content).slice(0, 3000)}</pre>`;
   }
 
   if (toolName === 'read_many_files') {
     if (!data || !data.files) return `📄 لا ملفات`;
-    const lines = [`📚 <b>قراءة ${data.count} ملف:</b>`, ''];
+    const lines = [`📚 قراءة ${data.count} ملف:`, ''];
     for (const f of data.files) {
-      if (f.error) {
-        lines.push(`❌ <code>${f.file}</code>: ${f.error}`);
-      } else {
-        lines.push(`📄 <b>${f.file}</b> (${f.size} bytes):`);
-        lines.push(`<pre>${String(f.content).slice(0, 800)}</pre>`);
-        lines.push('');
-      }
+      if (f.error) lines.push(`❌ ${f.file}: ${f.error}`);
+      else { lines.push(`📄 ${f.file} (${f.size}B):`); lines.push(`<pre>${String(f.content).slice(0, 800)}</pre>`); lines.push(''); }
     }
     return lines.join('\n');
   }
 
   if (toolName === 'list_files') {
     if (!data || !data.items) return `📂 فارغ`;
-    const lines = [`📂 <b>محتويات ${data.dir}</b> (${data.count} عنصر):`, ''];
+    const lines = [`📂 ${data.dir} (${data.count} عنصر):`, ''];
     for (const item of data.items.slice(0, 100)) {
       lines.push(`${item.type === 'dir' ? '📁' : '📄'} <code>${item.path}</code>${item.size ? ' (' + item.size + 'B)' : ''}`);
     }
@@ -190,13 +186,11 @@ function formatToolResult(toolName, toolResult, originalParams) {
   }
 
   if (toolName === 'web_search') {
-    if (!data || !data.results || data.results.length === 0) {
-      return `🌐 لا نتائج لـ "${originalParams?.query}"`;
-    }
-    const lines = [`🌐 <b>نتائج البحث عن "${originalParams?.query}"</b>`, ''];
+    if (!data || !data.results || data.results.length === 0) return `🌐 لا نتائج لـ "${originalParams?.query}"`;
+    const lines = [`🌐 نتائج "${originalParams?.query}":`, ''];
     for (let i = 0; i < data.results.length; i++) {
       const r = data.results[i];
-      lines.push(`${i + 1}. <b>${r.title}</b>`);
+      lines.push(`${i + 1}. ${r.title}`);
       if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 200)}`);
       if (r.url) lines.push(`   🔗 ${r.url}`);
       lines.push('');
@@ -204,18 +198,54 @@ function formatToolResult(toolName, toolResult, originalParams) {
     return lines.join('\n');
   }
 
-  // أدوات أخرى → JSON مختصر
-  return `✅ نتيجة ${toolName}:\n<pre>${JSON.stringify(data).slice(0, 2000)}</pre>`;
+  if (toolName === 'render_env_get') {
+    if (!data || !data.vars) return `🔧 لا متغيرات`;
+    const lines = [`🔧 متغيرات Render (${data.count}):`, ''];
+    for (const v of data.vars.slice(0, 50)) lines.push(`• <code>${v.key}</code>`);
+    return lines.join('\n');
+  }
+
+  if (toolName === 'render_env_set') {
+    return `✅ تم تحديث <code>${data.key}</code> في Render.\nℹ️ ${data.note}`;
+  }
+
+  if (toolName === 'save_session') {
+    return `💾 جلسة محفوظة: <code>${data.name}</code>`;
+  }
+
+  if (toolName === 'load_session') {
+    if (!data || !data.loaded) return `❌ جلسة غير موجودة`;
+    return `📂 جلسة: <code>${data.name}</code> (محفوظة ${data.savedAt})`;
+  }
+
+  if (toolName === 'platform_fetch') {
+    const preview = typeof data.data === 'string' ? data.data.slice(0, 1500) : JSON.stringify(data.data).slice(0, 1500);
+    const lines = [`🌐 ${data.status}`, ''];
+    if (data.setCookie) lines.push(`🍪 Set-Cookie: ${data.setCookie.slice(0, 200)}`);
+    lines.push(`<pre>${preview}</pre>`);
+    return lines.join('\n');
+  }
+
+  if (toolName === 'send_telegram') {
+    return `✅ رسالة مرسلة (id=${data.message_id})`;
+  }
+
+  if (toolName === 'write_file') {
+    return `💾 ملف مكتوب: ${data.path} (${data.bytes}B)`;
+  }
+
+  if (toolName === 'shell_exec') {
+    const out = (data.stdout || '').slice(0, 1000);
+    const err = (data.stderr || '').slice(0, 500);
+    return `⚙️ نتيجة:\n<pre>${out || err || 'ok'}</pre>`;
+  }
+
+  return `✅ ${toolName}:\n<pre>${JSON.stringify(data).slice(0, 2000)}</pre>`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// Agent Loop — يُرجع الإجابة النهائية مع البيانات الحقيقية
-// ═══════════════════════════════════════════════════════════
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
-  let lastToolName = null;
-  let lastToolResult = null;
-  let lastToolParams = null;
+  const toolResults = [];
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) {
@@ -239,11 +269,10 @@ async function runAgentLoop(userMessage, ctx) {
     const parsed = parseAgentResponse(raw);
 
     if (!parsed || !parsed.action) {
-      console.warn('[agent] step ' + step + ' no valid JSON. Raw: ' + String(raw).slice(0, 200));
+      console.warn('[agent] step ' + step + ' no valid JSON');
       continue;
     }
 
-    // طلب أداة
     if (parsed.action === 'tool' && parsed.tool) {
       console.log('[agent] step ' + step + ': tool=' + parsed.tool);
       let toolResult;
@@ -253,53 +282,45 @@ async function runAgentLoop(userMessage, ctx) {
         toolResult = { ok: false, error: e.message };
       }
 
-      lastToolName = parsed.tool;
-      lastToolResult = toolResult;
-      lastToolParams = parsed.params || {};
+      toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
 
-      // إرسال النتيجة للـ LLM في المحادثة
       const resultText = JSON.stringify(toolResult).slice(0, 3000);
       const emoji = toolResult.ok ? '✅' : '❌';
       conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nأعد JSON فقط.`;
       continue;
     }
 
-    // إجابة نهائية
     if (parsed.action === 'final') {
       const summary = cleanText(parsed.text || '');
+      if (hasHallucination(summary)) {
+        console.warn('[agent] final text hallucination');
+        continue;
+      }
 
-      // لو عندنا نتيجة أداة → نُنسّقها بأنفسنا
-      if (lastToolName && lastToolResult) {
-        const formattedData = formatToolResult(lastToolName, lastToolResult, lastToolParams);
+      if (toolResults.length > 0) {
         const parts = [];
-
         if (summary && summary.length > 5) {
           parts.push(summary);
           parts.push('');
         }
-
-        parts.push(formattedData);
-
-        const finalAnswer = parts.join('\n');
-        console.log('[agent] final with tool data at step ' + step);
-        return finalAnswer;
+        for (const tr of toolResults) {
+          parts.push(formatToolResult(tr.tool, tr.result, tr.params));
+          parts.push('');
+        }
+        console.log('[agent] final at step ' + step + ' with ' + toolResults.length + ' tool results');
+        return parts.join('\n').trim();
       }
 
-      // لا أداة → نُعيد نص الـ LLM
       if (summary && summary.length > 5) {
-        if (hasHallucination(summary)) {
-          console.warn('[agent] final text hallucination');
-          continue;
-        }
         console.log('[agent] final text at step ' + step);
         return summary;
       }
     }
   }
 
-  // لو وصلنا هنا، نُعيد آخر نتيجة أداة إن وُجدت
-  if (lastToolName && lastToolResult) {
-    return formatToolResult(lastToolName, lastToolResult, lastToolParams);
+  if (toolResults.length > 0) {
+    const parts = toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params));
+    return parts.join('\n\n');
   }
 
   return null;
@@ -322,7 +343,13 @@ function sanitizeStoredBody(body) {
     } catch { /* not JSON */ }
     return 'رد قديم';
   }
-  return s;
+  let clean = s;
+  clean = clean.replace(/<pre>/gi, '\n```\n').replace(/<\/pre>/gi, '\n```\n');
+  clean = clean.replace(/<code>/gi, '`').replace(/<\/code>/gi, '`');
+  clean = clean.replace(/<br\s*\/?>/gi, '\n');
+  clean = clean.replace(/<[^>]+>/g, '');
+  if (clean.length > 2000) clean = clean.slice(0, 2000) + '\n…(مختصر)';
+  return clean;
 }
 
 async function sendTelegramSafe(text) {
@@ -359,18 +386,15 @@ export async function createMessage(input) {
   const messageId = Number(result.lastInsertRowid);
   const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
   teamEvents.emit('message', { type: 'created', messageId });
-  generateAgentReplies(message).catch(err => console.error('[team] generateAgentReplies failed: ' + err?.message));
+  generateAgentReplies(message).catch(err => console.error('[team] failed: ' + err?.message));
   return message;
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === direct-format mode ===');
-
+  console.log('[team] === agent mode (12 steps) ===');
   const ctx = collectSystemSnapshot();
-
   let reply = await runAgentLoop(message.body, ctx);
   if (!reply) reply = buildFallback(ctx);
-
   insertAgentMessage('aurora', reply);
   await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
   await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
