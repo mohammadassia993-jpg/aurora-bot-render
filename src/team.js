@@ -15,8 +15,8 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 4;
-const STEP_DELAY_MS = 2000;
+const MAX_AGENT_STEPS = 5;
+const STEP_DELAY_MS = 1500;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -79,19 +79,13 @@ ${toolsDesc}
   "action": "tool" | "final",
   "tool": "اسم الأداة",
   "params": { ... },
-  "text": "الإجابة النهائية"
+  "text": "ملخص قصير جداً (سطر أو اثنان)"
 }
 
-- عند action=final، الإجابة يجب أن تحتوي التفاصيل الكاملة من نتائج الأدوات:
-  • عند قراءة ملف: اذكر المسار ومقتطفات المحتوى الحقيقية
-  • عند البحث (grep): اذكر **كل ملف** و **رقم السطر** و **النص** — بدون تلخيص غامض
-  • عند قائمة ملفات: اذكر **كل المسارات** بالأسماء
-  • عند بحث ويب: اذكر **العناوين والروابط**
-
-- لا تقل "تم العثور" بدون ذكر الملفات المحددة.
-- لا تختلقي أي معلومة.
-- استخدمي action="tool" عند الحاجة لمعلومة.
-- استخدمي action="final" عند تقديم الإجابة.
+- عند action=final: النص يجب أن يكون **ملخصاً قصيراً فقط** (سطر أو اثنان).
+- لا تكتب قوائم مفصلة — النظام يعرض النتائج الحقيقية تلقائياً.
+- لا تختلقي أسماء ملفات أو معلومات.
+- استخدمي action="tool" لجمع المعلومات، ثم action="final" لإنهاء المهمة.
 
 أمر القائد: ${userMessage}
 
@@ -134,21 +128,94 @@ function hasHallucination(text) {
   return FORBIDDEN_TERMS.some(term => lower.includes(term.toLowerCase()));
 }
 
-function cleanFinalText(text) {
+function cleanText(text) {
   let clean = String(text || '').trim();
-
   clean = clean.replace(/^#{1,6}\s+/gm, '')
                .replace(/\*\*(.+?)\*\*/g, '$1')
                .replace(/__(.+?)__/g, '$1')
                .replace(/`([^`]+)`/g, '$1');
-
   clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
-  if (clean.length > 3500) clean = clean.slice(0, 3500) + '…';
   return clean;
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🎯 التنسيق المباشر لنتائج الأدوات (بدون LLM)
+// ═══════════════════════════════════════════════════════════
+function formatToolResult(toolName, toolResult, originalParams) {
+  if (!toolResult || !toolResult.ok) {
+    return `❌ فشل ${toolName}: ${toolResult?.error || 'unknown'}`;
+  }
+
+  const data = toolResult.result;
+
+  if (toolName === 'grep_files') {
+    if (!data || !data.results || data.results.length === 0) {
+      return `🔍 لا توجد نتائج لـ "${originalParams?.pattern}"`;
+    }
+    const lines = [`🔍 <b>نتائج البحث عن "${originalParams?.pattern}"</b>`, `📊 عدد النتائج: ${data.results_count}`, ''];
+    for (const r of data.results.slice(0, 20)) {
+      lines.push(`📄 <code>${r.file}</code>:${r.line}`);
+      lines.push(`    ${String(r.text).slice(0, 150)}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (toolName === 'read_file') {
+    if (!data || !data.content) return `📄 الملف فارغ`;
+    return `📄 <b>محتوى ${originalParams?.file_path}:</b>\n<pre>${String(data.content).slice(0, 3000)}</pre>`;
+  }
+
+  if (toolName === 'read_many_files') {
+    if (!data || !data.files) return `📄 لا ملفات`;
+    const lines = [`📚 <b>قراءة ${data.count} ملف:</b>`, ''];
+    for (const f of data.files) {
+      if (f.error) {
+        lines.push(`❌ <code>${f.file}</code>: ${f.error}`);
+      } else {
+        lines.push(`📄 <b>${f.file}</b> (${f.size} bytes):`);
+        lines.push(`<pre>${String(f.content).slice(0, 800)}</pre>`);
+        lines.push('');
+      }
+    }
+    return lines.join('\n');
+  }
+
+  if (toolName === 'list_files') {
+    if (!data || !data.items) return `📂 فارغ`;
+    const lines = [`📂 <b>محتويات ${data.dir}</b> (${data.count} عنصر):`, ''];
+    for (const item of data.items.slice(0, 100)) {
+      lines.push(`${item.type === 'dir' ? '📁' : '📄'} <code>${item.path}</code>${item.size ? ' (' + item.size + 'B)' : ''}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (toolName === 'web_search') {
+    if (!data || !data.results || data.results.length === 0) {
+      return `🌐 لا نتائج لـ "${originalParams?.query}"`;
+    }
+    const lines = [`🌐 <b>نتائج البحث عن "${originalParams?.query}"</b>`, ''];
+    for (let i = 0; i < data.results.length; i++) {
+      const r = data.results[i];
+      lines.push(`${i + 1}. <b>${r.title}</b>`);
+      if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 200)}`);
+      if (r.url) lines.push(`   🔗 ${r.url}`);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  // أدوات أخرى → JSON مختصر
+  return `✅ نتيجة ${toolName}:\n<pre>${JSON.stringify(data).slice(0, 2000)}</pre>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Agent Loop — يُرجع الإجابة النهائية مع البيانات الحقيقية
+// ═══════════════════════════════════════════════════════════
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
+  let lastToolName = null;
+  let lastToolResult = null;
+  let lastToolParams = null;
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) {
@@ -161,7 +228,7 @@ async function runAgentLoop(userMessage, ctx) {
       raw = await callModel('aurora', conversation, { noJsonMode: false });
     } catch (e) {
       console.error('[agent] step ' + step + ' LLM threw: ' + e.message);
-      return null;
+      continue;
     }
 
     if (!raw || String(raw).trim().length < 5) {
@@ -176,7 +243,8 @@ async function runAgentLoop(userMessage, ctx) {
       continue;
     }
 
-    if (parsed.action === 'tool' && parsed.tool && step < MAX_AGENT_STEPS) {
+    // طلب أداة
+    if (parsed.action === 'tool' && parsed.tool) {
       console.log('[agent] step ' + step + ': tool=' + parsed.tool);
       let toolResult;
       try {
@@ -185,28 +253,53 @@ async function runAgentLoop(userMessage, ctx) {
         toolResult = { ok: false, error: e.message };
       }
 
-      const resultText = JSON.stringify(toolResult).slice(0, 3500);
-      const emoji = toolResult.ok ? '✅' : '❌';
+      lastToolName = parsed.tool;
+      lastToolResult = toolResult;
+      lastToolParams = parsed.params || {};
 
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nقدّم الإجابة النهائية الآن، مع ذكر كل التفاصيل من النتيجة أعلاه (أسماء الملفات، أرقام الأسطر، النصوص). أعد JSON فقط.`;
+      // إرسال النتيجة للـ LLM في المحادثة
+      const resultText = JSON.stringify(toolResult).slice(0, 3000);
+      const emoji = toolResult.ok ? '✅' : '❌';
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nأعد JSON فقط.`;
       continue;
     }
 
-    if (parsed.action === 'final' && parsed.text) {
-      const cleaned = cleanFinalText(parsed.text);
-      if (!cleaned || cleaned.length < 5) {
-        console.warn('[agent] step ' + step + ' empty final');
-        continue;
-      }
-      if (hasHallucination(cleaned)) {
-        console.warn('[agent] step ' + step + ' hallucination');
-        continue;
-      }
-      console.log('[agent] final at step ' + step);
-      return cleaned;
-    }
+    // إجابة نهائية
+    if (parsed.action === 'final') {
+      const summary = cleanText(parsed.text || '');
 
-    console.warn('[agent] step ' + step + ' unknown action: ' + parsed.action);
+      // لو عندنا نتيجة أداة → نُنسّقها بأنفسنا
+      if (lastToolName && lastToolResult) {
+        const formattedData = formatToolResult(lastToolName, lastToolResult, lastToolParams);
+        const parts = [];
+
+        if (summary && summary.length > 5) {
+          parts.push(summary);
+          parts.push('');
+        }
+
+        parts.push(formattedData);
+
+        const finalAnswer = parts.join('\n');
+        console.log('[agent] final with tool data at step ' + step);
+        return finalAnswer;
+      }
+
+      // لا أداة → نُعيد نص الـ LLM
+      if (summary && summary.length > 5) {
+        if (hasHallucination(summary)) {
+          console.warn('[agent] final text hallucination');
+          continue;
+        }
+        console.log('[agent] final text at step ' + step);
+        return summary;
+      }
+    }
+  }
+
+  // لو وصلنا هنا، نُعيد آخر نتيجة أداة إن وُجدت
+  if (lastToolName && lastToolResult) {
+    return formatToolResult(lastToolName, lastToolResult, lastToolParams);
   }
 
   return null;
@@ -271,7 +364,7 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === agent mode (verbose) ===');
+  console.log('[team] === direct-format mode ===');
 
   const ctx = collectSystemSnapshot();
 
