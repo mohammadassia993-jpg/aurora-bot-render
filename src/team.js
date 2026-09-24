@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+١import fs from 'node:fs/promises';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { db } from './db.js';
@@ -15,7 +15,15 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 6;
+// ─────────────────────────────────────────────
+// إعدادات Agent Loop (محسّنة لتفادي rate limit)
+// ─────────────────────────────────────────────
+const MAX_AGENT_STEPS = 4;
+const STEP_DELAY_MS = 3000;  // 3 ثواني بين كل خطوة
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // ═══════════════════════════════════════════════════════════
 // جمع بيانات النظام
@@ -33,11 +41,6 @@ function collectSystemSnapshot() {
       ORDER BY last_seen DESC LIMIT 5
     `).all();
     const pendingApprovals = db.prepare(`SELECT COUNT(*) c FROM approvals WHERE state='pending'`).get().c;
-    const activeAgents = db.prepare(`
-      SELECT agent, COUNT(*) c FROM agent_runs
-      WHERE created_at >= datetime('now', '-24 hours')
-      GROUP BY agent ORDER BY c DESC LIMIT 5
-    `).all();
     const products = db.prepare(`
       SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published
       FROM produced_products
@@ -53,7 +56,6 @@ function collectSystemSnapshot() {
       tasks: tasksByStatus,
       errors: recentErrors,
       approvals: pendingApprovals,
-      agents: activeAgents,
       products: products
     };
   } catch (e) {
@@ -81,28 +83,26 @@ ${JSON.stringify(ctx, null, 2)}
 ${toolsDesc}
 
 ════════ كيف تستخدمين الأدوات ════════
-- عندما تحتاجين معلومة غير موجودة أعلاه (مثل قراءة ملف، بحث ويب، قائمة ملفات)، اطلبي الأداة هكذا:
+- عندما تحتاجين معلومة غير موجودة أعلاه، اطلبي الأداة هكذا:
 
   [TOOL_CALL] {"name":"web_search","params":{"query":"بيتكوين اليوم"}}
 
 - سيتوقف ردّك تلقائياً، وستصلك نتيجة الأداة، ثم تستمرين.
-- يمكنك طلب عدة أدوات بالتتابع (6 خطوات كحد أقصى).
-- عندما تكونين جاهزة بالإجابة، اكتبي الجواب مباشرة بنص عربي عادي، بدون أي [TOOL_CALL].
+- يمكنك طلب عدة أدوات بالتتابع (4 خطوات كحد أقصى).
+- عندما تكونين جاهزة، اكتبي الجواب مباشرة بدون أي [TOOL_CALL].
 
-════════ أمثلة على الاستخدام ════════
+════════ أمثلة ════════
 - "اقرأ config.js" → [TOOL_CALL] {"name":"read_file","params":{"file_path":"src/config.js"}}
-- "ابحث عن useMessageDetailed" → [TOOL_CALL] {"name":"grep_files","params":{"pattern":"useMessageDetailed","file_ext":".js"}}
-- "اعرض ملفات المشروع" → [TOOL_CALL] {"name":"list_files","params":{"dir":"src","max_depth":2}}
-- "ما آخر أخبار Web3؟" → [TOOL_CALL] {"name":"web_search","params":{"query":"آخر أخبار Web3"}}
-- "اقرأ team.js و ai.js" → [TOOL_CALL] {"name":"read_many_files","params":{"files":["src/team.js","src/ai.js"]}}
+- "ابحث عن X" → [TOOL_CALL] {"name":"grep_files","params":{"pattern":"X","file_ext":".js"}}
+- "اعرض الملفات" → [TOOL_CALL] {"name":"list_files","params":{"dir":"src","max_depth":2}}
+- "آخر أخبار Web3؟" → [TOOL_CALL] {"name":"web_search","params":{"query":"آخر أخبار Web3"}}
 
 ════════ قواعد صارمة ════════
 1. تحدثي كإنسان طبيعي.
 2. لا تختلقي معلومات. استخدمي الأدوات عند الحاجة.
 3. لا تتكلمي عن أشياء غير موجودة (لا خصوم، لا حروب).
 4. العربية الفصحى، بدون مقدمات.
-5. بعد الأداة، أعيدي الإجابة النهائية مباشرة بدون أي ماركر.
-6. إن لم تحتاجي أي أداة، أجيبي مباشرة.
+5. إن لم تحتاجي أداة، أجيبي مباشرة.
 
 ════════ أمر القائد ════════
 ${userMessage}
@@ -111,7 +111,7 @@ ${userMessage}
 }
 
 // ═══════════════════════════════════════════════════════════
-// استخراج نداء الأداة من النص
+// استخراج نداء الأداة
 // ═══════════════════════════════════════════════════════════
 function extractToolCall(text) {
   const marker = '[TOOL_CALL]';
@@ -132,7 +132,7 @@ function extractToolCall(text) {
         try {
           const parsed = JSON.parse(json);
           if (parsed && parsed.name) return parsed;
-        } catch { /* invalid JSON */ }
+        } catch { /* invalid */ }
         return null;
       }
     }
@@ -152,8 +152,6 @@ function hasHallucination(text) {
 
 function cleanAgentResponse(text) {
   let clean = String(text || '').trim();
-
-  // حذف أي أثر لماركرات الأدوات
   clean = clean.replace(/\[TOOL_CALL\][\s\S]*$/g, '').trim();
 
   try {
@@ -176,12 +174,18 @@ function cleanAgentResponse(text) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// حلقة الوكيل
+// حلقة الوكيل (محسّنة)
 // ═══════════════════════════════════════════════════════════
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAuroraPrompt(userMessage, ctx);
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
+    // انتظار بين الخطوات (بعد الأول)
+    if (step > 1) {
+      console.log('[agent] waiting ' + STEP_DELAY_MS + 'ms before step ' + step);
+      await sleep(STEP_DELAY_MS);
+    }
+
     let raw;
     try {
       raw = await callModel('aurora', conversation, { noJsonMode: true });
@@ -198,7 +202,7 @@ async function runAgentLoop(userMessage, ctx) {
     const toolCall = extractToolCall(raw);
 
     if (toolCall && step < MAX_AGENT_STEPS) {
-      console.log('[agent] step ' + step + ': tool=' + toolCall.name + ' params=' + JSON.stringify(toolCall.params || {}));
+      console.log('[agent] step ' + step + ': tool=' + toolCall.name);
       let toolResult;
       try {
         toolResult = await executeTool(toolCall.name, toolCall.params || {});
@@ -206,14 +210,13 @@ async function runAgentLoop(userMessage, ctx) {
         toolResult = { ok: false, error: e.message };
       }
 
-      const resultText = JSON.stringify(toolResult).slice(0, 3000);
+      const resultText = JSON.stringify(toolResult).slice(0, 2500);
       const toolEmoji = toolResult.ok ? '✅' : '❌';
 
       conversation += `\n\n${toolEmoji} [نتيجة ${toolCall.name}]:\n${resultText}\n\nبناءً على هذه النتيجة، استمري. إذا انتهيتِ، اكتبي الجواب النهائي مباشرة بدون أي [TOOL_CALL].`;
       continue;
     }
 
-    // لا يوجد نداء أداة → الجواب النهائي
     const cleaned = cleanAgentResponse(raw);
     if (!cleaned || cleaned.length < 5) {
       console.warn('[agent] step ' + step + ' empty clean');
@@ -221,11 +224,11 @@ async function runAgentLoop(userMessage, ctx) {
     }
 
     if (hasHallucination(cleaned)) {
-      console.warn('[agent] step ' + step + ' hallucination detected');
+      console.warn('[agent] step ' + step + ' hallucination');
       continue;
     }
 
-    console.log('[agent] final answer at step ' + step + ', length=' + cleaned.length);
+    console.log('[agent] final answer at step ' + step);
     return cleaned;
   }
 
@@ -234,7 +237,7 @@ async function runAgentLoop(userMessage, ctx) {
 
 function buildFallback(ctx) {
   if (ctx.error) return 'تعذر قراءة بيانات النظام: ' + ctx.error;
-  return 'حالة النظام: ' + ctx.health.healthy + ' من ' + ctx.health.total + ' مكونات سليمة. حاول مرة أخرى.';
+  return 'حالة النظام: ' + ctx.health.healthy + ' من ' + ctx.health.total + ' مكونات سليمة.';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -294,10 +297,9 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === agent mode: ' + String(message.body).slice(0, 60) + ' ===');
+  console.log('[team] === agent mode ===');
 
   const ctx = collectSystemSnapshot();
-  console.log('[team] ctx: health=' + ctx.health?.healthy + '/' + ctx.health?.total);
 
   let reply = await runAgentLoop(message.body, ctx);
   if (!reply) reply = buildFallback(ctx);
