@@ -61,10 +61,6 @@ function ensureSessionsDir() {
   try { fsSync.mkdirSync(SESSIONS_DIR, { recursive: true }); } catch { /* ignore */ }
 }
 
-// ─────────────────────────────────────────────
-// الأدوات الأساسية
-// ─────────────────────────────────────────────
-
 async function githubApi({ endpoint, method = 'GET', body = null }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
   const url = endpoint.startsWith('http') ? endpoint
@@ -112,7 +108,6 @@ async function httpFetch({ url, method = 'GET', headers = {}, body = null }) {
   return { status: res.status, ok: res.ok, data };
 }
 
-// 🆕 read_file — يبحث تلقائياً في root, src/, public/
 async function readFile({ file_path }) {
   const candidates = [file_path, 'src/' + file_path, 'public/' + file_path];
   for (const candidate of candidates) {
@@ -122,7 +117,7 @@ async function readFile({ file_path }) {
       return { path: candidate, content: content.slice(0, 8000), truncated: content.length > 8000 };
     } catch { /* try next */ }
   }
-  throw new Error('file not found: ' + file_path + ' (tried root, src/, public/)');
+  throw new Error('file not found: ' + file_path);
 }
 
 async function writeFile({ file_path, content }) {
@@ -157,7 +152,6 @@ async function grepFiles({ pattern, file_ext = '.js', max_results = 30 }) {
   return { pattern, file_ext, scanned_files: scanned, results_count: results.length, results };
 }
 
-// 🆕 read_many_files — يبحث تلقائياً عن كل ملف
 async function readManyFiles({ files }) {
   if (!Array.isArray(files) || !files.length) throw new Error('files must be array');
   if (files.length > 5) throw new Error('max 5 files');
@@ -176,7 +170,7 @@ async function readManyFiles({ files }) {
         break;
       } catch { /* try next */ }
     }
-    if (!found) results.push({ file: fp, error: 'not found in root, src/, or public/' });
+    if (!found) results.push({ file: fp, error: 'not found' });
   }
   return { count: results.length, files: results };
 }
@@ -241,19 +235,28 @@ async function webSearch({ query, max_results = 5 }) {
   return { query: q, count: 0, results: [], error: 'no_results' };
 }
 
-// ─────────────────────────────────────────────
-// الأدوات التنفيذية
-// ─────────────────────────────────────────────
-
+// ═══════════════════════════════════════════════════════════
+// render_env_get — مُصلَح (يقرأ envVar.key بشكل صحيح)
+// ═══════════════════════════════════════════════════════════
 async function renderEnvGet({}) {
   if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing in Environment');
-  const url = 'https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars';
+  const url = 'https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars?limit=100';
   const res = await withTimeout(fetch(url, {
     headers: { Authorization: 'Bearer ' + RENDER_API_KEY, Accept: 'application/json' }
   }), TOOL_TIMEOUT_MS, 'render_env_get');
   if (!res.ok) throw new Error('Render ' + res.status + ': ' + (await res.text()).slice(0, 300));
-  const data = await res.json();
-  const vars = (Array.isArray(data) ? data : (data.envVars || [])).map(v => ({ key: v.key, value: v.value ? '***' : '' }));
+  const raw = await res.json();
+
+  let items = [];
+  if (Array.isArray(raw)) items = raw;
+  else if (raw && Array.isArray(raw.envVars)) items = raw.envVars;
+  else if (raw && Array.isArray(raw.items)) items = raw.items;
+
+  const vars = items.map(item => {
+    const v = item.envVar || item;
+    return { key: v.key || v.name || '?', value: v.value ? '***' : '' };
+  }).filter(v => v.key && v.key !== '?');
+
   return { serviceId: RENDER_SERVICE_ID, count: vars.length, vars };
 }
 
@@ -285,9 +288,7 @@ async function loadSession({ name }) {
   try {
     const data = JSON.parse(fsSync.readFileSync(sessionPath, 'utf8'));
     return { loaded: true, ...data };
-  } catch (e) {
-    throw new Error('session not found: ' + name);
-  }
+  } catch (e) { throw new Error('session not found: ' + name); }
 }
 
 async function platformFetch({ url, method = 'GET', session = null, body = null, extra_headers = {} }) {
@@ -312,7 +313,6 @@ async function platformFetch({ url, method = 'GET', session = null, body = null,
   return { status: res.status, ok: res.ok, setCookie: setCookie || null, data };
 }
 
-// ─────────────────────────────────────────────
 const TOOL_MAP = {
   web_search: webSearch,
   grep_files: grepFiles,
@@ -334,19 +334,19 @@ const TOOL_MAP = {
 export const AVAILABLE_TOOLS = [
   { name: 'web_search', description: 'البحث في الإنترنت عبر DuckDuckGo.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث عن نص في كل ملفات المشروع.', params: { pattern: 'string', file_ext: 'string', max_results: 'number' } },
-  { name: 'read_many_files', description: 'قراءة حتى 5 ملفات دفعة. يقبل أسماء نسبية (config.js) ويبحث تلقائياً في src/ و public/.', params: { files: 'string[]' } },
+  { name: 'read_many_files', description: 'قراءة حتى 5 ملفات دفعة.', params: { files: 'string[]' } },
   { name: 'list_files', description: 'سرد مجلد.', params: { dir: 'string', max_depth: 'number' } },
-  { name: 'read_file', description: 'قراءة ملف واحد. يقبل اسماً نسبياً (config.js) ويبحث تلقائياً في src/ و public/.', params: { file_path: 'string' } },
+  { name: 'read_file', description: 'قراءة ملف واحد.', params: { file_path: 'string' } },
   { name: 'write_file', description: 'كتابة/تعديل ملف.', params: { file_path: 'string', content: 'string' } },
   { name: 'github_api', description: 'استدعاء GitHub API.', params: { endpoint: 'string', method: 'string', body: 'object' } },
   { name: 'send_telegram', description: 'إرسال رسالة Telegram.', params: { chat_id: 'string', text: 'string' } },
   { name: 'shell_exec', description: 'تنفيذ shell (npm/git/node/npx).', params: { command: 'string', args: 'string[]' } },
   { name: 'http_fetch', description: 'طلب HTTP عام.', params: { url: 'string', method: 'string', headers: 'object', body: 'object' } },
   { name: 'render_env_get', description: 'قراءة كل متغيرات Render.', params: {} },
-  { name: 'render_env_set', description: 'إضافة/تعديل متغير في Render (يُعيد النشر تلقائياً).', params: { key: 'string', value: 'string' } },
+  { name: 'render_env_set', description: 'إضافة/تعديل متغير في Render.', params: { key: 'string', value: 'string' } },
   { name: 'save_session', description: 'حفظ cookies/headers لجلسة منصة.', params: { name: 'string', cookies: 'string', headers: 'object' } },
   { name: 'load_session', description: 'استرجاع جلسة محفوظة.', params: { name: 'string' } },
-  { name: 'platform_fetch', description: 'fetch مع جلسة محفوظة (للوصول لمنصات تتطلب login).', params: { url: 'string', method: 'string', session: 'string', body: 'object' } },
+  { name: 'platform_fetch', description: 'fetch مع جلسة محفوظة.', params: { url: 'string', method: 'string', session: 'string', body: 'object' } },
 ];
 
 export async function executeTool(toolName, params = {}) {
