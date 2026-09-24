@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 16 أداة
+// tool-executor.js (ESM) — 16 أداة + диагностика
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -80,19 +80,67 @@ async function githubApi({ endpoint, method = 'GET', body = null }) {
   return { status: res.status, data };
 }
 
+// ═══════════════════════════════════════════════════════════
+// github_edit_file — نسخة تشخيصية
+// ═══════════════════════════════════════════════════════════
 async function githubEditFile({ path: filePath, search, replace, message }) {
-  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
-  if (!filePath || !search || replace === undefined || !message) throw new Error('path, search, replace, message required');
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  if (!filePath || !search || replace === undefined || !message) {
+    throw new Error('path, search, replace, message required');
+  }
+
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
-  const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
+
+  const getRes = await withTimeout(fetch(apiUrl, {
+    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' }
+  }), TOOL_TIMEOUT_MS, 'github_get');
   if (!getRes.ok) throw new Error('GET ' + getRes.status);
   const fileData = await getRes.json();
   if (!fileData.content || !fileData.sha) throw new Error('no content/sha');
+
   const original = Buffer.from(fileData.content, 'base64').toString('utf8');
-  if (!original.includes(search)) throw new Error('search string NOT found');
+  const originalLines = original.split('\n');
+
+  // البحث
+  if (!original.includes(search)) {
+    // 🆕 بناء تقرير تشخيصي مفصل
+    const searchLen = search.length;
+    const firstChars = String(search).slice(0, 60);
+    const lastChars = String(search).slice(-30);
+
+    // ابحث عن أسطر مشابهة
+    const needle = firstChars.slice(0, 30).toLowerCase();
+    const similar = [];
+    for (let i = 0; i < originalLines.length; i++) {
+      if (originalLines[i].toLowerCase().includes(needle)) {
+        similar.push({ line: i + 1, text: originalLines[i] });
+        if (similar.length >= 5) break;
+      }
+    }
+
+    // ابحث عن أول 30 حرف من search
+    const shortNeedle = firstChars.slice(0, 20);
+    const shortSimilar = originalLines
+      .map((l, i) => ({ line: i + 1, text: l }))
+      .filter(x => x.text.includes(shortNeedle))
+      .slice(0, 3);
+
+    const diagnosticMsg = [
+      'search string NOT found',
+      'طول search: ' + searchLen + ' حرف',
+      'أول 50 حرف من search: "' + firstChars + '"',
+      'آخر 20 حرف من search: "' + lastChars + '"',
+      'طول الملف: ' + original.length + ' حرف (' + originalLines.length + ' سطر)',
+      similar.length ? '5 أسطر مشابهة في الملف:' : 'لا توجد أسطر مشابهة',
+      ...similar.map(s => '  سطر ' + s.line + ': ' + s.text.slice(0, 150))
+    ].join('\n');
+    throw new Error(diagnosticMsg);
+  }
+
   const count = (original.match(new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
   const updated = original.split(search).join(replace);
   const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
+
   const putRes = await withTimeout(fetch(apiUrl, {
     method: 'PUT',
     headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
@@ -100,6 +148,7 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   }), TOOL_TIMEOUT_MS, 'github_put');
   const putData = await putRes.json();
   if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
+
   return { edited: true, path: filePath, replacements: count, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
@@ -332,7 +381,7 @@ const TOOL_MAP = {
 };
 
 export const AVAILABLE_TOOLS = [
-  { name: 'github_edit_file', description: 'تعديل ملف على GitHub.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
+  { name: 'github_edit_file', description: 'تعديل ملف على GitHub. عند فشل البحث، يُرجع تقريراً تشخيصياً تفصيلياً.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
   { name: 'web_search', description: 'البحث في الإنترنت.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
   { name: 'read_many_files', description: 'قراءة 5 ملفات.', params: { files: 'string[]' } },
