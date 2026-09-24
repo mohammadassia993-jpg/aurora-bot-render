@@ -17,6 +17,7 @@ teamEvents.setMaxListeners(200);
 
 const MAX_AGENT_STEPS = 12;
 const STEP_DELAY_MS = 1000;
+const TELEGRAM_MAX_LEN = 3800;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -64,7 +65,7 @@ function buildAgentPrompt(userMessage, ctx) {
     return `• ${t.name}: ${t.description}\n${paramsList}`;
   }).join('\n\n');
 
-  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". لديك صلاحية كاملة لتنفيذ المهام.
+  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". صلاحياتك كاملة.
 
 بيانات النظام:
 ${JSON.stringify(ctx, null, 2)}
@@ -72,9 +73,10 @@ ${JSON.stringify(ctx, null, 2)}
 الأدوات المتاحة (15):
 ${toolsDesc}
 
-قواعد صارمة:
-- ردّك JSON فقط، بدون أي نص قبله أو بعده.
-- الشكل:
+═══ قواعد صارمة ═══
+
+1. ردّك JSON فقط، بدون أي نص قبله أو بعده.
+2. الشكل:
 {
   "action": "tool" | "final",
   "tool": "اسم الأداة",
@@ -82,20 +84,23 @@ ${toolsDesc}
   "text": "الإجابة النهائية"
 }
 
-- عند action=final: النص يجب أن يكون **ملخصاً قصيراً** (سطر أو اثنان) — النظام يعرض النتائج الحقيقية تلقائياً.
-- لا تختلقي أسماء ملفات أو معلومات.
-- استخدمي action="tool" لجمع المعلومات أو التنفيذ، ثم action="final" لإنهاء المهمة.
-- يمكنك استخدام حتى 12 خطوة — لا تتوقفي حتى تُكملي المهمة.
-- للأوامر المعقدة: اجمعي → حلّلي → نفّذي → أكملي.
-- لا تستسلمي عند أول خطأ. جرّبي حلاً بديلاً.
+3. عند action=final، النص يجب أن يكون **تحليلاً عميقاً حقيقياً** — ليس مجرد سطر أو اثنين.
 
-مهام شائعة:
-- قراءة ملف → read_file
-- البحث في الملفات → grep_files
-- قائمة ملفات → list_files
-- بحث ويب → web_search
-- تعديل متغير Render → render_env_set
-- إرسال رسالة → send_telegram
+4. ⚠️ مهم جداً — قواعد التحليل العميق:
+   - اذكري **أسماء محددة** (متغيرات، دوال، ملفات) لا وصفاً عاماً.
+   - للملفات: اذكري **الأقسام الفعلية** و **عدد الأسطر** و **العناصر الرئيسية**.
+   - للمقارنة: اذكري **الفرق الجوهري** بالأمثلة (لا "مختلفان" بل "config يحتوي X بينما ai يحتوي Y").
+   - للتحسين: اقترحي **اقتراحات محددة قابلة للتنفيذ** (لا "فصل الوظائف" بل "انقلي الدالة X من ملف A إلى B لأن...").
+   - **بعد** الأداة الأولى، إذا احتجت معلومات إضافية، استدعي أداة أخرى قبل الإجابة.
+
+5. ممنوع:
+   - "يمكن تحسينه من خلال..." بدون تفاصيل.
+   - وصف عام ("يحتوي على إعدادات").
+   - إجابة سطر واحد للأوامر المعقدة.
+
+6. يمكنك استخدام 12 خطوة — لا تتوقفي مبكراً.
+7. عند الخطأ، جرّبي حلاً بديلاً (لا تستسلمي).
+8. بعد كل أداة، فكّري: هل أحتاج معلومة إضافية؟
 
 أمر القائد: ${userMessage}
 
@@ -145,25 +150,28 @@ function cleanText(text) {
   return clean;
 }
 
+// ═══════════════════════════════════════════════════════════
+// تنسيق نتائج الأدوات (مع مراعاة حد Telegram)
+// ═══════════════════════════════════════════════════════════
 function formatToolResult(toolName, toolResult, originalParams) {
   if (!toolResult || !toolResult.ok) {
-    return `❌ فشل ${toolName}: ${toolResult?.error || 'unknown'}`;
+    return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 200)}`;
   }
   const data = toolResult.result;
 
   if (toolName === 'grep_files') {
     if (!data || !data.results || data.results.length === 0) return `🔍 لا نتائج لـ "${originalParams?.pattern}"`;
-    const lines = [`🔍 نتائج البحث عن "${originalParams?.pattern}"`, `📊 العدد: ${data.results_count}`, ''];
-    for (const r of data.results.slice(0, 20)) {
-      lines.push(`📄 <code>${r.file}</code>:${r.line}`);
-      lines.push(`    ${String(r.text).slice(0, 150)}`);
+    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count} نتيجة):`, ''];
+    for (const r of data.results.slice(0, 15)) {
+      lines.push(`📄 ${r.file}:${r.line}`);
+      lines.push(`   ${String(r.text).slice(0, 120)}`);
     }
     return lines.join('\n');
   }
 
   if (toolName === 'read_file') {
     if (!data || !data.content) return `📄 الملف فارغ`;
-    return `📄 ${originalParams?.file_path}:\n<pre>${String(data.content).slice(0, 3000)}</pre>`;
+    return `📄 ${data.path || originalParams?.file_path} (${data.content.length}B):\n\`\`\`\n${String(data.content).slice(0, 1500)}\n\`\`\``;
   }
 
   if (toolName === 'read_many_files') {
@@ -171,7 +179,11 @@ function formatToolResult(toolName, toolResult, originalParams) {
     const lines = [`📚 قراءة ${data.count} ملف:`, ''];
     for (const f of data.files) {
       if (f.error) lines.push(`❌ ${f.file}: ${f.error}`);
-      else { lines.push(`📄 ${f.file} (${f.size}B):`); lines.push(`<pre>${String(f.content).slice(0, 800)}</pre>`); lines.push(''); }
+      else {
+        lines.push(`📄 ${f.file} (${f.size}B):`);
+        lines.push(`\`\`\`\n${String(f.content).slice(0, 800)}\n\`\`\``);
+        lines.push('');
+      }
     }
     return lines.join('\n');
   }
@@ -179,19 +191,19 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'list_files') {
     if (!data || !data.items) return `📂 فارغ`;
     const lines = [`📂 ${data.dir} (${data.count} عنصر):`, ''];
-    for (const item of data.items.slice(0, 100)) {
-      lines.push(`${item.type === 'dir' ? '📁' : '📄'} <code>${item.path}</code>${item.size ? ' (' + item.size + 'B)' : ''}`);
+    for (const item of data.items.slice(0, 50)) {
+      lines.push(`${item.type === 'dir' ? '📁' : '📄'} ${item.path}${item.size ? ' (' + item.size + 'B)' : ''}`);
     }
     return lines.join('\n');
   }
 
   if (toolName === 'web_search') {
     if (!data || !data.results || data.results.length === 0) return `🌐 لا نتائج لـ "${originalParams?.query}"`;
-    const lines = [`🌐 نتائج "${originalParams?.query}":`, ''];
+    const lines = [`🌐 "${originalParams?.query}":`, ''];
     for (let i = 0; i < data.results.length; i++) {
       const r = data.results[i];
       lines.push(`${i + 1}. ${r.title}`);
-      if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 200)}`);
+      if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 150)}`);
       if (r.url) lines.push(`   🔗 ${r.url}`);
       lines.push('');
     }
@@ -201,28 +213,28 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'render_env_get') {
     if (!data || !data.vars) return `🔧 لا متغيرات`;
     const lines = [`🔧 متغيرات Render (${data.count}):`, ''];
-    for (const v of data.vars.slice(0, 50)) lines.push(`• <code>${v.key}</code>`);
+    for (const v of data.vars.slice(0, 30)) lines.push(`• ${v.key}`);
     return lines.join('\n');
   }
 
   if (toolName === 'render_env_set') {
-    return `✅ تم تحديث <code>${data.key}</code> في Render.\nℹ️ ${data.note}`;
+    return `✅ تم تحديث ${data.key} في Render.\nℹ️ ${data.note}`;
   }
 
   if (toolName === 'save_session') {
-    return `💾 جلسة محفوظة: <code>${data.name}</code>`;
+    return `💾 جلسة محفوظة: ${data.name}`;
   }
 
   if (toolName === 'load_session') {
     if (!data || !data.loaded) return `❌ جلسة غير موجودة`;
-    return `📂 جلسة: <code>${data.name}</code> (محفوظة ${data.savedAt})`;
+    return `📂 جلسة: ${data.name} (${data.savedAt})`;
   }
 
   if (toolName === 'platform_fetch') {
-    const preview = typeof data.data === 'string' ? data.data.slice(0, 1500) : JSON.stringify(data.data).slice(0, 1500);
+    const preview = typeof data.data === 'string' ? data.data.slice(0, 600) : JSON.stringify(data.data).slice(0, 600);
     const lines = [`🌐 ${data.status}`, ''];
-    if (data.setCookie) lines.push(`🍪 Set-Cookie: ${data.setCookie.slice(0, 200)}`);
-    lines.push(`<pre>${preview}</pre>`);
+    if (data.setCookie) lines.push(`🍪 Set-Cookie: ${data.setCookie.slice(0, 150)}`);
+    lines.push(`\`\`\`\n${preview}\n\`\`\``);
     return lines.join('\n');
   }
 
@@ -235,12 +247,12 @@ function formatToolResult(toolName, toolResult, originalParams) {
   }
 
   if (toolName === 'shell_exec') {
-    const out = (data.stdout || '').slice(0, 1000);
-    const err = (data.stderr || '').slice(0, 500);
-    return `⚙️ نتيجة:\n<pre>${out || err || 'ok'}</pre>`;
+    const out = (data.stdout || '').slice(0, 500);
+    const err = (data.stderr || '').slice(0, 300);
+    return `⚙️ نتيجة:\n\`\`\`\n${out || err || 'ok'}\n\`\`\``;
   }
 
-  return `✅ ${toolName}:\n<pre>${JSON.stringify(data).slice(0, 2000)}</pre>`;
+  return `✅ ${toolName}:\n${JSON.stringify(data).slice(0, 800)}`;
 }
 
 async function runAgentLoop(userMessage, ctx) {
@@ -248,10 +260,7 @@ async function runAgentLoop(userMessage, ctx) {
   const toolResults = [];
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
-    if (step > 1) {
-      console.log('[agent] waiting ' + STEP_DELAY_MS + 'ms before step ' + step);
-      await sleep(STEP_DELAY_MS);
-    }
+    if (step > 1) await sleep(STEP_DELAY_MS);
 
     let raw;
     try {
@@ -284,7 +293,7 @@ async function runAgentLoop(userMessage, ctx) {
 
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
 
-      const resultText = JSON.stringify(toolResult).slice(0, 3000);
+      const resultText = JSON.stringify(toolResult).slice(0, 2000);
       const emoji = toolResult.ok ? '✅' : '❌';
       conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nأعد JSON فقط.`;
       continue;
@@ -312,17 +321,14 @@ async function runAgentLoop(userMessage, ctx) {
       }
 
       if (summary && summary.length > 5) {
-        console.log('[agent] final text at step ' + step);
         return summary;
       }
     }
   }
 
   if (toolResults.length > 0) {
-    const parts = toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params));
-    return parts.join('\n\n');
+    return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
   }
-
   return null;
 }
 
@@ -352,12 +358,43 @@ function sanitizeStoredBody(body) {
   return clean;
 }
 
+// ═══════════════════════════════════════════════════════════
+// إرسال آمن — يقص الرسائل الطويلة إلى أجزاء
+// ═══════════════════════════════════════════════════════════
 async function sendTelegramSafe(text) {
   try {
     const mod = await import('./telegram.js');
     if (typeof mod.sendMessageDetailed !== 'function') return { delivered: false };
-    return await mod.sendMessageDetailed(text);
+
+    let payload = String(text);
+    if (payload.length <= TELEGRAM_MAX_LEN) {
+      return await mod.sendMessageDetailed(payload);
+    }
+
+    // تقسيم لرسائل
+    const parts = [];
+    let remaining = payload;
+    while (remaining.length > 0 && parts.length < 3) {
+      if (remaining.length <= TELEGRAM_MAX_LEN) {
+        parts.push(remaining);
+        remaining = '';
+        break;
+      }
+      // نقطع عند آخر سطر
+      let cut = remaining.lastIndexOf('\n', TELEGRAM_MAX_LEN - 100);
+      if (cut < TELEGRAM_MAX_LEN / 2) cut = TELEGRAM_MAX_LEN - 100;
+      parts.push(remaining.slice(0, cut));
+      remaining = remaining.slice(cut);
+    }
+
+    let lastResult = { delivered: false };
+    for (let i = 0; i < parts.length; i++) {
+      const prefix = parts.length > 1 ? `[${i + 1}/${parts.length}]\n` : '';
+      lastResult = await mod.sendMessageDetailed(prefix + parts[i]);
+    }
+    return lastResult;
   } catch (err) {
+    console.error('[team] sendTelegramSafe error: ' + err?.message);
     return { delivered: false, error: err?.message };
   }
 }
@@ -391,7 +428,7 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === agent mode (12 steps) ===');
+  console.log('[team] === agent mode (deep) ===');
   const ctx = collectSystemSnapshot();
   let reply = await runAgentLoop(message.body, ctx);
   if (!reply) reply = buildFallback(ctx);
