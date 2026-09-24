@@ -4,20 +4,16 @@ import { config } from './config.js';
 import { db, recordError } from './db.js';
 import { info, warn } from './logger.js';
 
-// ═══════════════════════════════════════════════════════════
-// Circuit Breaker — يمنع إغراق مزود واحد
-// ═══════════════════════════════════════════════════════════
-const providerState = new Map(); // modelId → { failures, blockedUntil }
+const providerState = new Map();
 
-const FAILURE_THRESHOLD = 3;          // 3 فشلات متتالية
-const BLOCK_DURATION_MS = 60_000;     // يُحظر 60 ثانية
-const INTER_PROVIDER_DELAY_MS = 800;  // انتظار 0.8 ثانية بين مزودين
+const FAILURE_THRESHOLD = 3;
+const BLOCK_DURATION_MS = 60000;
+const INTER_PROVIDER_DELAY_MS = 800;
 
 function isProviderBlocked(modelId) {
   const state = providerState.get(modelId);
   if (!state) return false;
   if (state.blockedUntil && Date.now() < state.blockedUntil) return true;
-  // انتهت مدة الحظر → إعادة تعيين
   if (state.blockedUntil && Date.now() >= state.blockedUntil) {
     providerState.set(modelId, { failures: 0, blockedUntil: 0 });
     return false;
@@ -30,8 +26,8 @@ function recordFailure(modelId) {
   state.failures = (state.failures || 0) + 1;
   if (state.failures >= FAILURE_THRESHOLD) {
     state.blockedUntil = Date.now() + BLOCK_DURATION_MS;
-    warn('ai', `circuit breaker: ${modelId} blocked for ${BLOCK_DURATION_MS / 1000}s (${state.failures} failures)`);
-    state.failures = 0; // إعادة تعيين بعد الحظر
+    warn('ai', 'circuit breaker: ' + modelId + ' blocked for ' + (BLOCK_DURATION_MS / 1000) + 's');
+    state.failures = 0;
   }
   providerState.set(modelId, state);
 }
@@ -68,9 +64,8 @@ export function availableModels() {
     return [{ id: 'local-deterministic', label: 'محاكاة', priority: 99 }];
   }
 
-  // ترتيب حسب القوة والاستقرار
   return [
-    config.llm7Key && { id: 'llm7', label: 'LLM7 (مجاني)', priority: 0 },
+    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 0 },
     config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 1 },
     config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 1 },
     config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 2 },
@@ -107,8 +102,8 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers = { 'content-type': 'application/json' };
-    if (apiKey && apiKey !== 'not-needed') headers['authorization'] = `Bearer ${apiKey}`;
-    const endpoint = `${url.replace(/\/$/, '')}/chat/completions`;
+    if (apiKey && apiKey !== 'not-needed') headers['authorization'] = 'Bearer ' + apiKey;
+    const endpoint = url.replace(/\/$/, '') + '/chat/completions';
 
     const body = {
       model,
@@ -127,8 +122,7 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
 
     const text = await res.text();
     if (!res.ok) {
-      // تحويل 429 و 503 إلى "transient" — لا تُحسب في circuit breaker بالكامل
-      const error = new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+      const error = new Error('HTTP ' + res.status + ': ' + text.slice(0, 200));
       error.status = res.status;
       error.transient = (res.status === 429 || res.status === 503 || res.status === 502 || res.status === 504);
       throw error;
@@ -136,7 +130,7 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
 
     let data;
     try { data = JSON.parse(text); }
-    catch { throw new Error(`invalid JSON: ${text.slice(0, 200)}`); }
+    catch { throw new Error('invalid JSON: ' + text.slice(0, 200)); }
 
     const content =
       data?.choices?.[0]?.message?.content ??
@@ -146,7 +140,7 @@ async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 
       data?.response ??
       null;
 
-    if (!content) throw new Error(`empty response: ${text.slice(0, 200)}`);
+    if (!content) throw new Error('empty response: ' + text.slice(0, 200));
     return typeof content === 'string' ? content : JSON.stringify(content);
   } finally {
     clearTimeout(timer);
@@ -167,8 +161,8 @@ async function dispatchToProvider(modelId, prompt, options = {}) {
   if (modelId === 'danyapi') return await callOpenAICompatible({ url: config.danyApiUrl, apiKey: 'not-needed', model: config.danyApiModel, messages, noJsonMode });
   if (modelId === 'logfare') return await callOpenAICompatible({ url: config.logfareUrl, apiKey: config.logfareKey, model: config.logfareModel, messages, noJsonMode });
   if (modelId === 'gpt-oss') return await callOpenAICompatible({ url: config.gptOssApiUrl, apiKey: process.env.GPT_OSS_API_KEY || 'not-needed', model: config.gptOssModel, messages, noJsonMode });
-  if (modelId === 'local-deterministic') return `مرحباً، لا يوجد مزود AI حقيقي حالياً.`;
-  throw new Error(`unknown provider: ${modelId}`);
+  if (modelId === 'local-deterministic') return 'مرحباً، لا يوجد مزود AI حقيقي حالياً.';
+  throw new Error('unknown provider: ' + modelId);
 }
 
 export async function callModel(agentName, prompt, options = {}) {
@@ -182,13 +176,11 @@ export async function callModel(agentName, prompt, options = {}) {
   let firstAttempt = true;
 
   for (const candidate of models) {
-    // إذا المزود محظور → تخطاه
     if (isProviderBlocked(candidate.id)) {
-      info('ai', `${agentName} → ${candidate.id} skipped (circuit breaker)`);
+      info('ai', agentName + ' → ' + candidate.id + ' skipped (circuit breaker)');
       continue;
     }
 
-    // انتظار بين المحاولات (وليس قبل الأولى)
     if (!firstAttempt) await sleep(INTER_PROVIDER_DELAY_MS);
     firstAttempt = false;
 
@@ -198,23 +190,21 @@ export async function callModel(agentName, prompt, options = {}) {
       const latency = Date.now() - startedAt;
       recordRun(agentName, candidate.id, true, latency);
       recordSuccess(candidate.id);
-      info('ai', `${agentName} → ${candidate.id} ok (${latency}ms)${options.noJsonMode ? ' [text]' : ''}`);
+      info('ai', agentName + ' → ' + candidate.id + ' ok (' + latency + 'ms)' + (options.noJsonMode ? ' [text]' : ''));
       return response;
     } catch (error) {
       const latency = Date.now() - startedAt;
       recordRun(agentName, candidate.id, false, latency);
-      // 429/503 لا تُحسب في circuit breaker (مشكلة عامة ليست خاصة بالمزود)
       if (!error.transient) {
         recordFailure(candidate.id);
       } else {
-        info('ai', `${agentName} → ${candidate.id} transient error (not counted)`);
+        info('ai', agentName + ' → ' + candidate.id + ' transient error (not counted)');
       }
-      warn('ai', `${agentName} → ${candidate.id} failed: ${error.message}`);
+      warn('ai', agentName + ' → ' + candidate.id + ' failed: ' + error.message);
       lastError = error;
     }
   }
 
-  // كل المزودين فشلوا → محاولة أخيرة بـ local-deterministic
   recordRun(agentName, 'all-failed', false, 0);
   try { recordError('ai', 'ALL_PROVIDERS_FAILED', lastError?.message || 'unknown'); } catch {}
   return 'عذراً، جميع مزودي AI فشلوا. حاول بعد قليل.';
