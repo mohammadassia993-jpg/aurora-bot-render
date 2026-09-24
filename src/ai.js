@@ -8,7 +8,7 @@ const providerState = new Map();
 
 const FAILURE_THRESHOLD = 3;
 const BLOCK_DURATION_MS = 60000;
-const INTER_PROVIDER_DELAY_MS = 800;
+const INTER_PROVIDER_DELAY_MS = 500;
 
 function isProviderBlocked(modelId) {
   const state = providerState.get(modelId);
@@ -56,25 +56,25 @@ export function simulationEnabled() {
 
 export function availableModels() {
   const hasRealKey = Boolean(
-    config.agnesKey || config.deepSeekKey || config.geminiKey ||
-    config.siliconFlowKey || config.openRouterKey ||
-    config.kimiKey || config.llm7Key
+    config.orcaRouterKey || config.llm7Key || config.agnesKey || config.deepSeekKey ||
+    config.geminiKey || config.siliconFlowKey || config.openRouterKey || config.kimiKey
   );
   if (simulationEnabled() && !hasRealKey) {
     return [{ id: 'local-deterministic', label: 'محاكاة', priority: 99 }];
   }
 
   return [
-    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 0 },
-    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 1 },
-    config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 1 },
-    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 2 },
-    config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 2 },
-    config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 3 },
-    config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 3 },
-    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 4 },
-    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 5 },
-    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 6 },
+    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 0 },
+    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 1 },
+    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 2 },
+    config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 2 },
+    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 3 },
+    config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 3 },
+    config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 4 },
+    config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 4 },
+    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 5 },
+    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 6 },
+    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 7 },
     { id: 'local-deterministic', label: 'محاكاة', priority: 99 }
   ].filter(Boolean);
 }
@@ -151,6 +151,7 @@ async function dispatchToProvider(modelId, prompt, options = {}) {
   const messages = [{ role: 'user', content: prompt }];
   const noJsonMode = options.noJsonMode === true;
 
+  if (modelId === 'orcarouter') return await callOpenAICompatible({ url: config.orcaRouterUrl, apiKey: config.orcaRouterKey, model: config.orcaRouterModel, messages, noJsonMode });
   if (modelId === 'llm7') return await callOpenAICompatible({ url: config.llm7Url, apiKey: config.llm7Key || 'unused', model: config.llm7Model, messages, noJsonMode });
   if (modelId === 'agnes') return await callOpenAICompatible({ url: config.agnesUrl, apiKey: config.agnesKey, model: config.agnesModel, messages, noJsonMode });
   if (modelId === 'deepseek') return await callOpenAICompatible({ url: 'https://api.deepseek.com/v1', apiKey: config.deepSeekKey, model: config.deepSeekModel, messages, noJsonMode });
@@ -198,7 +199,7 @@ export async function callModel(agentName, prompt, options = {}) {
       if (!error.transient) {
         recordFailure(candidate.id);
       } else {
-        info('ai', agentName + ' → ' + candidate.id + ' transient error (not counted)');
+        info('ai', agentName + ' → ' + candidate.id + ' transient (not counted)');
       }
       warn('ai', agentName + ' → ' + candidate.id + ' failed: ' + error.message);
       lastError = error;
