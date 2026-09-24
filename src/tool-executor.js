@@ -1,15 +1,11 @@
 // tool-executor.js (ESM)
 // طبقة تنفيذ الأدوات الحقيقية لنظام "عمالقة الصمت"
-// كل دالة هنا تُنفّذ فعلياً (API حقيقي / أمر shell حقيقي) ولا تكتفي بالنص.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 
-// ─────────────────────────────────────────────
-// إعدادات عامة
-// ─────────────────────────────────────────────
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const DEFAULT_CHAT_ID = process.env.CHAT_ID;
@@ -20,17 +16,12 @@ const SHELL_ALLOWLIST = ['npm', 'npx', 'git', 'node'];
 const TOOL_TIMEOUT_MS = 20000;
 const SEARCH_TIMEOUT_MS = 15000;
 
-// مجلدات نتجاهلها في grep/list
 const SKIP_DIRS = new Set(['node_modules', '.git', 'data', 'logs', 'dist', '.cache', 'uploads']);
-
-// ─────────────────────────────────────────────
-// أدوات مساعدة
-// ─────────────────────────────────────────────
 
 function withTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`⏱️ انتهت المهلة (${ms}ms) في: ${label}`)), ms);
+    timer = setTimeout(() => reject(new Error('timeout ' + ms + 'ms: ' + label)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
@@ -38,7 +29,7 @@ function withTimeout(promise, ms, label) {
 function resolveSafePath(relativePath) {
   const resolved = path.resolve(SAFE_ROOT, relativePath);
   if (!resolved.startsWith(SAFE_ROOT)) {
-    throw new Error('🚫 مسار خارج النطاق المسموح (SAFE_ROOT)');
+    throw new Error('path out of SAFE_ROOT');
   }
   return resolved;
 }
@@ -62,19 +53,39 @@ function* walkFiles(dir, maxDepth = 5, currentDepth = 0) {
 }
 
 // ─────────────────────────────────────────────
+// تنظيف روابط DuckDuckGo
+// ─────────────────────────────────────────────
+function cleanDdgUrl(url) {
+  if (!url) return '';
+  try {
+    let u = String(url);
+    // إزالة // في البداية
+    if (u.startsWith('//')) u = 'https:' + u;
+    // استخراج uddg parameter
+    const uddgMatch = u.match(/[?&]uddg=([^&]+)/);
+    if (uddgMatch) {
+      return decodeURIComponent(uddgMatch[1]);
+    }
+    return u;
+  } catch {
+    return String(url);
+  }
+}
+
+// ─────────────────────────────────────────────
 // 1) github_api
 // ─────────────────────────────────────────────
 async function githubApi({ endpoint, method = 'GET', body = null }) {
-  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN غير موجود في Environment');
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
   const url = endpoint.startsWith('http')
     ? endpoint
-    : `https://api.github.com/repos/${GITHUB_OWNER_REPO}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    : 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + (endpoint.startsWith('/') ? '' : '/') + endpoint;
 
   const res = await withTimeout(
     fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Authorization: 'Bearer ' + GITHUB_TOKEN,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
@@ -88,9 +99,7 @@ async function githubApi({ endpoint, method = 'GET', body = null }) {
   let data;
   try { data = JSON.parse(text); } catch { data = text; }
 
-  if (!res.ok) {
-    throw new Error(`GitHub API خطأ ${res.status}: ${JSON.stringify(data).slice(0, 500)}`);
-  }
+  if (!res.ok) throw new Error('GitHub API ' + res.status + ': ' + JSON.stringify(data).slice(0, 500));
   return { status: res.status, data };
 }
 
@@ -98,11 +107,11 @@ async function githubApi({ endpoint, method = 'GET', body = null }) {
 // 2) send_telegram
 // ─────────────────────────────────────────────
 async function sendTelegram({ chat_id, text }) {
-  if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN غير موجود في Environment');
+  if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
   const targetChatId = chat_id || DEFAULT_CHAT_ID;
-  if (!targetChatId) throw new Error('لا يوجد chat_id (لا في params ولا في CHAT_ID)');
+  if (!targetChatId) throw new Error('no chat_id');
 
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const url = 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage';
   const res = await withTimeout(
     fetch(url, {
       method: 'POST',
@@ -118,7 +127,7 @@ async function sendTelegram({ chat_id, text }) {
   );
 
   const data = await res.json();
-  if (!data.ok) throw new Error(`Telegram API خطأ: ${JSON.stringify(data)}`);
+  if (!data.ok) throw new Error('Telegram API: ' + JSON.stringify(data));
   return { message_id: data.result.message_id, sent: true };
 }
 
@@ -128,7 +137,7 @@ async function sendTelegram({ chat_id, text }) {
 function shellExec({ command, args = [] }) {
   const bin = String(command).trim();
   if (!SHELL_ALLOWLIST.includes(bin)) {
-    throw new Error(`🚫 الأمر "${bin}" غير مسموح. المسموح فقط: ${SHELL_ALLOWLIST.join(', ')}`);
+    throw new Error('command not allowed: ' + bin);
   }
   return withTimeout(
     new Promise((resolve, reject) => {
@@ -177,11 +186,11 @@ async function writeFile({ file_path, content }) {
 }
 
 // ─────────────────────────────────────────────
-// 7) 🆕 grep_files — البحث في كل الملفات
+// 7) grep_files
 // ─────────────────────────────────────────────
 async function grepFiles({ pattern, file_ext = '.js', max_results = 30 }) {
   if (!pattern || String(pattern).length < 2) {
-    throw new Error('pattern يجب أن يكون نصاً بطول 2+');
+    throw new Error('pattern must be 2+ chars');
   }
 
   const needle = String(pattern).toLowerCase();
@@ -210,25 +219,15 @@ async function grepFiles({ pattern, file_ext = '.js', max_results = 30 }) {
     } catch { /* skip */ }
   }
 
-  return {
-    pattern,
-    file_ext,
-    scanned_files: scanned,
-    results_count: results.length,
-    results
-  };
+  return { pattern, file_ext, scanned_files: scanned, results_count: results.length, results };
 }
 
 // ─────────────────────────────────────────────
-// 8) 🆕 read_many_files — قراءة 5 ملفات دفعة واحدة
+// 8) read_many_files
 // ─────────────────────────────────────────────
 async function readManyFiles({ files }) {
-  if (!Array.isArray(files) || !files.length) {
-    throw new Error('files يجب أن تكون قائمة');
-  }
-  if (files.length > 5) {
-    throw new Error('الحد الأقصى 5 ملفات في نداء واحد');
-  }
+  if (!Array.isArray(files) || !files.length) throw new Error('files must be array');
+  if (files.length > 5) throw new Error('max 5 files');
 
   const results = [];
   for (const fp of files) {
@@ -236,7 +235,7 @@ async function readManyFiles({ files }) {
       const full = resolveSafePath(fp);
       const stats = await fs.stat(full);
       if (stats.size > 200 * 1024) {
-        results.push({ file: fp, error: 'الملف كبير جداً (>200KB)' });
+        results.push({ file: fp, error: 'file too large (>200KB)' });
         continue;
       }
       const content = await fs.readFile(full, 'utf-8');
@@ -254,7 +253,7 @@ async function readManyFiles({ files }) {
 }
 
 // ─────────────────────────────────────────────
-// 9) 🆕 list_files — سرد مجلد
+// 9) list_files
 // ─────────────────────────────────────────────
 async function listFiles({ dir = '.', max_depth = 2 }) {
   const full = resolveSafePath(dir);
@@ -286,41 +285,37 @@ async function listFiles({ dir = '.', max_depth = 2 }) {
 }
 
 // ─────────────────────────────────────────────
-// 10) 🆕 web_search — البحث في الويب (DuckDuckGo مجاناً)
+// 10) web_search — DuckDuckGo
 // ─────────────────────────────────────────────
 async function webSearch({ query, max_results = 5 }) {
-  if (!query || String(query).length < 2) {
-    throw new Error('query مطلوب (2+ أحرف)');
-  }
+  if (!query || String(query).length < 2) throw new Error('query required');
 
   const q = String(query).trim();
 
-  // 1) Instant Answer API (مجاني بلا مفتاح)
+  // 1) Instant Answer API
   try {
-    const iaUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1&t=silent-giants`;
+    const iaUrl = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(q) + '&format=json&no_html=1&skip_disambig=1&t=silent-giants';
     const res = await withTimeout(fetch(iaUrl, { headers: { 'User-Agent': 'SilentGiants/1.0' } }), SEARCH_TIMEOUT_MS, 'ddg_ia');
     if (res.ok) {
       const data = await res.json();
       const results = [];
 
-      // Abstract (نتيجة رئيسية)
       if (data.AbstractText) {
         results.push({
           title: data.Heading || q,
           snippet: String(data.AbstractText).slice(0, 400),
-          url: data.AbstractURL || '',
+          url: cleanDdgUrl(data.AbstractURL || ''),
           source: data.AbstractSource || 'DuckDuckGo'
         });
       }
 
-      // Related Topics (نتائج مرتبطة)
       const topics = (data.RelatedTopics || []).slice(0, max_results);
       for (const topic of topics) {
         if (topic.Text && topic.FirstURL) {
           results.push({
             title: String(topic.Text).split(' - ')[0].slice(0, 120),
             snippet: String(topic.Text).slice(0, 300),
-            url: topic.FirstURL,
+            url: cleanDdgUrl(topic.FirstURL),
             source: 'DuckDuckGo'
           });
         } else if (topic.Topics) {
@@ -329,7 +324,7 @@ async function webSearch({ query, max_results = 5 }) {
               results.push({
                 title: String(sub.Text).split(' - ')[0].slice(0, 120),
                 snippet: String(sub.Text).slice(0, 300),
-                url: sub.FirstURL,
+                url: cleanDdgUrl(sub.FirstURL),
                 source: 'DuckDuckGo'
               });
             }
@@ -338,16 +333,16 @@ async function webSearch({ query, max_results = 5 }) {
       }
 
       if (results.length > 0) {
-        return { query: q, count: results.length, results: results.slice(0, max_results), engine: 'duckduckgo_instant' };
+        return { query: q, count: results.length, results: results.slice(0, max_results), engine: 'ddg_instant' };
       }
     }
   } catch (e) {
-    console.warn('[web_search] DDG Instant failed:', e.message);
+    console.warn('[web_search] DDG Instant failed: ' + e.message);
   }
 
-  // 2) HTML Scraping fallback
+  // 2) HTML fallback
   try {
-    const htmlUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
+    const htmlUrl = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q);
     const res = await withTimeout(fetch(htmlUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SilentGiants/1.0)' }
     }), SEARCH_TIMEOUT_MS, 'ddg_html');
@@ -357,7 +352,7 @@ async function webSearch({ query, max_results = 5 }) {
       const regex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
       let match;
       while ((match = regex.exec(html)) !== null && results.length < max_results) {
-        const url = match[1];
+        const url = cleanDdgUrl(match[1]);
         const title = match[2].replace(/<[^>]*>/g, '').trim();
         const snippet = match[3].replace(/<[^>]*>/g, '').trim().slice(0, 300);
         if (title && url) {
@@ -365,18 +360,16 @@ async function webSearch({ query, max_results = 5 }) {
         }
       }
       if (results.length > 0) {
-        return { query: q, count: results.length, results, engine: 'duckduckgo_html' };
+        return { query: q, count: results.length, results, engine: 'ddg_html' };
       }
     }
   } catch (e) {
-    console.warn('[web_search] DDG HTML failed:', e.message);
+    console.warn('[web_search] DDG HTML failed: ' + e.message);
   }
 
   return { query: q, count: 0, results: [], error: 'no_results' };
 }
 
-// ─────────────────────────────────────────────
-// الموزّع الرئيسي
 // ─────────────────────────────────────────────
 const TOOL_MAP = {
   github_api: githubApi,
@@ -391,73 +384,23 @@ const TOOL_MAP = {
   web_search: webSearch,
 };
 
-// ─────────────────────────────────────────────
-// وصف الأدوات للـ LLM
-// ─────────────────────────────────────────────
 export const AVAILABLE_TOOLS = [
-  {
-    name: 'web_search',
-    description: 'البحث في الإنترنت عبر DuckDuckGo. يُعيد نتائج (عنوان، ملخص، رابط).',
-    params: { query: 'string', max_results: 'number (افتراضي 5)' },
-  },
-  {
-    name: 'grep_files',
-    description: 'البحث عن نص في جميع ملفات المشروع. يُعيد الملف ورقم السطر والنص.',
-    params: { pattern: 'string', file_ext: 'string (افتراضي .js)', max_results: 'number' },
-  },
-  {
-    name: 'read_many_files',
-    description: 'قراءة حتى 5 ملفات في نداء واحد. مثالي لتحليل مشروع كامل.',
-    params: { files: 'string[] (حد أقصى 5)' },
-  },
-  {
-    name: 'list_files',
-    description: 'سرد محتويات مجلد (مع المجلدات الفرعية).',
-    params: { dir: 'string (افتراضي ".")', max_depth: 'number (افتراضي 2)' },
-  },
-  {
-    name: 'read_file',
-    description: 'قراءة ملف واحد داخل مجلد المشروع.',
-    params: { file_path: 'string (نسبي)' },
-  },
-  {
-    name: 'write_file',
-    description: 'كتابة/تعديل ملف داخل مجلد المشروع.',
-    params: { file_path: 'string', content: 'string' },
-  },
-  {
-    name: 'github_api',
-    description: 'استدعاء GitHub REST API على مستودع المشروع.',
-    params: { endpoint: 'string', method: 'GET|POST|PUT|PATCH|DELETE', body: 'object|null' },
-  },
-  {
-    name: 'send_telegram',
-    description: 'إرسال رسالة على Telegram.',
-    params: { chat_id: 'string|number (اختياري)', text: 'string' },
-  },
-  {
-    name: 'shell_exec',
-    description: `تنفيذ أمر shell مسموح فقط ضمن: ${SHELL_ALLOWLIST.join(', ')}`,
-    params: { command: 'string', args: 'string[]' },
-  },
-  {
-    name: 'http_fetch',
-    description: 'طلب HTTP عام لأي رابط.',
-    params: { url: 'string', method: 'string', headers: 'object', body: 'object|null' },
-  },
+  { name: 'web_search', description: 'البحث في الإنترنت عبر DuckDuckGo.', params: { query: 'string', max_results: 'number (افتراضي 5)' } },
+  { name: 'grep_files', description: 'البحث عن نص في جميع ملفات المشروع.', params: { pattern: 'string', file_ext: 'string (افتراضي .js)', max_results: 'number' } },
+  { name: 'read_many_files', description: 'قراءة حتى 5 ملفات في نداء واحد.', params: { files: 'string[] (حد أقصى 5)' } },
+  { name: 'list_files', description: 'سرد محتويات مجلد.', params: { dir: 'string (افتراضي ".")', max_depth: 'number (افتراضي 2)' } },
+  { name: 'read_file', description: 'قراءة ملف واحد.', params: { file_path: 'string (نسبي)' } },
+  { name: 'write_file', description: 'كتابة/تعديل ملف.', params: { file_path: 'string', content: 'string' } },
+  { name: 'github_api', description: 'استدعاء GitHub REST API.', params: { endpoint: 'string', method: 'GET|POST', body: 'object|null' } },
+  { name: 'send_telegram', description: 'إرسال رسالة Telegram.', params: { chat_id: 'string (اختياري)', text: 'string' } },
+  { name: 'shell_exec', description: 'تنفيذ shell. مسموح: ' + SHELL_ALLOWLIST.join(', '), params: { command: 'string', args: 'string[]' } },
+  { name: 'http_fetch', description: 'طلب HTTP عام.', params: { url: 'string', method: 'string', headers: 'object', body: 'object|null' } },
 ];
 
-// ─────────────────────────────────────────────
-// executeTool — الموزّع النهائي
-// ─────────────────────────────────────────────
 export async function executeTool(toolName, params = {}) {
   const fn = TOOL_MAP[toolName];
   if (!fn) {
-    return {
-      ok: false,
-      tool: toolName,
-      error: `أداة غير معروفة: "${toolName}". المتاح: ${Object.keys(TOOL_MAP).join(', ')}`,
-    };
+    return { ok: false, tool: toolName, error: 'unknown tool. Available: ' + Object.keys(TOOL_MAP).join(', ') };
   }
   try {
     const result = await fn(params);
