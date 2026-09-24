@@ -56,15 +56,16 @@ export function simulationEnabled() {
 
 export function availableModels() {
   const hasRealKey = Boolean(
-    config.orcaRouterKey || config.llm7Key || config.agnesKey || config.deepSeekKey ||
-    config.geminiKey || config.siliconFlowKey || config.openRouterKey || config.kimiKey
+    config.kiloGatewayUrl || config.llm7Key || config.agnesKey || config.deepSeekKey ||
+    config.geminiKey || config.siliconFlowKey || config.openRouterKey || config.kimiKey ||
+    config.orcaRouterKey
   );
   if (simulationEnabled() && !hasRealKey) {
     return [{ id: 'local-deterministic', label: 'محاكاة', priority: 99 }];
   }
 
   return [
-    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 0 },
+    config.kiloGatewayUrl && { id: 'kilo', label: 'Kilo Gateway', priority: 0 },
     config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 1 },
     config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 2 },
     config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 2 },
@@ -72,9 +73,10 @@ export function availableModels() {
     config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 3 },
     config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 4 },
     config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 4 },
-    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 5 },
-    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 6 },
-    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 7 },
+    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 5 },
+    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 6 },
+    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 7 },
+    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 8 },
     { id: 'local-deterministic', label: 'محاكاة', priority: 99 }
   ].filter(Boolean);
 }
@@ -97,12 +99,14 @@ function recordRun(agent, model, success, latencyMs, qualityScore = 80) {
   } catch { /* ignore */ }
 }
 
-async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 45000, noJsonMode = false }) {
+async function callOpenAICompatible({ url, apiKey, model, messages, timeoutMs = 60000, noJsonMode = false }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers = { 'content-type': 'application/json' };
-    if (apiKey && apiKey !== 'not-needed') headers['authorization'] = 'Bearer ' + apiKey;
+    if (apiKey && apiKey !== 'not-needed' && apiKey !== 'anonymous') {
+      headers['authorization'] = 'Bearer ' + apiKey;
+    }
     const endpoint = url.replace(/\/$/, '') + '/chat/completions';
 
     const body = {
@@ -151,7 +155,7 @@ async function dispatchToProvider(modelId, prompt, options = {}) {
   const messages = [{ role: 'user', content: prompt }];
   const noJsonMode = options.noJsonMode === true;
 
-  if (modelId === 'orcarouter') return await callOpenAICompatible({ url: config.orcaRouterUrl, apiKey: config.orcaRouterKey, model: config.orcaRouterModel, messages, noJsonMode });
+  if (modelId === 'kilo') return await callOpenAICompatible({ url: config.kiloGatewayUrl, apiKey: config.kiloGatewayKey, model: config.kiloGatewayModel, messages, noJsonMode });
   if (modelId === 'llm7') return await callOpenAICompatible({ url: config.llm7Url, apiKey: config.llm7Key || 'unused', model: config.llm7Model, messages, noJsonMode });
   if (modelId === 'agnes') return await callOpenAICompatible({ url: config.agnesUrl, apiKey: config.agnesKey, model: config.agnesModel, messages, noJsonMode });
   if (modelId === 'deepseek') return await callOpenAICompatible({ url: 'https://api.deepseek.com/v1', apiKey: config.deepSeekKey, model: config.deepSeekModel, messages, noJsonMode });
@@ -159,10 +163,11 @@ async function dispatchToProvider(modelId, prompt, options = {}) {
   if (modelId === 'siliconflow') return await callOpenAICompatible({ url: 'https://api.siliconflow.cn/v1', apiKey: config.siliconFlowKey, model: config.siliconFlowModel, messages, noJsonMode });
   if (modelId === 'openrouter') return await callOpenAICompatible({ url: 'https://openrouter.ai/api/v1', apiKey: config.openRouterKey, model: 'google/gemini-flash-1.5:free', messages, noJsonMode });
   if (modelId === 'kimi-k3') return await callOpenAICompatible({ url: config.kimiUrl, apiKey: config.kimiKey, model: config.kimiModel, messages, noJsonMode });
+  if (modelId === 'orcarouter') return await callOpenAICompatible({ url: config.orcaRouterUrl, apiKey: config.orcaRouterKey, model: config.orcaRouterModel, messages, noJsonMode });
   if (modelId === 'danyapi') return await callOpenAICompatible({ url: config.danyApiUrl, apiKey: 'not-needed', model: config.danyApiModel, messages, noJsonMode });
   if (modelId === 'logfare') return await callOpenAICompatible({ url: config.logfareUrl, apiKey: config.logfareKey, model: config.logfareModel, messages, noJsonMode });
   if (modelId === 'gpt-oss') return await callOpenAICompatible({ url: config.gptOssApiUrl, apiKey: process.env.GPT_OSS_API_KEY || 'not-needed', model: config.gptOssModel, messages, noJsonMode });
-  if (modelId === 'local-deterministic') return 'مرحباً، لا يوجد مزود AI حقيقي حالياً.';
+  if (modelId === 'local-deterministic') return 'لا يوجد مزود AI متاح حالياً.';
   throw new Error('unknown provider: ' + modelId);
 }
 
@@ -178,7 +183,7 @@ export async function callModel(agentName, prompt, options = {}) {
 
   for (const candidate of models) {
     if (isProviderBlocked(candidate.id)) {
-      info('ai', agentName + ' → ' + candidate.id + ' skipped (circuit breaker)');
+      info('ai', agentName + ' -> ' + candidate.id + ' skipped (circuit breaker)');
       continue;
     }
 
@@ -191,7 +196,7 @@ export async function callModel(agentName, prompt, options = {}) {
       const latency = Date.now() - startedAt;
       recordRun(agentName, candidate.id, true, latency);
       recordSuccess(candidate.id);
-      info('ai', agentName + ' → ' + candidate.id + ' ok (' + latency + 'ms)' + (options.noJsonMode ? ' [text]' : ''));
+      info('ai', agentName + ' -> ' + candidate.id + ' ok (' + latency + 'ms)' + (options.noJsonMode ? ' [text]' : ''));
       return response;
     } catch (error) {
       const latency = Date.now() - startedAt;
@@ -199,9 +204,9 @@ export async function callModel(agentName, prompt, options = {}) {
       if (!error.transient) {
         recordFailure(candidate.id);
       } else {
-        info('ai', agentName + ' → ' + candidate.id + ' transient (not counted)');
+        info('ai', agentName + ' -> ' + candidate.id + ' transient (not counted)');
       }
-      warn('ai', agentName + ' → ' + candidate.id + ' failed: ' + error.message);
+      warn('ai', agentName + ' -> ' + candidate.id + ' failed: ' + error.message);
       lastError = error;
     }
   }
