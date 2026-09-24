@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>المحافظ الرقمية — عمالقة الصمت</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif;
+    background: #0a1020; color: #e8ecf5;
+    min-height: 100vh; padding: 16px;
+  }
+  header {
+    text-align: center; margin-bottom: 24px;
+    padding: 20px 12px;
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+    border-radius: 16px;
+    border: 1px solid #4c1d95;
+  }
+  header h1 { font-size: 22px; color: #a78bfa; margin-bottom: 8px; }
+  header p { color: #c4b5fd; font-size: 13px; }
+
+  .nav-back {
+    display: inline-block; margin-bottom: 16px;
+    padding: 8px 16px; background: #1e293b;
+    border-radius: 10px; color: #cbd5e1;
+    text-decoration: none; font-size: 13px;
+    border: 1px solid #334155;
+  }
+  .nav-back:hover { background: #334155; }
+
+  .warning {
+    background: #422006; border: 1px solid #92400e;
+    padding: 14px 16px; border-radius: 12px;
+    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .warning .icon { font-size: 22px; }
+  .warning .text { color: #fcd34d; font-size: 13px; line-height: 1.6; }
+
+  .wallet-card {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border-radius: 16px; padding: 20px;
+    margin-bottom: 16px;
+    border: 1px solid #334155;
+    position: relative;
+    overflow: hidden;
+  }
+  .wallet-card::before {
+    content: ''; position: absolute; top: 0; right: 0;
+    width: 4px; height: 100%;
+    background: linear-gradient(180deg, #a78bfa, #7c3aed);
+  }
+  .wallet-header {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 16px;
+  }
+  .wallet-name {
+    font-size: 17px; font-weight: 700;
+    color: #a78bfa;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .wallet-network {
+    font-size: 11px; color: #94a3b8;
+    background: #0f172a; padding: 4px 10px;
+    border-radius: 8px; border: 1px solid #334155;
+  }
+
+  .address-box {
+    background: #0a1020; border-radius: 12px;
+    padding: 14px; margin-bottom: 12px;
+    border: 1px solid #1e293b;
+    word-break: break-all;
+  }
+  .address-label {
+    font-size: 11px; color: #64748b;
+    margin-bottom: 6px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .address-value {
+    font-family: 'Courier New', monospace;
+    font-size: 13px; color: #e0e7ff;
+    line-height: 1.6;
+    direction: ltr; text-align: left;
+  }
+
+  .actions {
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .btn {
+    flex: 1; min-width: 120px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600;
+    font-family: inherit;
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px;
+    text-decoration: none;
+    color: white;
+  }
+  .btn-copy {
+    background: #4338ca;
+  }
+  .btn-copy:hover { background: #4f46e5; }
+  .btn-copy.copied { background: #059669; }
+  .btn-qr {
+    background: #0f766e;
+  }
+  .btn-qr:hover { background: #14b8a6; }
+  .btn-explorer {
+    background: #7c2d12;
+  }
+  .btn-explorer:hover { background: #9a3412; }
+
+  .qr-modal {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 9999;
+    align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .qr-modal.active { display: flex; }
+  .qr-content {
+    background: #1e293b; padding: 24px;
+    border-radius: 16px; text-align: center;
+    max-width: 340px; width: 100%;
+    border: 1px solid #4c1d95;
+  }
+  .qr-content h3 {
+    color: #a78bfa; font-size: 15px;
+    margin-bottom: 16px;
+  }
+  .qr-content img {
+    width: 100%; max-width: 260px;
+    border-radius: 12px; background: white; padding: 8px;
+  }
+  .qr-content .close {
+    margin-top: 16px; background: #4338ca;
+    color: white; border: none; padding: 10px 20px;
+    border-radius: 10px; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+  }
+
+  .footer-info {
+    margin-top: 24px; padding: 16px;
+    background: #0f172a; border-radius: 12px;
+    border: 1px solid #1e293b;
+    font-size: 12px; color: #64748b;
+    line-height: 1.8; text-align: center;
+  }
+  .footer-info strong { color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<a href="/dashboard?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr" class="nav-back">← رجوع للوحة التحكم</a>
+
+<header>
+  <h1>💼 المحافظ الرقمية</h1>
+  <p>عمالقة الصمت — عناوين الاستلام فقط</p>
+</header>
+
+<div class="warning">
+  <span class="icon">🛡️</span>
+  <div class="text">
+    <strong>سياسة أمنية:</strong> النظام يستقبل فقط — لا يقوم بأي سحب أو تحويل تلقائي.
+    كل عملية دفع تتم يدوياً بعد موافقة القائد.
+  </div>
+</div>
+
+<!-- USDT TON -->
+<div class="wallet-card">
+  <div class="wallet-header">
+    <div class="wallet-name">
+      <span>💎</span>
+      <span>USDT</span>
+    </div>
+    <div class="wallet-network">TON Network</div>
+  </div>
+
+  <div class="address-box">
+    <div class="address-label">عنوان الاستلام</div>
+    <div class="address-value" id="usdt-addr">UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-copy" onclick="copyAddr('usdt-addr', this)">📋 نسخ العنوان</button>
+    <button class="btn btn-qr" onclick="showQR('USDT (TON)', 'UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f')">📱 QR Code</button>
+    <a class="btn btn-explorer" href="https://tonviewer.com/UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f" target="_blank">🔍 المستكشف</a>
+  </div>
+</div>
+
+<!-- USDC Base -->
+<div class="wallet-card">
+  <div class="wallet-header">
+    <div class="wallet-name">
+      <span>🔵</span>
+      <span>USDC</span>
+    </div>
+    <div class="wallet-network">Base Network</div>
+  </div>
+
+  <div class="address-box">
+    <div class="address-label">عنوان الاستلام</div>
+    <div class="address-value" id="usdc-addr">0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-copy" onclick="copyAddr('usdc-addr', this)">📋 نسخ العنوان</button>
+    <button class="btn btn-qr" onclick="showQR('USDC (Base)', '0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855')">📱 QR Code</button>
+    <a class="btn btn-explorer" href="https://basescan.org/address/0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855" target="_blank">🔍 المستكشف</a>
+  </div>
+</div>
+
+<div class="footer-info">
+  <strong>⚠️ تحذير:</strong> تأكد دائماً من صحة العنوان قبل الإرسال.<br>
+  الشبكة الخاطئة = فقدان الأموال للأبد.<br>
+  <strong>USDT → TON فقط | USDC → Base فقط</strong>
+</div>
+
+<div class="qr-modal" id="qr-modal" onclick="closeQR(event)">
+  <div class="qr-content" onclick="event.stopPropagation()">
+    <h3 id="qr-title">QR Code</h3>
+    <img id="qr-img" src="" alt="QR">
+    <button class="close" onclick="closeQR()">إغلاق</button>
+  </div>
+</div>
+
+<script>
+function copyAddr(id, btn) {
+  const text = document.getElementById(id).textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✅ تم النسخ';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    alert('تعذر النسخ — انسخ يدوياً:\n' + text);
+  });
+}
+
+function showQR(title, addr) {
+  document.getElementById('qr-title').textContent = title;
+  document.getElementById('qr-img').src = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(addr);
+  document.getElementById('qr-modal').classList.add('active');
+}
+
+function closeQR(event) {
+  if (event && event.target !== event.currentTarget) return;
+  document.getElementById('qr-modal').classList.remove('active');
+}
+</script>
+
+</body>
+</html>
