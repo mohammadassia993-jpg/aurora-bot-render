@@ -66,31 +66,36 @@ function buildAgentPrompt(userMessage, ctx) {
 
   return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت".
 
-بيانات النظام الحالية:
+بيانات النظام:
 ${JSON.stringify(ctx, null, 2)}
 
 الأدوات المتاحة:
 ${toolsDesc}
 
 قواعد صارمة:
-- ردّك يجب أن يكون JSON فقط، بدون أي نص قبله أو بعده.
-- استخدم هذا الشكل بالضبط:
-
+- ردّك JSON فقط، بدون أي نص قبله أو بعده.
+- الشكل:
 {
   "action": "tool" | "final",
-  "tool": "اسم الأداة (فقط عند action=tool)",
-  "params": { ... } (فقط عند action=tool),
-  "text": "الإجابة النهائية بالعربية (فقط عند action=final)"
+  "tool": "اسم الأداة",
+  "params": { ... },
+  "text": "الإجابة النهائية"
 }
 
-- استخدمي action="tool" عند الحاجة لمعلومة (قراءة ملف، بحث، قائمة ملفات).
-- استخدمي action="final" عند تقديم الإجابة النهائية.
-- بعد استدعاء أداة، ستصلك نتيجتها، ثم قرري: أداة أخرى أم إجابة نهائية.
-- لا تختلقي معلومات.
+- عند action=final، الإجابة يجب أن تحتوي التفاصيل الكاملة من نتائج الأدوات:
+  • عند قراءة ملف: اذكر المسار ومقتطفات المحتوى الحقيقية
+  • عند البحث (grep): اذكر **كل ملف** و **رقم السطر** و **النص** — بدون تلخيص غامض
+  • عند قائمة ملفات: اذكر **كل المسارات** بالأسماء
+  • عند بحث ويب: اذكر **العناوين والروابط**
+
+- لا تقل "تم العثور" بدون ذكر الملفات المحددة.
+- لا تختلقي أي معلومة.
+- استخدمي action="tool" عند الحاجة لمعلومة.
+- استخدمي action="final" عند تقديم الإجابة.
 
 أمر القائد: ${userMessage}
 
-ردّك الآن (JSON فقط):`;
+ردّك (JSON فقط):`;
 }
 
 function parseAgentResponse(raw) {
@@ -167,7 +172,7 @@ async function runAgentLoop(userMessage, ctx) {
     const parsed = parseAgentResponse(raw);
 
     if (!parsed || !parsed.action) {
-      console.warn('[agent] step ' + step + ' no valid JSON. Raw preview: ' + String(raw).slice(0, 200));
+      console.warn('[agent] step ' + step + ' no valid JSON. Raw: ' + String(raw).slice(0, 200));
       continue;
     }
 
@@ -180,17 +185,17 @@ async function runAgentLoop(userMessage, ctx) {
         toolResult = { ok: false, error: e.message };
       }
 
-      const resultText = JSON.stringify(toolResult).slice(0, 2500);
+      const resultText = JSON.stringify(toolResult).slice(0, 3500);
       const emoji = toolResult.ok ? '✅' : '❌';
 
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nاستمري. أعد JSON فقط.`;
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nقدّم الإجابة النهائية الآن، مع ذكر كل التفاصيل من النتيجة أعلاه (أسماء الملفات، أرقام الأسطر، النصوص). أعد JSON فقط.`;
       continue;
     }
 
     if (parsed.action === 'final' && parsed.text) {
       const cleaned = cleanFinalText(parsed.text);
       if (!cleaned || cleaned.length < 5) {
-        console.warn('[agent] step ' + step + ' empty final text');
+        console.warn('[agent] step ' + step + ' empty final');
         continue;
       }
       if (hasHallucination(cleaned)) {
@@ -266,7 +271,7 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === agent mode (json) ===');
+  console.log('[team] === agent mode (verbose) ===');
 
   const ctx = collectSystemSnapshot();
 
