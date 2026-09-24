@@ -1,4 +1,4 @@
-١import fs from 'node:fs/promises';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { db } from './db.js';
@@ -15,19 +15,13 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-// ─────────────────────────────────────────────
-// إعدادات Agent Loop (محسّنة لتفادي rate limit)
-// ─────────────────────────────────────────────
 const MAX_AGENT_STEPS = 4;
-const STEP_DELAY_MS = 3000;  // 3 ثواني بين كل خطوة
+const STEP_DELAY_MS = 3000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ═══════════════════════════════════════════════════════════
-// جمع بيانات النظام
-// ═══════════════════════════════════════════════════════════
 function collectSystemSnapshot() {
   try {
     const health = db.prepare(`
@@ -63,9 +57,6 @@ function collectSystemSnapshot() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// System Prompt مع الأدوات
-// ═══════════════════════════════════════════════════════════
 function buildAuroraPrompt(userMessage, ctx) {
   const toolsDesc = AVAILABLE_TOOLS.map(t => {
     const paramsList = Object.entries(t.params || {})
@@ -110,9 +101,6 @@ ${userMessage}
 ════════ ابدئي الآن:`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// استخراج نداء الأداة
-// ═══════════════════════════════════════════════════════════
 function extractToolCall(text) {
   const marker = '[TOOL_CALL]';
   const idx = String(text).indexOf(marker);
@@ -140,9 +128,6 @@ function extractToolCall(text) {
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════
-// فلتر الهلوسة
-// ═══════════════════════════════════════════════════════════
 const FORBIDDEN_TERMS = ['الخصوم', 'الأعداء', 'الحدود', 'الحرب', 'المعارك', 'الجيش', 'العسكري', 'الجاسوس'];
 
 function hasHallucination(text) {
@@ -173,14 +158,10 @@ function cleanAgentResponse(text) {
   return clean || null;
 }
 
-// ═══════════════════════════════════════════════════════════
-// حلقة الوكيل (محسّنة)
-// ═══════════════════════════════════════════════════════════
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAuroraPrompt(userMessage, ctx);
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
-    // انتظار بين الخطوات (بعد الأول)
     if (step > 1) {
       console.log('[agent] waiting ' + STEP_DELAY_MS + 'ms before step ' + step);
       await sleep(STEP_DELAY_MS);
@@ -240,9 +221,6 @@ function buildFallback(ctx) {
   return 'حالة النظام: ' + ctx.health.healthy + ' من ' + ctx.health.total + ' مكونات سليمة.';
 }
 
-// ═══════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════
 function sanitizeStoredBody(body) {
   const s = String(body || '');
   const looksLikeJson = s.startsWith('{') || s.startsWith('[') || (s.match(/[{]/g) || []).length > 2;
