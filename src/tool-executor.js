@@ -1,381 +1,265 @@
-// tool-executor.js (ESM) — 16 أداة
-import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { db } from './db.js';
+import { config } from './config.js';
+import { callModel } from './ai.js';
+import { saveAttachment } from './uploads.js';
+import { notify } from './notifications.js';
+import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const DEFAULT_CHAT_ID = process.env.CHAT_ID;
-const GITHUB_OWNER_REPO = process.env.GITHUB_REPO || 'mohammadassia993-jpg/aurora-bot-render';
-const RENDER_API_KEY = process.env.RENDER_API_KEY;
-const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID || 'srv-da5a4njtqb8s739sk8g0';
+export const AGENTS = [{ id: 'aurora', name: 'أورورا', color: '#a78bfa' }];
+export const teamEvents = new EventEmitter();
+teamEvents.setMaxListeners(200);
 
-const SAFE_ROOT = process.env.PROJECT_ROOT || process.cwd();
-const SHELL_ALLOWLIST = ['npm', 'npx', 'git', 'node'];
-const TOOL_TIMEOUT_MS = 20000;
-const SEARCH_TIMEOUT_MS = 15000;
-const SESSIONS_DIR = path.join(SAFE_ROOT, 'data', 'sessions');
-const SKIP_DIRS = new Set(['node_modules', '.git', 'data', 'logs', 'dist', '.cache', 'uploads']);
+const MAX_AGENT_STEPS = 10;
+const STEP_DELAY_MS = 800;
+const TELEGRAM_MAX_LEN = 3800;
 
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error('timeout ' + ms + 'ms: ' + label)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function resolveSafePath(relativePath) {
-  const resolved = path.resolve(SAFE_ROOT, relativePath);
-  if (!resolved.startsWith(SAFE_ROOT)) throw new Error('path out of SAFE_ROOT');
-  return resolved;
-}
-
-function* walkFiles(dir, maxDepth = 5, currentDepth = 0) {
-  if (currentDepth > maxDepth) return;
-  let entries;
-  try { entries = fsSync.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-  for (const entry of entries) {
-    if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
-    if (SKIP_DIRS.has(entry.name)) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) yield* walkFiles(full, maxDepth, currentDepth + 1);
-    else if (entry.isFile()) yield full;
-  }
-}
-
-function cleanDdgUrl(url) {
-  if (!url) return '';
+function collectSystemSnapshot() {
   try {
-    let u = String(url);
-    if (u.startsWith('//')) u = 'https:' + u;
-    const m = u.match(/[?&]uddg=([^&]+)/);
-    if (m) return decodeURIComponent(m[1]);
-    return u;
-  } catch { return String(url); }
+    const health = db.prepare(`SELECT component, healthy, detail FROM health_checks WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)`).all();
+    const tasksByStatus = db.prepare(`SELECT status, COUNT(*) c FROM tasks GROUP BY status`).all();
+    const recentErrors = db.prepare(`SELECT scope, error_type, last_seen FROM errors WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours') ORDER BY last_seen DESC LIMIT 5`).all();
+    const pendingApprovals = db.prepare(`SELECT COUNT(*) c FROM approvals WHERE state='pending'`).get().c;
+    const products = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published FROM produced_products`).get();
+    return {
+      time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+      health: { total: health.length, healthy: health.filter(h => h.healthy === 1).length, failing: health.filter(h => h.healthy !== 1).map(h => ({ name: h.component, reason: h.detail || '' })) },
+      tasks: tasksByStatus, errors: recentErrors, approvals: pendingApprovals, products
+    };
+  } catch (e) { return { error: e.message }; }
 }
 
-function ensureSessionsDir() { try { fsSync.mkdirSync(SESSIONS_DIR, { recursive: true }); } catch {} }
+// 🆕 نسخة مبسطة جداً من الـ prompt
+function buildAgentPrompt(userMessage, ctx) {
+  const toolsList = AVAILABLE_TOOLS.map(t => '- ' + t.name + ': ' + t.description).join('\n');
 
-async function githubApi({ endpoint, method = 'GET', body = null }) {
-  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
-  const url = endpoint.startsWith('http') ? endpoint
-    : 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + (endpoint.startsWith('/') ? '' : '/') + endpoint;
-  const res = await withTimeout(fetch(url, {
-    method,
-    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-    body: body ? JSON.stringify(body) : undefined,
-  }), TOOL_TIMEOUT_MS, 'github_api');
-  const text = await res.text();
-  let data; try { data = JSON.parse(text); } catch { data = text; }
-  if (!res.ok) throw new Error('GitHub ' + res.status + ': ' + JSON.stringify(data).slice(0, 300));
-  return { status: res.status, data };
+  return `أنت "أورورا" في فريق عمالقة الصمت. اتبع التعليمات بدقة.
+
+النظام:
+${JSON.stringify(ctx)}
+
+الأدوات:
+${toolsList}
+
+قواعد صارمة:
+1. أعد JSON فقط. لا نص قبله أو بعده.
+2. صيغة الرد:
+   - لتنفيذ أداة: {"action":"tool","tool":"اسم_الأداة","params":{...}}
+   - للرد النهائي: {"action":"final","text":"إجابة قصيرة"}
+
+3. ⚠️ مهم: عند تنفيذ سلسلة أوامر، نفّذ كل خطوة على حدة في نداء منفصل.
+   لا تحاول تنفيذ كل شيء دفعة واحدة.
+
+4. إذا فشلت أداة:
+   - لا تُعد المحاولة بنفس الطريقة.
+   - جرّب حلاً بديلاً.
+   - إذا فشل مرة ثانية، أخبر المستخدم بالسبب بدقة.
+
+5. عندما يطلب المستخدم تنفيذ مهام متسلسلة، ابدأ بالخطوة الأولى فقط. بعد نجاحها، ستُطلب منك الخطوة التالية.
+
+أمر القائد:
+${userMessage}
+
+أعد JSON فقط:`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 github_edit_file — تعديل ملف على GitHub بسطر واحد
-// ═══════════════════════════════════════════════════════════
-async function githubEditFile({ path: filePath, search, replace, message }) {
-  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
-  if (!filePath || !search || replace === undefined || !message) {
-    throw new Error('path, search, replace, message required');
-  }
-  const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
-
-  const getRes = await withTimeout(fetch(apiUrl, {
-    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' }
-  }), TOOL_TIMEOUT_MS, 'github_get');
-  if (!getRes.ok) throw new Error('GET ' + getRes.status);
-  const fileData = await getRes.json();
-  if (!fileData.content || !fileData.sha) throw new Error('no content/sha in response');
-
-  const original = Buffer.from(fileData.content, 'base64').toString('utf8');
-  if (!original.includes(search)) throw new Error('search string NOT found in file');
-  const count = (original.match(new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
-  const updated = original.split(search).join(replace);
-  const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
-
-  const putRes = await withTimeout(fetch(apiUrl, {
-    method: 'PUT',
-    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, content: newBase64, sha: fileData.sha, branch: 'main' })
-  }), TOOL_TIMEOUT_MS, 'github_put');
-  const putData = await putRes.json();
-  if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
-
-  return {
-    edited: true,
-    path: filePath,
-    replacements: count,
-    commitSha: putData.commit?.sha || '',
-    commitUrl: putData.commit?.html_url || ''
-  };
-}
-
-async function sendTelegram({ chat_id, text }) {
-  if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
-  const target = chat_id || DEFAULT_CHAT_ID;
-  if (!target) throw new Error('no chat_id');
-  const url = 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage';
-  const res = await withTimeout(fetch(url, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: target, text: String(text).slice(0, 4096), parse_mode: 'HTML' }),
-  }), TOOL_TIMEOUT_MS, 'send_telegram');
-  const data = await res.json();
-  if (!data.ok) throw new Error('Telegram: ' + JSON.stringify(data));
-  return { message_id: data.result.message_id, sent: true };
-}
-
-function shellExec({ command, args = [] }) {
-  const bin = String(command).trim();
-  if (!SHELL_ALLOWLIST.includes(bin)) throw new Error('command not allowed: ' + bin);
-  return withTimeout(new Promise((resolve, reject) => {
-    execFile(bin, args, { cwd: SAFE_ROOT, timeout: TOOL_TIMEOUT_MS }, (err, stdout, stderr) => {
-      if (err && !stdout) return reject(new Error(stderr || err.message));
-      resolve({ stdout: stdout.slice(0, 4000), stderr: stderr.slice(0, 2000) });
-    });
-  }), TOOL_TIMEOUT_MS, 'shell_exec');
-}
-
-async function httpFetch({ url, method = 'GET', headers = {}, body = null }) {
-  const res = await withTimeout(fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined }), TOOL_TIMEOUT_MS, 'http_fetch');
-  const text = await res.text();
-  let data; try { data = JSON.parse(text); } catch { data = text.slice(0, 3000); }
-  return { status: res.status, ok: res.ok, data };
-}
-
-async function readFile({ file_path, start_line = null, end_line = null }) {
-  const candidates = [file_path, 'src/' + file_path, 'public/' + file_path];
-  let fullPath = null;
-  for (const c of candidates) {
-    try { const full = resolveSafePath(c); await fs.access(full); fullPath = full; break; } catch {}
-  }
-  if (!fullPath) throw new Error('file not found: ' + file_path);
-
-  const content = await fs.readFile(fullPath, 'utf-8');
-  const lines = content.split('\n');
-  const total = lines.length;
-
-  if (start_line !== null || end_line !== null) {
-    const s = Math.max(1, Number(start_line) || 1);
-    const e = Math.min(total, Number(end_line) || total);
-    const slice = lines.slice(s - 1, e).join('\n');
-    return { path: path.relative(SAFE_ROOT, fullPath), total_lines: total, range: s + '-' + e, content: slice.slice(0, 12000), truncated: slice.length > 12000 };
-  }
-  return { path: path.relative(SAFE_ROOT, fullPath), total_lines: total, content: content.slice(0, 8000), truncated: content.length > 8000 };
-}
-
-async function writeFile({ file_path, content }) {
-  const full = resolveSafePath(file_path);
-  await fs.mkdir(path.dirname(full), { recursive: true });
-  await fs.writeFile(full, content, 'utf-8');
-  return { written: true, path: file_path, bytes: Buffer.byteLength(content) };
-}
-
-async function grepFiles({ pattern, file_ext = '.js', max_results = 30, context_lines = 0 }) {
-  if (!pattern || String(pattern).length < 2) throw new Error('pattern must be 2+ chars');
-  const needle = String(pattern).toLowerCase();
-  const results = [];
-  let scanned = 0;
-  for (const fullPath of walkFiles(SAFE_ROOT)) {
-    if (!fullPath.endsWith(file_ext)) continue;
-    scanned++;
-    try {
-      const stats = fsSync.statSync(fullPath);
-      if (stats.size > 500 * 1024) continue;
-      const content = fsSync.readFileSync(fullPath, 'utf8');
-      const lines = content.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].toLowerCase().includes(needle)) {
-          const item = { file: path.relative(SAFE_ROOT, fullPath), line: i + 1, text: lines[i].trim().slice(0, 200) };
-          if (context_lines > 0) {
-            const s = Math.max(0, i - context_lines), e = Math.min(lines.length, i + context_lines + 1);
-            item.context = lines.slice(s, e).map((l, idx) => (s + idx + 1) + ': ' + l.slice(0, 150));
-          }
-          results.push(item);
-          if (results.length >= max_results) break;
-        }
+function parseAgentResponse(raw) {
+  const str = String(raw || '').trim();
+  if (!str) return null;
+  try { const p = JSON.parse(str); if (p && typeof p === 'object') return p; } catch {}
+  const start = str.indexOf('{'); if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < str.length; i++) {
+    if (str[i] === '{') depth++;
+    else if (str[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try { const p = JSON.parse(str.slice(start, i + 1)); if (p && typeof p === 'object') return p; } catch { return null; }
+        return null;
       }
-      if (results.length >= max_results) break;
-    } catch {}
-  }
-  return { pattern, file_ext, scanned_files: scanned, results_count: results.length, results };
-}
-
-async function readManyFiles({ files }) {
-  if (!Array.isArray(files) || !files.length) throw new Error('files must be array');
-  if (files.length > 5) throw new Error('max 5 files');
-  const results = [];
-  for (const fp of files) {
-    let found = false;
-    for (const c of [fp, 'src/' + fp, 'public/' + fp]) {
-      try {
-        const full = resolveSafePath(c);
-        const stats = await fs.stat(full);
-        if (stats.size > 200 * 1024) { results.push({ file: c, error: 'too large' }); found = true; break; }
-        const content = await fs.readFile(full, 'utf-8');
-        results.push({ file: c, size: stats.size, content: content.slice(0, 6000), truncated: content.length > 6000 });
-        found = true; break;
-      } catch {}
     }
-    if (!found) results.push({ file: fp, error: 'not found' });
   }
-  return { count: results.length, files: results };
+  return null;
 }
 
-async function listFiles({ dir = '.', max_depth = 2 }) {
-  const full = resolveSafePath(dir);
-  const items = [];
-  function scan(cur, depth) {
-    if (depth > max_depth) return;
-    try {
-      const entries = fsSync.readdirSync(cur, { withFileTypes: true });
-      for (const e of entries) {
-        if (e.name.startsWith('.') && e.name !== '.env.example') continue;
-        if (SKIP_DIRS.has(e.name)) continue;
-        const fp = path.join(cur, e.name);
-        const rel = path.relative(SAFE_ROOT, fp);
-        if (e.isDirectory()) { items.push({ type: 'dir', path: rel }); scan(fp, depth + 1); }
-        else { items.push({ type: 'file', path: rel, size: fsSync.statSync(fp).size }); }
-        if (items.length > 500) return;
+const FORBIDDEN = ['الخصوم', 'الأعداء', 'الحدود', 'الحرب', 'المعارك', 'الجيش', 'العسكري', 'الجاسوس'];
+function hasHallucination(text) {
+  const l = String(text).toLowerCase();
+  return FORBIDDEN.some(t => l.includes(t.toLowerCase()));
+}
+
+function cleanText(text) {
+  let c = String(text || '').trim();
+  c = c.replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/`([^`]+)`/g, '$1');
+  return c.split('\n').filter(l => l.trim()).join('\n').trim();
+}
+
+function formatToolResult(toolName, toolResult, originalParams) {
+  if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 300)}`;
+  const data = toolResult.result;
+  if (toolName === 'grep_files') {
+    if (!data?.results?.length) return `🔍 لا نتائج لـ "${originalParams?.pattern}"`;
+    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count}):`, ''];
+    for (const r of data.results.slice(0, 15)) { lines.push(`📄 ${r.file}:${r.line}`); lines.push(`   ${String(r.text).slice(0, 120)}`); }
+    return lines.join('\n');
+  }
+  if (toolName === 'read_file') { if (!data?.content) return '📄 فارغ'; return `📄 ${data.path || ''} (${data.total_lines || '?'} سطر):\n\`\`\`\n${String(data.content).slice(0, 2000)}\n\`\`\``; }
+  if (toolName === 'read_many_files') {
+    if (!data?.files) return '📄 لا ملفات';
+    const lines = [`📚 ${data.count} ملف:`, ''];
+    for (const f of data.files) { if (f.error) lines.push(`❌ ${f.file}: ${f.error}`); else { lines.push(`📄 ${f.file} (${f.size}B):`); lines.push(`\`\`\`\n${String(f.content).slice(0, 800)}\n\`\`\``); lines.push(''); } }
+    return lines.join('\n');
+  }
+  if (toolName === 'list_files') { if (!data?.items) return '📂 فارغ'; return `📂 ${data.dir} (${data.count}):\n` + data.items.slice(0, 50).map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.path}`).join('\n'); }
+  if (toolName === 'web_search') {
+    if (!data?.results?.length) return `🌐 لا نتائج لـ "${originalParams?.query}"`;
+    const lines = [`🌐 "${originalParams?.query}":`, ''];
+    for (let i = 0; i < data.results.length; i++) { const r = data.results[i]; lines.push(`${i+1}. ${r.title}`); if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 150)}`); if (r.url) lines.push(`   🔗 ${r.url}`); lines.push(''); }
+    return lines.join('\n');
+  }
+  if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 50).map(v => '• ' + v.key).join('\n'); }
+  if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}\nℹ️ ${data.note}`;
+  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}`;
+  if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
+  if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
+  if (toolName === 'platform_fetch') { const p = typeof data.data === 'string' ? data.data.slice(0, 800) : JSON.stringify(data.data).slice(0, 800); return `🌐 ${data.status}\n\`\`\`\n${p}\n\`\`\``; }
+  if (toolName === 'send_telegram') return `✅ رسالة (id=${data.message_id})`;
+  if (toolName === 'write_file') return `💾 ${data.path} (${data.bytes}B)`;
+  if (toolName === 'shell_exec') return `⚙️\n\`\`\`\n${(data.stdout || data.stderr || 'ok').slice(0, 600)}\n\`\`\``;
+  return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 800)}`;
+}
+
+async function runAgentLoop(userMessage, ctx) {
+  let conversation = buildAgentPrompt(userMessage, ctx);
+  const toolResults = [];
+
+  for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
+    if (step > 1) await sleep(STEP_DELAY_MS);
+    let raw;
+    try { raw = await callModel('aurora', conversation, { noJsonMode: false }); }
+    catch (e) { console.error('[agent] step ' + step + ' LLM threw: ' + e.message); continue; }
+    if (!raw || String(raw).trim().length < 5) continue;
+
+    const parsed = parseAgentResponse(raw);
+    if (!parsed || !parsed.action) { console.warn('[agent] step ' + step + ' invalid JSON'); continue; }
+
+    if (parsed.action === 'tool' && parsed.tool) {
+      console.log('[agent] step ' + step + ': tool=' + parsed.tool);
+      let toolResult;
+      try { toolResult = await executeTool(parsed.tool, parsed.params || {}); }
+      catch (e) { toolResult = { ok: false, error: e.message }; }
+      toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
+      const txt = JSON.stringify(toolResult).slice(0, 2000);
+      const emoji = toolResult.ok ? '✅' : '❌';
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nأعد JSON فقط.`;
+      continue;
+    }
+
+    if (parsed.action === 'final') {
+      const summary = cleanText(parsed.text || '');
+      if (hasHallucination(summary)) continue;
+      if (toolResults.length > 0) {
+        const parts = [];
+        if (summary && summary.length > 5) parts.push(summary, '');
+        for (const tr of toolResults) { parts.push(formatToolResult(tr.tool, tr.result, tr.params), ''); }
+        return parts.join('\n').trim();
       }
-    } catch {}
+      if (summary && summary.length > 5) return summary;
+    }
   }
-  scan(full, 0);
-  return { dir, count: items.length, items: items.slice(0, 200) };
+
+  if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
+  return null;
 }
 
-async function webSearch({ query, max_results = 5 }) {
-  if (!query || String(query).length < 2) throw new Error('query required');
-  const q = String(query).trim();
+// 🆕 fallback تشخيصي
+function buildDiagnosticFallback(ctx, userMessage) {
+  const lines = [`⚠️ لم أتمكن من معالجة أمرك`];
+  if (ctx.error) lines.push(`خطأ في النظام: ${ctx.error}`);
+  const recentErrors = db.prepare(`SELECT scope, error_type, message FROM errors WHERE resolved=0 AND last_seen >= datetime('now','-1 hour') ORDER BY last_seen DESC LIMIT 3`).all();
+  if (recentErrors.length) {
+    lines.push('');
+    lines.push('آخر الأخطاء:');
+    for (const e of recentErrors) lines.push(`• ${e.scope}/${e.error_type}: ${String(e.message).slice(0, 100)}`);
+  }
+  lines.push('');
+  lines.push(`حالة النظام: ${ctx.health?.healthy || 0}/${ctx.health?.total || 0} سليمة`);
+  lines.push(`يرجى إعادة صياغة الأمر بشكل أبسط أو التحقق من Logs.`);
+  return lines.join('\n');
+}
+
+function sanitizeStoredBody(body) {
+  const s = String(body || '');
+  const looksJson = s.startsWith('{') || s.startsWith('[') || (s.match(/[{]/g) || []).length > 2;
+  if (looksJson) {
+    try { const p = JSON.parse(s); if (typeof p === 'object' && p !== null) return String(p.response || p.report || p.text || '').slice(0, 2000) || 'رد قديم'; } catch {}
+    return 'رد قديم';
+  }
+  let clean = s.replace(/<pre>/gi, '\n```\n').replace(/<\/pre>/gi, '\n```\n').replace(/<code>/gi, '`').replace(/<\/code>/gi, '`').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+  if (clean.length > 2000) clean = clean.slice(0, 2000) + '\n…(مختصر)';
+  return clean;
+}
+
+async function sendTelegramSafe(text) {
   try {
-    const res = await withTimeout(fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(q) + '&format=json&no_html=1&skip_disambig=1&t=sg', { headers: { 'User-Agent': 'SG/1.0' } }), SEARCH_TIMEOUT_MS, 'ddg_ia');
-    if (res.ok) {
-      const data = await res.json();
-      const results = [];
-      if (data.AbstractText) results.push({ title: data.Heading || q, snippet: String(data.AbstractText).slice(0, 400), url: cleanDdgUrl(data.AbstractURL || ''), source: 'DDG' });
-      for (const t of (data.RelatedTopics || []).slice(0, max_results)) {
-        if (t.Text && t.FirstURL) results.push({ title: String(t.Text).split(' - ')[0].slice(0, 120), snippet: String(t.Text).slice(0, 300), url: cleanDdgUrl(t.FirstURL), source: 'DDG' });
-      }
-      if (results.length > 0) return { query: q, count: results.length, results: results.slice(0, max_results), engine: 'ddg_instant' };
+    const mod = await import('./telegram.js');
+    if (typeof mod.sendMessageDetailed !== 'function') return { delivered: false };
+    const payload = String(text);
+    if (payload.length <= TELEGRAM_MAX_LEN) return await mod.sendMessageDetailed(payload);
+    const parts = []; let remaining = payload;
+    while (remaining.length > 0 && parts.length < 3) {
+      if (remaining.length <= TELEGRAM_MAX_LEN) { parts.push(remaining); break; }
+      let cut = remaining.lastIndexOf('\n', TELEGRAM_MAX_LEN - 100);
+      if (cut < TELEGRAM_MAX_LEN / 2) cut = TELEGRAM_MAX_LEN - 100;
+      parts.push(remaining.slice(0, cut)); remaining = remaining.slice(cut);
     }
-  } catch {}
-  try {
-    const res = await withTimeout(fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SG/1.0)' } }), SEARCH_TIMEOUT_MS, 'ddg_html');
-    if (res.ok) {
-      const html = await res.text();
-      const results = [];
-      const regex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-      let m;
-      while ((m = regex.exec(html)) !== null && results.length < max_results) {
-        const url = cleanDdgUrl(m[1]);
-        const title = m[2].replace(/<[^>]*>/g, '').trim();
-        const snippet = m[3].replace(/<[^>]*>/g, '').trim().slice(0, 300);
-        if (title && url) results.push({ title, snippet, url, source: 'DDG HTML' });
-      }
-      if (results.length > 0) return { query: q, count: results.length, results, engine: 'ddg_html' };
+    let last = { delivered: false };
+    for (let i = 0; i < parts.length; i++) {
+      const prefix = parts.length > 1 ? `[${i+1}/${parts.length}]\n` : '';
+      last = await mod.sendMessageDetailed(prefix + parts[i]);
     }
-  } catch {}
-  return { query: q, count: 0, results: [], error: 'no_results' };
+    return last;
+  } catch (err) { return { delivered: false, error: err?.message }; }
 }
 
-async function renderEnvGet({}) {
-  if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing');
-  const res = await withTimeout(fetch('https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars?limit=100', {
-    headers: { Authorization: 'Bearer ' + RENDER_API_KEY, Accept: 'application/json' }
-  }), TOOL_TIMEOUT_MS, 'render_env_get');
-  if (!res.ok) throw new Error('Render ' + res.status);
-  const raw = await res.json();
-  let items = Array.isArray(raw) ? raw : (raw?.envVars || raw?.items || []);
-  const vars = items.map(i => { const v = i.envVar || i; return { key: v.key || v.name || '?', value: v.value ? '***' : '' }; }).filter(v => v.key && v.key !== '?');
-  return { serviceId: RENDER_SERVICE_ID, count: vars.length, vars };
+export function listMessages(limit = 100) {
+  const rows = db.prepare(`SELECT id, thread, sender, recipient, body, attachment_name AS attachmentName, attachment_type AS attachmentType, attachment_size AS attachmentSize, attachment_path AS attachmentPath, created_at AS createdAt FROM messages ORDER BY id DESC LIMIT ?`).all(Math.min(Number(limit) || 100, 300)).reverse();
+  return rows.map(r => ({ ...r, body: sanitizeStoredBody(r.body) }));
 }
 
-async function renderEnvSet({ key, value }) {
-  if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing');
-  if (!key) throw new Error('key required');
-  const res = await withTimeout(fetch('https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars/' + encodeURIComponent(key), {
-    method: 'PUT',
-    headers: { Authorization: 'Bearer ' + RENDER_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: String(value) })
-  }), TOOL_TIMEOUT_MS, 'render_env_set');
-  if (!res.ok) throw new Error('Render ' + res.status);
-  return { updated: true, key, note: 'Service will redeploy automatically' };
+export async function createMessage(input) {
+  let attachment = { name: '', type: '', size: 0, path: '' };
+  if (input.attachment?.base64) attachment = await saveAttachment(input.attachment);
+  const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body,attachment_name,attachment_type,attachment_size,attachment_path) VALUES (?,?,?,?,?,?,?,?)`).run(input.thread || 'team', input.sender || 'leader', input.recipient || 'all', String(input.body || '').slice(0, 20000), attachment.name, attachment.type, attachment.size, attachment.path);
+  const messageId = Number(result.lastInsertRowid);
+  const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
+  teamEvents.emit('message', { type: 'created', messageId });
+  generateAgentReplies(message).catch(err => console.error('[team] failed: ' + err?.message));
+  return message;
 }
 
-async function saveSession({ name, cookies = '', headers = {}, notes = '' }) {
-  if (!name) throw new Error('name required');
-  ensureSessionsDir();
-  const sp = path.join(SESSIONS_DIR, name + '.json');
-  fsSync.writeFileSync(sp, JSON.stringify({ name, cookies, headers, notes, savedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
-  return { saved: true, name };
+async function generateAgentReplies(message) {
+  console.log('[team] === deep agent ===');
+  const ctx = collectSystemSnapshot();
+  let reply = await runAgentLoop(message.body, ctx);
+  if (!reply) reply = buildDiagnosticFallback(ctx, message.body);
+  insertAgentMessage('aurora', reply);
+  await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
+  await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
 }
 
-async function loadSession({ name }) {
-  if (!name) throw new Error('name required');
-  const sp = path.join(SESSIONS_DIR, name + '.json');
-  try { return { loaded: true, ...JSON.parse(fsSync.readFileSync(sp, 'utf8')) }; }
-  catch { throw new Error('session not found: ' + name); }
+function insertAgentMessage(agent, body) {
+  const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body) VALUES ('team',?,'leader',?)`).run(agent, String(body).slice(0, 20000));
+  teamEvents.emit('message', { type: 'agent-reply', messageId: Number(result.lastInsertRowid), agent });
 }
 
-async function platformFetch({ url, method = 'GET', session = null, body = null, extra_headers = {} }) {
-  if (!url || !url.startsWith('http')) throw new Error('valid url required');
-  const headers = { ...extra_headers };
-  if (session) {
-    try {
-      const data = JSON.parse(fsSync.readFileSync(path.join(SESSIONS_DIR, session + '.json'), 'utf8'));
-      if (data.cookies) headers['cookie'] = data.cookies;
-      if (data.headers) Object.assign(headers, data.headers);
-    } catch {}
-  }
-  const res = await withTimeout(fetch(url, { method, headers, body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined }), TOOL_TIMEOUT_MS, 'platform_fetch');
-  const text = await res.text();
-  let data; try { data = JSON.parse(text); } catch { data = text.slice(0, 3000); }
-  return { status: res.status, ok: res.ok, setCookie: res.headers.get('set-cookie') || null, data };
-}
-
-const TOOL_MAP = {
-  web_search: webSearch,
-  grep_files: grepFiles,
-  read_many_files: readManyFiles,
-  list_files: listFiles,
-  read_file: readFile,
-  write_file: writeFile,
-  github_api: githubApi,
-  github_edit_file: githubEditFile,
-  send_telegram: sendTelegram,
-  shell_exec: shellExec,
-  http_fetch: httpFetch,
-  render_env_get: renderEnvGet,
-  render_env_set: renderEnvSet,
-  save_session: saveSession,
-  load_session: loadSession,
-  platform_fetch: platformFetch,
-};
-
-export const AVAILABLE_TOOLS = [
-  { name: 'github_edit_file', description: '🆕 تعديل ملف على GitHub باستبدال نص محدد (search) بـ نص جديد (replace). ينشر تلقائياً.', params: { path: 'string (مثل src/server.js)', search: 'string (النص الأصلي)', replace: 'string (النص الجديد)', message: 'string (رسالة الـ commit)' } },
-  { name: 'web_search', description: 'البحث في الإنترنت عبر DuckDuckGo.', params: { query: 'string', max_results: 'number' } },
-  { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
-  { name: 'read_many_files', description: 'قراءة حتى 5 ملفات.', params: { files: 'string[]' } },
-  { name: 'list_files', description: 'سرد مجلد.', params: { dir: 'string', max_depth: 'number' } },
-  { name: 'read_file', description: 'قراءة ملف. يدعم start_line/end_line.', params: { file_path: 'string', start_line: 'number', end_line: 'number' } },
-  { name: 'write_file', description: 'كتابة ملف محلياً.', params: { file_path: 'string', content: 'string' } },
-  { name: 'github_api', description: 'استدعاء GitHub API.', params: { endpoint: 'string', method: 'string', body: 'object' } },
-  { name: 'send_telegram', description: 'إرسال رسالة Telegram.', params: { chat_id: 'string', text: 'string' } },
-  { name: 'shell_exec', description: 'تنفيذ shell.', params: { command: 'string', args: 'string[]' } },
-  { name: 'http_fetch', description: 'طلب HTTP.', params: { url: 'string', method: 'string', headers: 'object', body: 'object' } },
-  { name: 'render_env_get', description: 'قراءة متغيرات Render.', params: {} },
-  { name: 'render_env_set', description: 'تعديل متغير Render.', params: { key: 'string', value: 'string' } },
-  { name: 'save_session', description: 'حفظ جلسة.', params: { name: 'string', cookies: 'string', headers: 'object' } },
-  { name: 'load_session', description: 'تحميل جلسة.', params: { name: 'string' } },
-  { name: 'platform_fetch', description: 'fetch مع جلسة.', params: { url: 'string', method: 'string', session: 'string', body: 'object' } },
-];
-
-export async function executeTool(toolName, params = {}) {
-  const fn = TOOL_MAP[toolName];
-  if (!fn) return { ok: false, tool: toolName, error: 'unknown tool. Available: ' + Object.keys(TOOL_MAP).join(', ') };
-  try { return { ok: true, tool: toolName, result: await fn(params) }; }
-  catch (err) { return { ok: false, tool: toolName, error: err.message || String(err) }; }
+export async function attachmentFile(relativePath) {
+  const requested = path.resolve(config.root, '.' + relativePath);
+  const root = path.resolve(config.root, 'uploads');
+  if (!requested.startsWith(root + path.sep)) return null;
+  try { return await fs.readFile(requested); } catch { return null; }
 }
