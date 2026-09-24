@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { callModel } from './ai.js';
 import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
+import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', color: '#a78bfa' }
@@ -14,118 +15,7 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-// ═══════════════════════════════════════════════════════════
-// فهرس الملفات — يُبنى مرة واحدة عند البدء
-// ═══════════════════════════════════════════════════════════
-let FILE_INDEX = null;
-let FILE_INDEX_BUILT_AT = 0;
-
-async function buildFileIndex() {
-  const now = Date.now();
-  if (FILE_INDEX && (now - FILE_INDEX_BUILT_AT) < 10 * 60 * 1000) {
-    return FILE_INDEX;
-  }
-
-  const index = new Map();
-  const rootsToScan = [
-    config.root,
-    process.cwd(),
-    path.join(process.cwd(), 'src'),
-    '/opt/render/project/src',
-    '/opt/render/project/src/src'
-  ];
-
-  async function scan(dir, depth = 0) {
-    if (depth > 4) return;
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'data') continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          await scan(full, depth + 1);
-        } else if (entry.isFile()) {
-          // اسم الملف → مسار كامل
-          if (!index.has(entry.name)) {
-            index.set(entry.name, full);
-          }
-        }
-      }
-    } catch { /* skip inaccessible */ }
-  }
-
-  for (const root of rootsToScan) {
-    try {
-      const stats = await fs.stat(root);
-      if (stats.isDirectory()) {
-        await scan(root);
-      }
-    } catch { /* skip */ }
-  }
-
-  FILE_INDEX = index;
-  FILE_INDEX_BUILT_AT = now;
-  console.log('[team] file index built: ' + index.size + ' files from ' + rootsToScan.length + ' roots');
-  return index;
-}
-
-async function readFileByName(filename) {
-  try {
-    const index = await buildFileIndex();
-    const fullPath = index.get(filename);
-
-    if (!fullPath) {
-      console.warn('[team] file not in index: ' + filename);
-      return null;
-    }
-
-    const stats = await fs.stat(fullPath);
-    if (stats.size > 200 * 1024) {
-      console.warn('[team] file too large: ' + filename + ' (' + stats.size + ' bytes)');
-      return null;
-    }
-
-    const content = await fs.readFile(fullPath, 'utf8');
-    console.log('[team] loaded: ' + fullPath + ' (' + stats.size + ' bytes)');
-    return { path: fullPath, size: stats.size, content: content.slice(0, 12000) };
-  } catch (e) {
-    console.warn('[team] read failed for ' + filename + ': ' + e.message);
-    return null;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
-// كشف أسماء الملفات في السؤال
-// ═══════════════════════════════════════════════════════════
-function detectMentionedFiles(text) {
-  const files = new Set();
-  const str = String(text);
-
-  // ابحث عن أي شيء ينتهي بـ .js .json .md .txt .env .yml .yaml
-  const regex = /([\w\-]+\.(?:js|json|md|txt|env|yml|yaml|html|css))/gi;
-  const matches = str.matchAll(regex);
-  for (const m of matches) {
-    const name = m[1];
-    if (name.includes('..') || name.length < 3) continue;
-    files.add(name);
-  }
-
-  const result = [...files].slice(0, 3);
-  console.log('[team] detected files in message: ' + (result.join(', ') || 'none'));
-  return result;
-}
-
-async function collectFileContexts(userMessage) {
-  const mentioned = detectMentionedFiles(userMessage);
-  if (!mentioned.length) return [];
-
-  const contexts = [];
-  for (const filename of mentioned) {
-    const data = await readFileByName(filename);
-    if (data) contexts.push(data);
-  }
-  return contexts;
-}
+const MAX_AGENT_STEPS = 6;
 
 // ═══════════════════════════════════════════════════════════
 // جمع بيانات النظام
@@ -136,10 +26,9 @@ function collectSystemSnapshot() {
       SELECT component, healthy, detail FROM health_checks
       WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)
     `).all();
-
     const tasksByStatus = db.prepare(`SELECT status, COUNT(*) c FROM tasks GROUP BY status`).all();
     const recentErrors = db.prepare(`
-      SELECT scope, error_type, message, last_seen FROM errors
+      SELECT scope, error_type, last_seen FROM errors
       WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours')
       ORDER BY last_seen DESC LIMIT 5
     `).all();
@@ -173,46 +62,82 @@ function collectSystemSnapshot() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// System Prompt
+// System Prompt مع الأدوات
 // ═══════════════════════════════════════════════════════════
-function buildAuroraPrompt(userMessage, ctx, fileContexts) {
-  let filesSection = '';
-  if (fileContexts.length > 0) {
-    filesSection = '\n════════ محتوى الملفات المذكورة في السؤال ════════\n\n';
-    for (const f of fileContexts) {
-      filesSection += `── ${f.path} (${f.size} bytes) ──\n`;
-      filesSection += '```\n' + f.content + '\n```\n\n';
-    }
-  } else {
-    filesSection = '\n════════ ملاحظة ════════\n';
-    filesSection += 'لم يُذكر أي ملف في سؤالك، أو لم أتمكن من قراءته.\n';
-    filesSection += 'إذا كنت تريد تحليل ملف، اذكر اسمه صراحة (مثل: config.js أو team.js).\n';
-  }
+function buildAuroraPrompt(userMessage, ctx) {
+  const toolsDesc = AVAILABLE_TOOLS.map(t => {
+    const paramsList = Object.entries(t.params || {})
+      .map(([k, v]) => `      • ${k}: ${v}`).join('\n');
+    return `• ${t.name}\n  ${t.description}\n  params:\n${paramsList}`;
+  }).join('\n\n');
 
-  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". أنتِ ذكية، صريحة، ودودة. تتحدثين مع قائدك محمد عباس.
+  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". تتحدثين مع قائدك محمد عباس.
+أنتِ ذكية، صريحة، ودودة، وقادرة على استخدام الأدوات.
 
-════════ بيانات النظام ════════
-
+════════ بيانات النظام الآن ════════
 ${JSON.stringify(ctx, null, 2)}
 
-${filesSection}
+════════ الأدوات المتاحة لك ════════
+${toolsDesc}
+
+════════ كيف تستخدمين الأدوات ════════
+- عندما تحتاجين معلومة غير موجودة أعلاه (مثل قراءة ملف، بحث ويب، قائمة ملفات)، اطلبي الأداة هكذا:
+
+  [TOOL_CALL] {"name":"web_search","params":{"query":"بيتكوين اليوم"}}
+
+- سيتوقف ردّك تلقائياً، وستصلك نتيجة الأداة، ثم تستمرين.
+- يمكنك طلب عدة أدوات بالتتابع (6 خطوات كحد أقصى).
+- عندما تكونين جاهزة بالإجابة، اكتبي الجواب مباشرة بنص عربي عادي، بدون أي [TOOL_CALL].
+
+════════ أمثلة على الاستخدام ════════
+- "اقرأ config.js" → [TOOL_CALL] {"name":"read_file","params":{"file_path":"src/config.js"}}
+- "ابحث عن useMessageDetailed" → [TOOL_CALL] {"name":"grep_files","params":{"pattern":"useMessageDetailed","file_ext":".js"}}
+- "اعرض ملفات المشروع" → [TOOL_CALL] {"name":"list_files","params":{"dir":"src","max_depth":2}}
+- "ما آخر أخبار Web3؟" → [TOOL_CALL] {"name":"web_search","params":{"query":"آخر أخبار Web3"}}
+- "اقرأ team.js و ai.js" → [TOOL_CALL] {"name":"read_many_files","params":{"files":["src/team.js","src/ai.js"]}}
 
 ════════ قواعد صارمة ════════
-
-1. تحدثي كإنسان حقيقي، بأسلوب طبيعي ودافئ.
-2. استخدمي البيانات الحقيقية والملفات المرفقة أعلاه.
-3. إذا ذكر القائد ملفاً ولم تجديه، قولي: "لم أجد الملف — تأكد من الاسم أو المسار".
-4. لا تختلقي معلومات. لا تتكلمي عن أشياء غير موجودة (لا خصوم، لا حروب، لا استخبارات).
-5. اكتبي بالعربية الفصحى، بدون مقدمات.
-6. إذا طلب القائد تحسينات على ملف: اقرئي الملف أعلاه بعناية، حلّلي الكود، ثم اقترحي 3 تحسينات محددة بأمثلة كود.
-7. إذا سأل عن حالة النظام: اذكري المكونات السليمة والمشاكل والمهام.
-8. الطول: حسب السؤال.
+1. تحدثي كإنسان طبيعي.
+2. لا تختلقي معلومات. استخدمي الأدوات عند الحاجة.
+3. لا تتكلمي عن أشياء غير موجودة (لا خصوم، لا حروب).
+4. العربية الفصحى، بدون مقدمات.
+5. بعد الأداة، أعيدي الإجابة النهائية مباشرة بدون أي ماركر.
+6. إن لم تحتاجي أي أداة، أجيبي مباشرة.
 
 ════════ أمر القائد ════════
-
 ${userMessage}
 
-════════ اكتبي ردّك الآن (نص عربي طبيعي فقط):`;
+════════ ابدئي الآن:`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// استخراج نداء الأداة من النص
+// ═══════════════════════════════════════════════════════════
+function extractToolCall(text) {
+  const marker = '[TOOL_CALL]';
+  const idx = String(text).indexOf(marker);
+  if (idx === -1) return null;
+
+  const after = String(text).slice(idx + marker.length).trim();
+  const braceStart = after.indexOf('{');
+  if (braceStart === -1) return null;
+
+  let depth = 0;
+  for (let i = braceStart; i < after.length; i++) {
+    if (after[i] === '{') depth++;
+    else if (after[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        const json = after.slice(braceStart, i + 1);
+        try {
+          const parsed = JSON.parse(json);
+          if (parsed && parsed.name) return parsed;
+        } catch { /* invalid JSON */ }
+        return null;
+      }
+    }
+  }
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -227,6 +152,10 @@ function hasHallucination(text) {
 
 function cleanAgentResponse(text) {
   let clean = String(text || '').trim();
+
+  // حذف أي أثر لماركرات الأدوات
+  clean = clean.replace(/\[TOOL_CALL\][\s\S]*$/g, '').trim();
+
   try {
     if (clean.startsWith('{') || clean.startsWith('[')) {
       const parsed = JSON.parse(clean);
@@ -235,41 +164,77 @@ function cleanAgentResponse(text) {
       }
     }
   } catch { /* not JSON */ }
+
   clean = clean.replace(/^#{1,6}\s+/gm, '')
                .replace(/\*\*(.+?)\*\*/g, '$1')
                .replace(/__(.+?)__/g, '$1')
-               .replace(/`([^`]+)`/g, '$1')
-               .replace(/^\s*\{[\s\S]*\}\s*$/gm, '');
+               .replace(/`([^`]+)`/g, '$1');
+
   clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
   if (clean.length > 3500) clean = clean.slice(0, 3500) + '…';
   return clean || null;
 }
 
 // ═══════════════════════════════════════════════════════════
-// توليد الرد
+// حلقة الوكيل
 // ═══════════════════════════════════════════════════════════
-async function generateSmartReply(userMessage, ctx, fileContexts) {
-  const prompt = buildAuroraPrompt(userMessage, ctx, fileContexts);
+async function runAgentLoop(userMessage, ctx) {
+  let conversation = buildAuroraPrompt(userMessage, ctx);
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
+    let raw;
     try {
-      const raw = await callModel('aurora', prompt, { noJsonMode: true });
-      const clean = cleanAgentResponse(raw);
-      if (!clean || clean.length < 10) { console.warn('[team] empty, attempt ' + attempt); continue; }
-      if (hasHallucination(clean)) { console.warn('[team] hallucination, attempt ' + attempt); continue; }
-      console.log('[team] reply ok, length=' + clean.length);
-      return clean;
+      raw = await callModel('aurora', conversation, { noJsonMode: true });
     } catch (e) {
-      console.error('[team] attempt ' + attempt + ' failed: ' + e?.message);
+      console.error('[agent] step ' + step + ' LLM failed: ' + e.message);
+      return null;
     }
+
+    if (!raw || raw.length < 10) {
+      console.warn('[agent] step ' + step + ' empty response');
+      continue;
+    }
+
+    const toolCall = extractToolCall(raw);
+
+    if (toolCall && step < MAX_AGENT_STEPS) {
+      console.log('[agent] step ' + step + ': tool=' + toolCall.name + ' params=' + JSON.stringify(toolCall.params || {}));
+      let toolResult;
+      try {
+        toolResult = await executeTool(toolCall.name, toolCall.params || {});
+      } catch (e) {
+        toolResult = { ok: false, error: e.message };
+      }
+
+      const resultText = JSON.stringify(toolResult).slice(0, 3000);
+      const toolEmoji = toolResult.ok ? '✅' : '❌';
+
+      conversation += `\n\n${toolEmoji} [نتيجة ${toolCall.name}]:\n${resultText}\n\nبناءً على هذه النتيجة، استمري. إذا انتهيتِ، اكتبي الجواب النهائي مباشرة بدون أي [TOOL_CALL].`;
+      continue;
+    }
+
+    // لا يوجد نداء أداة → الجواب النهائي
+    const cleaned = cleanAgentResponse(raw);
+    if (!cleaned || cleaned.length < 5) {
+      console.warn('[agent] step ' + step + ' empty clean');
+      continue;
+    }
+
+    if (hasHallucination(cleaned)) {
+      console.warn('[agent] step ' + step + ' hallucination detected');
+      continue;
+    }
+
+    console.log('[agent] final answer at step ' + step + ', length=' + cleaned.length);
+    return cleaned;
   }
 
-  return buildDataFallback(ctx);
+  return null;
 }
 
-function buildDataFallback(ctx) {
-  if (ctx.error) return `تعذر قراءة بيانات النظام: ${ctx.error}`;
-  return `حالة النظام: ${ctx.health.healthy} من ${ctx.health.total} مكونات سليمة. حاول مرة أخرى.`;
+function buildFallback(ctx) {
+  if (ctx.error) return 'تعذر قراءة بيانات النظام: ' + ctx.error;
+  return 'حالة النظام: ' + ctx.health.healthy + ' من ' + ctx.health.total + ' مكونات سليمة. حاول مرة أخرى.';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -329,23 +294,14 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === processing: ' + String(message.body).slice(0, 60) + ' ===');
+  console.log('[team] === agent mode: ' + String(message.body).slice(0, 60) + ' ===');
 
-  // 1) بناء فهرس الملفات (يُخزّن 10 دقائق)
-  await buildFileIndex();
-
-  // 2) جمع بيانات النظام
   const ctx = collectSystemSnapshot();
-  console.log('[team] health=' + ctx.health?.healthy + '/' + ctx.health?.total);
+  console.log('[team] ctx: health=' + ctx.health?.healthy + '/' + ctx.health?.total);
 
-  // 3) قراءة الملفات المذكورة
-  const fileContexts = await collectFileContexts(message.body);
-  console.log('[team] files read: ' + fileContexts.length);
+  let reply = await runAgentLoop(message.body, ctx);
+  if (!reply) reply = buildFallback(ctx);
 
-  // 4) توليد الرد
-  const reply = await generateSmartReply(message.body, ctx, fileContexts);
-
-  // 5) حفظ + إرسال
   insertAgentMessage('aurora', reply);
   await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
   await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
