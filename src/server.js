@@ -579,7 +579,7 @@ export async function startServer() {
         return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
       }
 
-      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js'].includes(url.pathname);
+      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html'].includes(url.pathname);
       const localReport = url.pathname === '/report' && isLoopback(request);
       const publicReadOnlyPath =
         (url.pathname === '/content' || config.publicReadOnly) &&
