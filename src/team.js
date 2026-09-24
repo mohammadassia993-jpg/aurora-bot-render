@@ -16,7 +16,7 @@ export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
 const MAX_AGENT_STEPS = 4;
-const STEP_DELAY_MS = 3000;
+const STEP_DELAY_MS = 2000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -57,69 +57,63 @@ function collectSystemSnapshot() {
   }
 }
 
-function buildAuroraPrompt(userMessage, ctx) {
+function buildAgentPrompt(userMessage, ctx) {
   const toolsDesc = AVAILABLE_TOOLS.map(t => {
     const paramsList = Object.entries(t.params || {})
-      .map(([k, v]) => `      • ${k}: ${v}`).join('\n');
-    return `• ${t.name}\n  ${t.description}\n  params:\n${paramsList}`;
+      .map(([k, v]) => `  - ${k}: ${v}`).join('\n');
+    return `• ${t.name}: ${t.description}\n${paramsList}`;
   }).join('\n\n');
 
-  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". تتحدثين مع قائدك محمد عباس.
-أنتِ ذكية، صريحة، ودودة، وقادرة على استخدام الأدوات.
+  return `أنتِ "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت".
 
-════════ بيانات النظام الآن ════════
+بيانات النظام الحالية:
 ${JSON.stringify(ctx, null, 2)}
 
-════════ الأدوات المتاحة لك ════════
+الأدوات المتاحة:
 ${toolsDesc}
 
-════════ كيف تستخدمين الأدوات ════════
-- عندما تحتاجين معلومة غير موجودة أعلاه، اطلبي الأداة هكذا:
+قواعد صارمة:
+- ردّك يجب أن يكون JSON فقط، بدون أي نص قبله أو بعده.
+- استخدم هذا الشكل بالضبط:
 
-  [TOOL_CALL] {"name":"web_search","params":{"query":"بيتكوين اليوم"}}
-
-- سيتوقف ردّك تلقائياً، وستصلك نتيجة الأداة، ثم تستمرين.
-- يمكنك طلب عدة أدوات بالتتابع (4 خطوات كحد أقصى).
-- عندما تكونين جاهزة، اكتبي الجواب مباشرة بدون أي [TOOL_CALL].
-
-════════ أمثلة ════════
-- "اقرأ config.js" → [TOOL_CALL] {"name":"read_file","params":{"file_path":"src/config.js"}}
-- "ابحث عن X" → [TOOL_CALL] {"name":"grep_files","params":{"pattern":"X","file_ext":".js"}}
-- "اعرض الملفات" → [TOOL_CALL] {"name":"list_files","params":{"dir":"src","max_depth":2}}
-- "آخر أخبار Web3؟" → [TOOL_CALL] {"name":"web_search","params":{"query":"آخر أخبار Web3"}}
-
-════════ قواعد صارمة ════════
-1. تحدثي كإنسان طبيعي.
-2. لا تختلقي معلومات. استخدمي الأدوات عند الحاجة.
-3. لا تتكلمي عن أشياء غير موجودة (لا خصوم، لا حروب).
-4. العربية الفصحى، بدون مقدمات.
-5. إن لم تحتاجي أداة، أجيبي مباشرة.
-
-════════ أمر القائد ════════
-${userMessage}
-
-════════ ابدئي الآن:`;
+{
+  "action": "tool" | "final",
+  "tool": "اسم الأداة (فقط عند action=tool)",
+  "params": { ... } (فقط عند action=tool),
+  "text": "الإجابة النهائية بالعربية (فقط عند action=final)"
 }
 
-function extractToolCall(text) {
-  const marker = '[TOOL_CALL]';
-  const idx = String(text).indexOf(marker);
-  if (idx === -1) return null;
+- استخدمي action="tool" عند الحاجة لمعلومة (قراءة ملف، بحث، قائمة ملفات).
+- استخدمي action="final" عند تقديم الإجابة النهائية.
+- بعد استدعاء أداة، ستصلك نتيجتها، ثم قرري: أداة أخرى أم إجابة نهائية.
+- لا تختلقي معلومات.
 
-  const after = String(text).slice(idx + marker.length).trim();
-  const braceStart = after.indexOf('{');
-  if (braceStart === -1) return null;
+أمر القائد: ${userMessage}
+
+ردّك الآن (JSON فقط):`;
+}
+
+function parseAgentResponse(raw) {
+  const str = String(raw || '').trim();
+  if (!str) return null;
+
+  try {
+    const parsed = JSON.parse(str);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch { /* not pure JSON */ }
+
+  const start = str.indexOf('{');
+  if (start === -1) return null;
 
   let depth = 0;
-  for (let i = braceStart; i < after.length; i++) {
-    if (after[i] === '{') depth++;
-    else if (after[i] === '}') {
+  for (let i = start; i < str.length; i++) {
+    if (str[i] === '{') depth++;
+    else if (str[i] === '}') {
       depth--;
       if (depth === 0) {
-        const json = after.slice(braceStart, i + 1);
         try {
-          const parsed = JSON.parse(json);
-          if (parsed && parsed.name) return parsed;
+          const parsed = JSON.parse(str.slice(start, i + 1));
+          if (parsed && typeof parsed === 'object') return parsed;
         } catch { /* invalid */ }
         return null;
       }
@@ -135,18 +129,8 @@ function hasHallucination(text) {
   return FORBIDDEN_TERMS.some(term => lower.includes(term.toLowerCase()));
 }
 
-function cleanAgentResponse(text) {
+function cleanFinalText(text) {
   let clean = String(text || '').trim();
-  clean = clean.replace(/\[TOOL_CALL\][\s\S]*$/g, '').trim();
-
-  try {
-    if (clean.startsWith('{') || clean.startsWith('[')) {
-      const parsed = JSON.parse(clean);
-      if (typeof parsed === 'object' && parsed !== null) {
-        clean = parsed.response || parsed.report || parsed.text || parsed.message || JSON.stringify(parsed);
-      }
-    }
-  } catch { /* not JSON */ }
 
   clean = clean.replace(/^#{1,6}\s+/gm, '')
                .replace(/\*\*(.+?)\*\*/g, '$1')
@@ -155,11 +139,11 @@ function cleanAgentResponse(text) {
 
   clean = clean.split('\n').filter(l => l.trim()).join('\n').trim();
   if (clean.length > 3500) clean = clean.slice(0, 3500) + '…';
-  return clean || null;
+  return clean;
 }
 
 async function runAgentLoop(userMessage, ctx) {
-  let conversation = buildAuroraPrompt(userMessage, ctx);
+  let conversation = buildAgentPrompt(userMessage, ctx);
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) {
@@ -169,48 +153,55 @@ async function runAgentLoop(userMessage, ctx) {
 
     let raw;
     try {
-      raw = await callModel('aurora', conversation, { noJsonMode: true });
+      raw = await callModel('aurora', conversation, { noJsonMode: false });
     } catch (e) {
-      console.error('[agent] step ' + step + ' LLM failed: ' + e.message);
+      console.error('[agent] step ' + step + ' LLM threw: ' + e.message);
       return null;
     }
 
-    if (!raw || raw.length < 10) {
-      console.warn('[agent] step ' + step + ' empty response');
+    if (!raw || String(raw).trim().length < 5) {
+      console.warn('[agent] step ' + step + ' empty raw');
       continue;
     }
 
-    const toolCall = extractToolCall(raw);
+    const parsed = parseAgentResponse(raw);
 
-    if (toolCall && step < MAX_AGENT_STEPS) {
-      console.log('[agent] step ' + step + ': tool=' + toolCall.name);
+    if (!parsed || !parsed.action) {
+      console.warn('[agent] step ' + step + ' no valid JSON. Raw preview: ' + String(raw).slice(0, 200));
+      continue;
+    }
+
+    if (parsed.action === 'tool' && parsed.tool && step < MAX_AGENT_STEPS) {
+      console.log('[agent] step ' + step + ': tool=' + parsed.tool);
       let toolResult;
       try {
-        toolResult = await executeTool(toolCall.name, toolCall.params || {});
+        toolResult = await executeTool(parsed.tool, parsed.params || {});
       } catch (e) {
         toolResult = { ok: false, error: e.message };
       }
 
       const resultText = JSON.stringify(toolResult).slice(0, 2500);
-      const toolEmoji = toolResult.ok ? '✅' : '❌';
+      const emoji = toolResult.ok ? '✅' : '❌';
 
-      conversation += `\n\n${toolEmoji} [نتيجة ${toolCall.name}]:\n${resultText}\n\nبناءً على هذه النتيجة، استمري. إذا انتهيتِ، اكتبي الجواب النهائي مباشرة بدون أي [TOOL_CALL].`;
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${resultText}\n\nاستمري. أعد JSON فقط.`;
       continue;
     }
 
-    const cleaned = cleanAgentResponse(raw);
-    if (!cleaned || cleaned.length < 5) {
-      console.warn('[agent] step ' + step + ' empty clean');
-      continue;
+    if (parsed.action === 'final' && parsed.text) {
+      const cleaned = cleanFinalText(parsed.text);
+      if (!cleaned || cleaned.length < 5) {
+        console.warn('[agent] step ' + step + ' empty final text');
+        continue;
+      }
+      if (hasHallucination(cleaned)) {
+        console.warn('[agent] step ' + step + ' hallucination');
+        continue;
+      }
+      console.log('[agent] final at step ' + step);
+      return cleaned;
     }
 
-    if (hasHallucination(cleaned)) {
-      console.warn('[agent] step ' + step + ' hallucination');
-      continue;
-    }
-
-    console.log('[agent] final answer at step ' + step);
-    return cleaned;
+    console.warn('[agent] step ' + step + ' unknown action: ' + parsed.action);
   }
 
   return null;
@@ -275,7 +266,7 @@ export async function createMessage(input) {
 }
 
 async function generateAgentReplies(message) {
-  console.log('[team] === agent mode ===');
+  console.log('[team] === agent mode (json) ===');
 
   const ctx = collectSystemSnapshot();
 
