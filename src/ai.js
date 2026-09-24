@@ -51,19 +51,18 @@ export function availableModels() {
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
   return [
-    GITHUB_TOKEN && { id: 'github-models', label: 'GitHub Models (GPT-4o-mini)', priority: 0 },
-    { id: 'pollinations', label: 'Pollinations AI', priority: 1 },
-    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 2 },
-    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 3 },
-    config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 3 },
-    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 4 },
-    config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 4 },
-    config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 5 },
-    config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 5 },
-    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 6 },
-    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 7 },
-    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 8 },
-    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 9 },
+    config.llm7Key && { id: 'llm7', label: 'LLM7', priority: 0 },
+    GITHUB_TOKEN && { id: 'github-models', label: 'GitHub Models', priority: 1 },
+    config.agnesKey && { id: 'agnes', label: 'Agnes', priority: 2 },
+    config.deepSeekKey && { id: 'deepseek', label: 'DeepSeek', priority: 2 },
+    config.geminiKey && { id: 'gemini', label: 'Gemini', priority: 3 },
+    config.siliconFlowKey && { id: 'siliconflow', label: 'SiliconFlow', priority: 3 },
+    config.openRouterKey && { id: 'openrouter', label: 'OpenRouter', priority: 4 },
+    config.kimiKey && { id: 'kimi-k3', label: 'Kimi', priority: 4 },
+    config.orcaRouterKey && { id: 'orcarouter', label: 'OrcaRouter', priority: 5 },
+    config.danyApiUrl && { id: 'danyapi', label: 'DanyAPI', priority: 6 },
+    config.logfareKey && { id: 'logfare', label: 'Logfare', priority: 7 },
+    config.gptOssApiUrl && { id: 'gpt-oss', label: 'GPT-OSS', priority: 8 },
     { id: 'local-deterministic', label: 'محاكاة', priority: 99 }
   ].filter(Boolean);
 }
@@ -115,9 +114,8 @@ async function dispatchToProvider(modelId, prompt, options = {}) {
   const noJsonMode = options.noJsonMode === true;
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-  if (modelId === 'github-models') return await callOpenAICompatible({ url: 'https://models.inference.ai.azure.com', apiKey: GITHUB_TOKEN, model: 'gpt-4o-mini', messages, noJsonMode });
-  if (modelId === 'pollinations') return await callOpenAICompatible({ url: 'https://text.pollinations.ai/openai', apiKey: 'not-needed', model: 'openai', messages, noJsonMode });
   if (modelId === 'llm7') return await callOpenAICompatible({ url: config.llm7Url, apiKey: config.llm7Key || 'unused', model: config.llm7Model, messages, noJsonMode });
+  if (modelId === 'github-models') return await callOpenAICompatible({ url: 'https://models.inference.ai.azure.com', apiKey: GITHUB_TOKEN, model: 'gpt-4o-mini', messages, noJsonMode });
   if (modelId === 'agnes') return await callOpenAICompatible({ url: config.agnesUrl, apiKey: config.agnesKey, model: config.agnesModel, messages, noJsonMode });
   if (modelId === 'deepseek') return await callOpenAICompatible({ url: 'https://api.deepseek.com/v1', apiKey: config.deepSeekKey, model: config.deepSeekModel, messages, noJsonMode });
   if (modelId === 'gemini') return await callOpenAICompatible({ url: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: config.geminiKey, model: 'gemini-2.0-flash', messages, noJsonMode });
