@@ -62,7 +62,7 @@ function ensureSessionsDir() {
 }
 
 // ─────────────────────────────────────────────
-// الأدوات الأساسية (10)
+// الأدوات الأساسية
 // ─────────────────────────────────────────────
 
 async function githubApi({ endpoint, method = 'GET', body = null }) {
@@ -112,10 +112,17 @@ async function httpFetch({ url, method = 'GET', headers = {}, body = null }) {
   return { status: res.status, ok: res.ok, data };
 }
 
+// 🆕 read_file — يبحث تلقائياً في root, src/, public/
 async function readFile({ file_path }) {
-  const full = resolveSafePath(file_path);
-  const content = await fs.readFile(full, 'utf-8');
-  return { content: content.slice(0, 8000), truncated: content.length > 8000 };
+  const candidates = [file_path, 'src/' + file_path, 'public/' + file_path];
+  for (const candidate of candidates) {
+    try {
+      const full = resolveSafePath(candidate);
+      const content = await fs.readFile(full, 'utf-8');
+      return { path: candidate, content: content.slice(0, 8000), truncated: content.length > 8000 };
+    } catch { /* try next */ }
+  }
+  throw new Error('file not found: ' + file_path + ' (tried root, src/, public/)');
 }
 
 async function writeFile({ file_path, content }) {
@@ -150,18 +157,26 @@ async function grepFiles({ pattern, file_ext = '.js', max_results = 30 }) {
   return { pattern, file_ext, scanned_files: scanned, results_count: results.length, results };
 }
 
+// 🆕 read_many_files — يبحث تلقائياً عن كل ملف
 async function readManyFiles({ files }) {
   if (!Array.isArray(files) || !files.length) throw new Error('files must be array');
   if (files.length > 5) throw new Error('max 5 files');
   const results = [];
   for (const fp of files) {
-    try {
-      const full = resolveSafePath(fp);
-      const stats = await fs.stat(full);
-      if (stats.size > 200 * 1024) { results.push({ file: fp, error: 'file too large' }); continue; }
-      const content = await fs.readFile(full, 'utf-8');
-      results.push({ file: fp, size: stats.size, content: content.slice(0, 6000), truncated: content.length > 6000 });
-    } catch (e) { results.push({ file: fp, error: e.message }); }
+    let found = false;
+    const candidates = [fp, 'src/' + fp, 'public/' + fp];
+    for (const candidate of candidates) {
+      try {
+        const full = resolveSafePath(candidate);
+        const stats = await fs.stat(full);
+        if (stats.size > 200 * 1024) { results.push({ file: candidate, error: 'file too large' }); found = true; break; }
+        const content = await fs.readFile(full, 'utf-8');
+        results.push({ file: candidate, size: stats.size, content: content.slice(0, 6000), truncated: content.length > 6000 });
+        found = true;
+        break;
+      } catch { /* try next */ }
+    }
+    if (!found) results.push({ file: fp, error: 'not found in root, src/, or public/' });
   }
   return { count: results.length, files: results };
 }
@@ -227,10 +242,9 @@ async function webSearch({ query, max_results = 5 }) {
 }
 
 // ─────────────────────────────────────────────
-// 🆕 الأدوات التنفيذية (5)
+// الأدوات التنفيذية
 // ─────────────────────────────────────────────
 
-// 1) render_env_get — قراءة متغيرات Render
 async function renderEnvGet({}) {
   if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing in Environment');
   const url = 'https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars';
@@ -243,7 +257,6 @@ async function renderEnvGet({}) {
   return { serviceId: RENDER_SERVICE_ID, count: vars.length, vars };
 }
 
-// 2) render_env_set — تعديل/إضافة متغير في Render
 async function renderEnvSet({ key, value }) {
   if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing in Environment');
   if (!key || typeof key !== 'string') throw new Error('key required');
@@ -257,23 +270,15 @@ async function renderEnvSet({ key, value }) {
   return { updated: true, key, serviceId: RENDER_SERVICE_ID, note: 'Service will redeploy automatically' };
 }
 
-// 3) save_session — حفظ cookies/headers لجلسة
 async function saveSession({ name, cookies = '', headers = {}, notes = '' }) {
   if (!name || typeof name !== 'string') throw new Error('name required');
   ensureSessionsDir();
   const sessionPath = path.join(SESSIONS_DIR, name + '.json');
-  const data = {
-    name,
-    cookies,
-    headers,
-    notes,
-    savedAt: new Date().toISOString()
-  };
+  const data = { name, cookies, headers, notes, savedAt: new Date().toISOString() };
   fsSync.writeFileSync(sessionPath, JSON.stringify(data, null, 2), { mode: 0o600 });
   return { saved: true, name, path: sessionPath };
 }
 
-// 4) load_session — استرجاع جلسة محفوظة
 async function loadSession({ name }) {
   if (!name || typeof name !== 'string') throw new Error('name required');
   const sessionPath = path.join(SESSIONS_DIR, name + '.json');
@@ -285,10 +290,8 @@ async function loadSession({ name }) {
   }
 }
 
-// 5) platform_fetch — fetch مع session محفوظة
 async function platformFetch({ url, method = 'GET', session = null, body = null, extra_headers = {} }) {
   if (!url || !url.startsWith('http')) throw new Error('valid url required');
-
   const headers = { ...extra_headers };
   if (session) {
     try {
@@ -298,25 +301,19 @@ async function platformFetch({ url, method = 'GET', session = null, body = null,
       if (data.headers) Object.assign(headers, data.headers);
     } catch { /* no session */ }
   }
-
   const res = await withTimeout(fetch(url, {
-    method,
-    headers,
+    method, headers,
     body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined
   }), TOOL_TIMEOUT_MS, 'platform_fetch');
-
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { data = text.slice(0, 3000); }
-
-  // حفظ أي cookies جديدة في الرد
   const setCookie = res.headers.get('set-cookie');
   return { status: res.status, ok: res.ok, setCookie: setCookie || null, data };
 }
 
 // ─────────────────────────────────────────────
 const TOOL_MAP = {
-  // 10 أساسية
   web_search: webSearch,
   grep_files: grepFiles,
   read_many_files: readManyFiles,
@@ -327,7 +324,6 @@ const TOOL_MAP = {
   send_telegram: sendTelegram,
   shell_exec: shellExec,
   http_fetch: httpFetch,
-  // 5 تنفيذية جديدة
   render_env_get: renderEnvGet,
   render_env_set: renderEnvSet,
   save_session: saveSession,
@@ -338,19 +334,19 @@ const TOOL_MAP = {
 export const AVAILABLE_TOOLS = [
   { name: 'web_search', description: 'البحث في الإنترنت عبر DuckDuckGo.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث عن نص في كل ملفات المشروع.', params: { pattern: 'string', file_ext: 'string', max_results: 'number' } },
-  { name: 'read_many_files', description: 'قراءة حتى 5 ملفات دفعة.', params: { files: 'string[]' } },
+  { name: 'read_many_files', description: 'قراءة حتى 5 ملفات دفعة. يقبل أسماء نسبية (config.js) ويبحث تلقائياً في src/ و public/.', params: { files: 'string[]' } },
   { name: 'list_files', description: 'سرد مجلد.', params: { dir: 'string', max_depth: 'number' } },
-  { name: 'read_file', description: 'قراءة ملف واحد.', params: { file_path: 'string' } },
+  { name: 'read_file', description: 'قراءة ملف واحد. يقبل اسماً نسبياً (config.js) ويبحث تلقائياً في src/ و public/.', params: { file_path: 'string' } },
   { name: 'write_file', description: 'كتابة/تعديل ملف.', params: { file_path: 'string', content: 'string' } },
   { name: 'github_api', description: 'استدعاء GitHub API.', params: { endpoint: 'string', method: 'string', body: 'object' } },
   { name: 'send_telegram', description: 'إرسال رسالة Telegram.', params: { chat_id: 'string', text: 'string' } },
   { name: 'shell_exec', description: 'تنفيذ shell (npm/git/node/npx).', params: { command: 'string', args: 'string[]' } },
   { name: 'http_fetch', description: 'طلب HTTP عام.', params: { url: 'string', method: 'string', headers: 'object', body: 'object' } },
-  { name: 'render_env_get', description: '🆕 قراءة كل متغيرات Render.', params: {} },
-  { name: 'render_env_set', description: '🆕 إضافة/تعديل متغير في Render (يُعيد النشر تلقائياً).', params: { key: 'string', value: 'string' } },
-  { name: 'save_session', description: '🆕 حفظ cookies/headers لجلسة منصة.', params: { name: 'string', cookies: 'string', headers: 'object' } },
-  { name: 'load_session', description: '🆕 استرجاع جلسة محفوظة.', params: { name: 'string' } },
-  { name: 'platform_fetch', description: '🆕 fetch مع جلسة محفوظة (للوصول لمنصات تتطلب login).', params: { url: 'string', method: 'string', session: 'string', body: 'object' } },
+  { name: 'render_env_get', description: 'قراءة كل متغيرات Render.', params: {} },
+  { name: 'render_env_set', description: 'إضافة/تعديل متغير في Render (يُعيد النشر تلقائياً).', params: { key: 'string', value: 'string' } },
+  { name: 'save_session', description: 'حفظ cookies/headers لجلسة منصة.', params: { name: 'string', cookies: 'string', headers: 'object' } },
+  { name: 'load_session', description: 'استرجاع جلسة محفوظة.', params: { name: 'string' } },
+  { name: 'platform_fetch', description: 'fetch مع جلسة محفوظة (للوصول لمنصات تتطلب login).', params: { url: 'string', method: 'string', session: 'string', body: 'object' } },
 ];
 
 export async function executeTool(toolName, params = {}) {
