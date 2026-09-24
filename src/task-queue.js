@@ -1,5 +1,8 @@
 /**
  * task-queue.js — Persistent Task Queue + Mission Loop + Agent Loop
+ *
+ * ملاحظة: كل دوال الإرسال على Telegram محظورة افتراضياً
+ * لتفعيلها: TELEGRAM_SCHEDULED_REPORTS=true
  */
 import { db } from './db.js';
 import { info, warn } from './logger.js';
@@ -8,6 +11,11 @@ import { audit } from './audit.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 
 try { db.exec('PRAGMA foreign_keys = OFF;'); } catch { /* ignore */ }
+
+// ═══════════════════════════════════════════════════════════
+// مفتاح الحظر: كل التقارير الدورية محظورة افتراضياً
+// ═══════════════════════════════════════════════════════════
+const TELEGRAM_SCHEDULED_REPORTS = process.env.TELEGRAM_SCHEDULED_REPORTS === 'true';
 
 // ─── Schema ───
 db.exec(`
@@ -161,7 +169,7 @@ export function seedDefaultQueue() {
   return { seeded: defaults.length };
 }
 
-// ─── Agent Loop (LLM JSON + Tool Execution) ───
+// ─── Agent Loop ───
 function buildSystemPrompt(agentName) {
   const toolsList = AVAILABLE_TOOLS.map(t =>
     `- ${t.name}: ${t.description}\n  params: ${JSON.stringify(t.params)}`
@@ -220,7 +228,6 @@ async function runLeaderCommandLoop(task, maxSteps = 6) {
       raw = await callModel(agentName, `${systemPrompt}\n\n${conversation}`);
     } catch (e) {
       warn('agent-loop', `LLM failed step ${step}: ${e.message}`);
-      await sendMessageDetailed(`⚠️ خطأ في الاتصال بالـ LLM: ${e.message}`, chatId).catch(() => {});
       return `LLM failure: ${e.message}`;
     }
 
@@ -232,8 +239,8 @@ async function runLeaderCommandLoop(task, maxSteps = 6) {
 
     if (parsed.action === 'final_report') {
       const report = String(parsed.report || '(بدون تقرير)');
-      await sendMessageDetailed(`📋 <b>تقرير الفريق</b>\n${report}`, chatId).catch(() => {});
-      info('agent-loop', `Task #${task.id} completed in ${step} steps`);
+      // لا نُرسل على Telegram من هنا
+      info('agent-loop', `Task #${task.id} completed: ${report.slice(0, 100)}`);
       return `completed: ${report.slice(0, 200)}`;
     }
 
@@ -250,14 +257,14 @@ async function runLeaderCommandLoop(task, maxSteps = 6) {
     conversation += `\n\n[نظام]: شكل JSON غير مفهوم.`;
   }
 
-  await sendMessageDetailed(`⚠️ المهمة #${task.id} تجاوزت ${maxSteps} خطوات.`, chatId).catch(() => {});
+  info('agent-loop', `Task #${task.id} max steps exceeded`);
   return `max steps exceeded`;
 }
 
 // ─── Mission Loop ───
 export function missionLoop() {
-  // 🛡️ احترام مفتاح MISSION_LOOP_DISABLED
-  if (process.env.MISSION_LOOP_DISABLED === 'true') {
+  // 🛡️ حظر كامل — لا يعالج رسائل القائد
+  if (process.env.MISSION_LOOP_DISABLED !== 'false') {
     return { created: [], pending: 0, disabled: true };
   }
 
@@ -277,11 +284,9 @@ export function missionLoop() {
         WHERE category='leader-command' AND description = ?
         AND created_at >= datetime('now', '-15 minutes') LIMIT 1
       `).get(desc);
-      if (!existing) {
-        created.push(addTask(desc, 'leader-command', 10));
-      }
+      if (!existing) created.push(addTask(desc, 'leader-command', 10));
     }
-  } catch (e) { /* messages table may not exist yet */ }
+  } catch { /* messages table may not exist */ }
 
   if (pending >= 5) return { created, pending };
 
@@ -355,7 +360,16 @@ export async function runHeartbeat() {
   };
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🛡️ sendScheduledReport — محظور افتراضياً
+// ═══════════════════════════════════════════════════════════
 export async function sendScheduledReport() {
+  // حظر مباشر داخل الدالة — لا يعتمد على متغيرات خارجية
+  if (!TELEGRAM_SCHEDULED_REPORTS) {
+    info('task-queue', '⏸ sendScheduledReport محظور (TELEGRAM_SCHEDULED_REPORTS != true)');
+    return { delivered: false, blocked: true, reason: 'SCHEDULED_REPORTS_DISABLED' };
+  }
+
   const recentReport = (() => {
     try { return db.prepare(`SELECT COUNT(*) c FROM operations_marketing WHERE channel='aurora_report' AND created_at >= datetime('now', '-170 minutes')`).get().c ?? 0; }
     catch { return 0; }
