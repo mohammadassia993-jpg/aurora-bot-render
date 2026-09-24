@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 15 أداة كاملة
+// tool-executor.js (ESM) — 15 أداة + قراءة نطاق
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -108,16 +108,45 @@ async function httpFetch({ url, method = 'GET', headers = {}, body = null }) {
   return { status: res.status, ok: res.ok, data };
 }
 
-async function readFile({ file_path }) {
+// ═══════════════════════════════════════════════════════════
+// read_file — مع دعم start_line و end_line
+// ═══════════════════════════════════════════════════════════
+async function readFile({ file_path, start_line = null, end_line = null }) {
   const candidates = [file_path, 'src/' + file_path, 'public/' + file_path];
+  let fullPath = null;
   for (const candidate of candidates) {
     try {
       const full = resolveSafePath(candidate);
-      const content = await fs.readFile(full, 'utf-8');
-      return { path: candidate, content: content.slice(0, 8000), truncated: content.length > 8000 };
+      await fs.access(full);
+      fullPath = full;
+      break;
     } catch { /* try next */ }
   }
-  throw new Error('file not found: ' + file_path);
+  if (!fullPath) throw new Error('file not found: ' + file_path + ' (tried root, src/, public/)');
+
+  const content = await fs.readFile(fullPath, 'utf-8');
+  const lines = content.split('\n');
+  const total = lines.length;
+
+  if (start_line !== null || end_line !== null) {
+    const s = Math.max(1, Number(start_line) || 1);
+    const e = Math.min(total, Number(end_line) || total);
+    const slice = lines.slice(s - 1, e).join('\n');
+    return {
+      path: path.relative(SAFE_ROOT, fullPath),
+      total_lines: total,
+      range: s + '-' + e,
+      content: slice.slice(0, 12000),
+      truncated: slice.length > 12000
+    };
+  }
+
+  return {
+    path: path.relative(SAFE_ROOT, fullPath),
+    total_lines: total,
+    content: content.slice(0, 8000),
+    truncated: content.length > 8000
+  };
 }
 
 async function writeFile({ file_path, content }) {
@@ -127,7 +156,7 @@ async function writeFile({ file_path, content }) {
   return { written: true, path: file_path, bytes: Buffer.byteLength(content) };
 }
 
-async function grepFiles({ pattern, file_ext = '.js', max_results = 30 }) {
+async function grepFiles({ pattern, file_ext = '.js', max_results = 30, context_lines = 0 }) {
   if (!pattern || String(pattern).length < 2) throw new Error('pattern must be 2+ chars');
   const needle = String(pattern).toLowerCase();
   const results = [];
@@ -142,7 +171,20 @@ async function grepFiles({ pattern, file_ext = '.js', max_results = 30 }) {
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].toLowerCase().includes(needle)) {
-          results.push({ file: path.relative(SAFE_ROOT, fullPath), line: i + 1, text: lines[i].trim().slice(0, 200) });
+          const item = {
+            file: path.relative(SAFE_ROOT, fullPath),
+            line: i + 1,
+            text: lines[i].trim().slice(0, 200)
+          };
+          if (context_lines > 0) {
+            const ctxStart = Math.max(0, i - context_lines);
+            const ctxEnd = Math.min(lines.length, i + context_lines + 1);
+            item.context = lines.slice(ctxStart, ctxEnd).map((l, idx) => {
+              const lineNum = ctxStart + idx + 1;
+              return lineNum + ': ' + l.slice(0, 150);
+            });
+          }
+          results.push(item);
           if (results.length >= max_results) break;
         }
       }
@@ -235,9 +277,6 @@ async function webSearch({ query, max_results = 5 }) {
   return { query: q, count: 0, results: [], error: 'no_results' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// render_env_get — مُصلَح (يقرأ envVar.key بشكل صحيح)
-// ═══════════════════════════════════════════════════════════
 async function renderEnvGet({}) {
   if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing in Environment');
   const url = 'https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars?limit=100';
@@ -246,17 +285,14 @@ async function renderEnvGet({}) {
   }), TOOL_TIMEOUT_MS, 'render_env_get');
   if (!res.ok) throw new Error('Render ' + res.status + ': ' + (await res.text()).slice(0, 300));
   const raw = await res.json();
-
   let items = [];
   if (Array.isArray(raw)) items = raw;
   else if (raw && Array.isArray(raw.envVars)) items = raw.envVars;
   else if (raw && Array.isArray(raw.items)) items = raw.items;
-
   const vars = items.map(item => {
     const v = item.envVar || item;
     return { key: v.key || v.name || '?', value: v.value ? '***' : '' };
   }).filter(v => v.key && v.key !== '?');
-
   return { serviceId: RENDER_SERVICE_ID, count: vars.length, vars };
 }
 
@@ -333,10 +369,10 @@ const TOOL_MAP = {
 
 export const AVAILABLE_TOOLS = [
   { name: 'web_search', description: 'البحث في الإنترنت عبر DuckDuckGo.', params: { query: 'string', max_results: 'number' } },
-  { name: 'grep_files', description: 'البحث عن نص في كل ملفات المشروع.', params: { pattern: 'string', file_ext: 'string', max_results: 'number' } },
+  { name: 'grep_files', description: 'البحث في الملفات. يمكن طلب context_lines لعرض الأسطر المحيطة.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number (0-10)' } },
   { name: 'read_many_files', description: 'قراءة حتى 5 ملفات دفعة.', params: { files: 'string[]' } },
   { name: 'list_files', description: 'سرد مجلد.', params: { dir: 'string', max_depth: 'number' } },
-  { name: 'read_file', description: 'قراءة ملف واحد.', params: { file_path: 'string' } },
+  { name: 'read_file', description: 'قراءة ملف. يدعم start_line و end_line لقراءة نطاق محدد.', params: { file_path: 'string', start_line: 'number (اختياري)', end_line: 'number (اختياري)' } },
   { name: 'write_file', description: 'كتابة/تعديل ملف.', params: { file_path: 'string', content: 'string' } },
   { name: 'github_api', description: 'استدعاء GitHub API.', params: { endpoint: 'string', method: 'string', body: 'object' } },
   { name: 'send_telegram', description: 'إرسال رسالة Telegram.', params: { chat_id: 'string', text: 'string' } },
