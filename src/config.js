@@ -17,6 +17,8 @@ export const config = {
   databaseSyncToken: process.env.DATABASE_SYNC_TOKEN || '',
   port: Number(process.env.PORT || 8787),
   gatewayUrl: process.env.OPENCLAW_GATEWAY_URL || 'http://127.0.0.1:18789',
+  renderApiKey: process.env.RENDER_API_KEY || '',
+  renderServiceId: process.env.RENDER_SERVICE_ID || 'srv-da5a4njtqb8s739sk8g0',
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
   telegramWebhookUrl: process.env.TELEGRAM_WEBHOOK_URL || '',
