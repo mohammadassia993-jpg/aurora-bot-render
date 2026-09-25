@@ -321,6 +321,11 @@ if (url.pathname === '/wallets.html') {
   });
   return response;
 }
+if (url.pathname === '/wallets.html') {
+  const html = await fs.readFile(path.join(__dirname, 'public', 'wallets.html'), 'utf8');
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  return response.end(html);
+}
 if (url.pathname === '/dashboard.js' && request.method === 'GET') {
         try {
           const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
