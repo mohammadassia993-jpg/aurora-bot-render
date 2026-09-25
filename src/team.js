@@ -19,12 +19,13 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 8;
+const MAX_AGENT_STEPS = 10;
 const STEP_DELAY_MS = 700;
 const TELEGRAM_MAX_LEN = 3800;
 
-// 🆕 الأدوات الحرجة: بعد نجاحها → توقف فوري
-const CRITICAL_TOOLS = new Set(['write_file', 'github_edit_file', 'render_env_set']);
+// الأدوات الحرجة: بعد نجاحها → توقف فوري
+// ملاحظة: github_edit_file مُستثنى حتى يستطيع الوكيل قراءة الملف للتحقق بعده
+const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -49,7 +50,7 @@ function buildAgentPrompt(userMessage, ctx) {
     return `• ${t.name}\n  ${t.description}\n  params: {\n${params}\n  }`;
   }).join('\n\n');
 
-  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". مهمتك تنفيذ أوامر القائد.
+  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". مهمتك تنفيذ أوامر القائد بدقة وأمان.
 
 ═══════════════ بيانات النظام ═══════════════
 ${JSON.stringify(ctx, null, 2)}
@@ -60,14 +61,14 @@ ${toolsList}
 ═══════════════ شكل الرد المطلوب ═══════════════
 يجب أن يكون ردّك JSON واحد فقط. لا نص قبله، لا نص بعده، لا markdown.
 
-شكل 1 — إذا أردت تنفيذ أداة:
+شكل 1 — تنفيذ أداة:
 {
   "action": "tool",
   "tool": "اسم_الأداة",
   "params": { "المعامل": "القيمة" }
 }
 
-شكل 2 — إذا أردت إنهاء المهمة:
+شكل 2 — إنهاء المهمة:
 {
   "action": "final",
   "text": "الرد النهائي بالعربية"
@@ -75,34 +76,50 @@ ${toolsList}
 
 ═══════════════ أمثلة توضيحية ═══════════════
 
-مثال 1 — القائد يقول: "اقرأ config.js"
-ردك:
+مثال 1 — اقرأ config.js:
 {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
 
-مثال 2 — بعد أن تستلم نتيجة الملف، تُنهي:
+مثال 2 — بعد قراءة الملف أنهِ:
 {"action":"final","text":"قرأت الملف. يحتوي على 28 متغيراً..."}
 
-مثال 3 — القائد يقول: "ابحث عن socks-proxy-agent"
-ردك:
+مثال 3 — ابحث عن socks-proxy-agent:
 {"action":"tool","tool":"grep_files","params":{"pattern":"socks-proxy-agent","file_ext":".js"}}
 
-مثال 4 — القائد يقول: "ابحث في الإنترنت عن أخبار AI"
-ردك:
+مثال 4 — ابحث في الإنترنت:
 {"action":"tool","tool":"web_search","params":{"query":"أخبار الذكاء الاصطناعي"}}
 
-═══════════════ قواعد صارمة ═══════════════
+═══════════════ 🆕 قواعد التحقق الإلزامية ═══════════════
+
+🔴 القاعدة 8 — قبل أي تعديل:
+   - قبل github_edit_file أو write_file، يجب أولاً read_file على نفس المسار.
+   - اقرأ النص الفعلي الذي ستستبدله. لا تخمّن.
+   - إذا كان الملف كبيراً، استخدم start_line/end_line لجزء محدد.
+
+🔴 القاعدة 9 — بعد نجاح github_edit_file:
+   - لا تنهِ المهمة فوراً. اقرأ الملف مرة أخرى بـ read_file على نفس المسار.
+   - تحقق أن التعديل صحيح وأن الصيغة سليمة.
+   - إذا ظهر خطأ نحوي → أصلحه فوراً (اقرأ ثم عدّل).
+   - إذا سليم → أعد final مع ملخص موجز.
+
+🔴 القاعدة 10 — تحذيرات صيغة JavaScript:
+   - ممنوع: const x: [ — الصحيح: const x = [
+   - ممنوع: let y: { — الصحيح: let y = {
+   - ممنوع: var z: ( — الصحيح: var z = (
+   - عند استبدال سطر، لا تحذف الفواصل أو الأقواس المجاورة.
+   - تأكد أن كل قوس { له } مقابل.
+
+🔴 القاعدة 11 — عند فشل النشر:
+   - لا تعيد المحاولة بنفس الطريقة.
+   - اقرأ الملف الذي عدّلته، افحص الصيغة، أصلح الخطأ.
+
+═══════════════ قواعد عامة صارمة ═══════════════
 1. أعد JSON واحد فقط. لا نص إضافي.
 2. نفّذ خطوة واحدة في كل رد.
-3. بعد أن تستلم نتيجة أداة، إما تستدعي أداة أخرى، أو تُنهي بـ final.
-4. عند الفشل، جرّب أداة أو params مختلفة — لا تُكرر نفس الشيء.
+3. بعد نتيجة أداة: استدعِ أداة أخرى أو أنهِ بـ final.
+4. عند الفشل جرّب زاوية مختلفة — لا تُكرر نفس الأداة بنفس المعاملات.
 5. لا تختلق معلومات.
-
-🆕 6. بعد نجاح أي أداة حرجة (write_file / github_edit_file / render_env_set):
-   - توقف فوراً
-   - أعد {"action":"final","text":"تم بنجاح: <وصف موجز>"}
-   - لا تُعد العملية، لا تُحسّنها، لا تُكررها.
-
-🆕 7. ممنوع تكرار نفس الأداة بنفس المعاملات — سيُرفض تلقائياً ويُنهى التنفيذ.
+6. بعد نجاح write_file أو render_env_set → توقف وأعد final فوراً.
+7. ممنوع تكرار نفس الأداة بنفس المعاملات.
 
 ═══════════════ أمر القائد ═══════════════
 ${userMessage}
@@ -166,7 +183,7 @@ function formatToolResult(toolName, toolResult, originalParams) {
   }
   if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 60).map(v => '• ' + v.key).join('\n'); }
   if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}`;
-  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}`;
+  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}\n\n⚠️ الآن اقرأ الملف للتحقق (read_file على ${data.path})`;
   if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}\n${JSON.stringify(data.data || {}).slice(0, 500)}`;
   if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
   if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
@@ -181,8 +198,9 @@ async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
   const toolResults = [];
   let consecutiveFailures = 0;
-  const executedOps = new Set(); // 🆕 كاشف التكرار
-  let lastCriticalTool = null;   // 🆕 آخر أداة حرجة نجحت
+  const executedOps = new Set();
+  let lastCriticalTool = null;
+  let lastEditFile = null;
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
@@ -195,12 +213,9 @@ async function runAgentLoop(userMessage, ctx) {
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
       console.warn('[agent] step ' + step + ' invalid JSON. Preview: ' + String(raw).slice(0, 200));
-      conversation += `\n\n⚠️ ردك السابق لم يكن JSON. أعد الإجابة بـ JSON فقط، بدون أي نص آخر.\n\nردّك JSON الآن:`;
+      conversation += `\n\n⚠️ ردك السابق لم يكن JSON. أعد الإجابة بـ JSON فقط.\n\nردّك JSON الآن:`;
       consecutiveFailures++;
-      if (consecutiveFailures >= 4) {
-        console.error('[agent] too many JSON failures');
-        return null;
-      }
+      if (consecutiveFailures >= 4) { console.error('[agent] too many JSON failures'); return null; }
       continue;
     }
 
@@ -209,7 +224,6 @@ async function runAgentLoop(userMessage, ctx) {
     if (parsed.action === 'tool' && parsed.tool) {
       console.log('[agent] step ' + step + ': tool=' + parsed.tool);
 
-      // 🆕 فحص التكرار الحرفي
       const opKey = parsed.tool + '|' + JSON.stringify(parsed.params || {});
       if (executedOps.has(opKey)) {
         console.warn('[agent] duplicate op → force stop');
@@ -222,7 +236,20 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
 
-      // 🆕 توقف بعد نجاح أداة حرجة
+      // تتبع آخر ملف تم تعديله — لإلزام التحقق
+      if (parsed.tool === 'github_edit_file' && toolResult.ok) {
+        lastEditFile = parsed.params?.file_path || parsed.params?.path || null;
+      }
+
+      // إذا الوكيل قرأ الملف للتو بعد تعديله → اسمح له بالإنهاء
+      if (parsed.tool === 'read_file' && lastEditFile) {
+        const readPath = parsed.params?.file_path || parsed.params?.path;
+        if (readPath === lastEditFile) {
+          lastEditFile = null; // اكتمل التحقق
+        }
+      }
+
+      // التوقف بعد الأدوات الحرجة (write_file, render_env_set)
       if (toolResult.ok && CRITICAL_TOOLS.has(parsed.tool)) {
         if (lastCriticalTool === parsed.tool) {
           console.warn('[agent] same critical tool twice → force stop');
@@ -233,13 +260,28 @@ async function runAgentLoop(userMessage, ctx) {
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
 
+      // منع إنهاء المهمة قبل التحقق من التعديل
+      if (parsed.tool === 'final' && lastEditFile) {
+        conversation += `\n\n⚠️ عدّلت ${lastEditFile} لكن لم تتحقق منه بعد. اقرأه بـ read_file أولاً ثم أنهِ.\n\nردّك JSON الآن:`;
+        continue;
+      }
+
       const txt = JSON.stringify(toolResult).slice(0, 2500);
       const emoji = toolResult.ok ? '✅' : '❌';
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nاستمر: أعد JSON (tool آخر أو final).`;
+      let hint = '';
+      if (parsed.tool === 'github_edit_file' && toolResult.ok && lastEditFile) {
+        hint = `\n\n⚠️ إلزامي: اقرأ الملف الآن بـ read_file على "${lastEditFile}" للتحقق قبل final.`;
+      }
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}${hint}\n\nاستمر: أعد JSON (tool آخر أو final).`;
       continue;
     }
 
     if (parsed.action === 'final') {
+      // منع final قبل التحقق
+      if (lastEditFile) {
+        conversation += `\n\n⚠️ لا يمكن الإنهاء قبل التحقق من ${lastEditFile}. اقرأه بـ read_file أولاً.\n\nردّك JSON الآن:`;
+        continue;
+      }
       const summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
       if (toolResults.length > 0) {
