@@ -1,8 +1,9 @@
-// tool-executor.js (ESM) — 16 أداة + диагностика
+// tool-executor.js (ESM) — 16 أداة + فحص صيغة قبل الحفظ
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { recordError } from './db.js';
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -81,7 +82,44 @@ async function githubApi({ endpoint, method = 'GET', body = null }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// github_edit_file — نسخة تشخيصية
+// 🆕 فحص صيغة JavaScript
+// ═══════════════════════════════════════════════════════════
+function checkSyntaxOfFile(filePath) {
+  return new Promise((resolve) => {
+    execFile('node', ['--check', filePath], { timeout: 5000 }, (err, stdout, stderr) => {
+      if (err) resolve({ valid: false, error: String(stderr || err.message || '').slice(0, 600) });
+      else resolve({ valid: true });
+    });
+  });
+}
+
+async function validateJsSyntax(content, filePath) {
+  // فحص فقط ملفات .js / .mjs / .cjs
+  if (!/\.(m?js|cjs)$/i.test(filePath)) return { valid: true, skipped: true };
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sg-validate-'));
+  try {
+    // جرّب كـ ESM
+    const esmFile = path.join(tmpDir, 'check.mjs');
+    await fs.writeFile(esmFile, content, 'utf8');
+    const esmResult = await checkSyntaxOfFile(esmFile);
+    if (esmResult.valid) return { valid: true, mode: 'esm' };
+
+    // جرّب كـ CJS
+    const cjsFile = path.join(tmpDir, 'check.cjs');
+    await fs.writeFile(cjsFile, content, 'utf8');
+    const cjsResult = await checkSyntaxOfFile(cjsFile);
+    if (cjsResult.valid) return { valid: true, mode: 'cjs' };
+
+    // فشل في الحالتين
+    return { valid: false, error: esmResult.error };
+  } finally {
+    try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// github_edit_file — مع فحص صيغة قبل الحفظ
 // ═══════════════════════════════════════════════════════════
 async function githubEditFile({ path: filePath, search, replace, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
@@ -101,14 +139,10 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   const original = Buffer.from(fileData.content, 'base64').toString('utf8');
   const originalLines = original.split('\n');
 
-  // البحث
   if (!original.includes(search)) {
-    // 🆕 بناء تقرير تشخيصي مفصل
     const searchLen = search.length;
     const firstChars = String(search).slice(0, 60);
     const lastChars = String(search).slice(-30);
-
-    // ابحث عن أسطر مشابهة
     const needle = firstChars.slice(0, 30).toLowerCase();
     const similar = [];
     for (let i = 0; i < originalLines.length; i++) {
@@ -117,21 +151,13 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
         if (similar.length >= 5) break;
       }
     }
-
-    // ابحث عن أول 30 حرف من search
-    const shortNeedle = firstChars.slice(0, 20);
-    const shortSimilar = originalLines
-      .map((l, i) => ({ line: i + 1, text: l }))
-      .filter(x => x.text.includes(shortNeedle))
-      .slice(0, 3);
-
     const diagnosticMsg = [
       'search string NOT found',
       'طول search: ' + searchLen + ' حرف',
-      'أول 50 حرف من search: "' + firstChars + '"',
-      'آخر 20 حرف من search: "' + lastChars + '"',
+      'أول 50 حرف: "' + firstChars + '"',
+      'آخر 20 حرف: "' + lastChars + '"',
       'طول الملف: ' + original.length + ' حرف (' + originalLines.length + ' سطر)',
-      similar.length ? '5 أسطر مشابهة في الملف:' : 'لا توجد أسطر مشابهة',
+      similar.length ? 'أسطر مشابهة:' : 'لا أسطر مشابهة',
       ...similar.map(s => '  سطر ' + s.line + ': ' + s.text.slice(0, 150))
     ].join('\n');
     throw new Error(diagnosticMsg);
@@ -139,6 +165,21 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
 
   const count = (original.match(new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
   const updated = original.split(search).join(replace);
+
+  // 🆕 فحص الصيغة قبل الحفظ
+  const validation = await validateJsSyntax(updated, filePath);
+  if (!validation.valid) {
+    throw new Error(
+      'SYNTAX ERROR — تم رفض التعديل ولم يُحفظ على GitHub.\n' +
+      'الملف: ' + filePath + '\n' +
+      'السبب:\n' + validation.error + '\n\n' +
+      'أعد المحاولة بتعديل صحيح. تحقق من:\n' +
+      '- const/let/var متبوعة بـ = وليس :\n' +
+      '- كل { له } مقابل\n' +
+      '- لم تحذف أجزاء من السطر الأصلي'
+    );
+  }
+
   const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
 
   const putRes = await withTimeout(fetch(apiUrl, {
@@ -149,7 +190,15 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   const putData = await putRes.json();
   if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
 
-  return { edited: true, path: filePath, replacements: count, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
+  return {
+    edited: true,
+    path: filePath,
+    replacements: count,
+    syntaxChecked: !validation.skipped,
+    syntaxMode: validation.mode || 'skipped',
+    commitSha: putData.commit?.sha || '',
+    commitUrl: putData.commit?.html_url || ''
+  };
 }
 
 async function sendTelegram({ chat_id, text }) {
@@ -381,7 +430,7 @@ const TOOL_MAP = {
 };
 
 export const AVAILABLE_TOOLS = [
-  { name: 'github_edit_file', description: 'تعديل ملف على GitHub. عند فشل البحث، يُرجع تقريراً تشخيصياً تفصيلياً.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
+  { name: 'github_edit_file', description: 'تعديل ملف على GitHub. يفحص صيغة JavaScript قبل الحفظ. عند وجود خطأ نحوي، يرفض التعديل.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
   { name: 'web_search', description: 'البحث في الإنترنت.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
   { name: 'read_many_files', description: 'قراءة 5 ملفات.', params: { files: 'string[]' } },
