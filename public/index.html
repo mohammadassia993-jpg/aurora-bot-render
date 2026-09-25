@@ -21,19 +21,17 @@
   .stat:last-child { border-bottom: none; }
   .stat .label { color: #94a3b8; }
   .stat .value { color: #e0e7ff; font-weight: 600; }
-  .item { padding: 10px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; }
-  .item .meta { color: #a78bfa; font-size: 11px; margin-bottom: 4px; }
-  .item .body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
-  .wallet-addr { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px; word-break: break-all; margin-bottom: 10px; color: #a5b4fc; line-height: 1.5; }
-  .wallet-btn { padding: 8px 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-inline-end: 8px; margin-bottom: 8px; }
-  .wallet-btn:active { background: #4338ca; }
-  .wallet-link { display: inline-block; padding: 8px 14px; background: #065f46; color: #d1fae5; border-radius: 8px; font-size: 13px; text-decoration: none; margin-bottom: 8px; }
-  .wallet-hint { color: #94a3b8; font-size: 12px; text-align: center; padding: 10px; background: #0f172a; border-radius: 8px; }
+  .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; letter-spacing: 1px; }
+  .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; letter-spacing: 0; }
+  .addr-box { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; line-height: 1.6; }
+  .btn-copy { display: block; width: 100%; padding: 10px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
+  .btn-copy:active { background: #4338ca; }
+  .note { color: #fbbf24; font-size: 11px; text-align: center; padding: 6px; }
 </style>
 </head>
 <body>
@@ -70,21 +68,11 @@
 
 <div class="panel" id="panel-wallets">
   <div class="card">
-    <h2>💎 TON Network (USDT)</h2>
-    <div class="wallet-addr">UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f</div>
-    <button class="wallet-btn" onclick="copyAddr('UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f', this)">📋 نسخ العنوان</button>
-    <a class="wallet-link" href="https://tonviewer.com/UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f" target="_blank">🔗 عرض الرصيد</a>
+    <h2>💼 أرصدة المحافظ</h2>
+    <button id="load-btn" class="btn-primary">🔄 تحديث الأرصدة</button>
   </div>
-
-  <div class="card">
-    <h2>🔵 Base Network (USDC)</h2>
-    <div class="wallet-addr">0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855</div>
-    <button class="wallet-btn" onclick="copyAddr('0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855', this)">📋 نسخ العنوان</button>
-    <a class="wallet-link" href="https://basescan.org/address/0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855" target="_blank">🔗 عرض الرصيد</a>
-  </div>
-
-  <div class="card">
-    <div class="wallet-hint">⚠️ للاستقبال فقط — السحب من محفظتك (Trust/MetaMask) يدوياً</div>
+  <div id="wallets-container">
+    <div class="card"><div class="empty">اضغط زر التحديث لعرض الأرصدة</div></div>
   </div>
 </div>
 
@@ -95,16 +83,76 @@
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
 <script src="/dashboard.js?v=3"></script>
+
 <script>
-function copyAddr(addr, btn) {
-  navigator.clipboard.writeText(addr).then(function() {
+(function(){
+  var btn = document.getElementById('load-btn');
+  var box = document.getElementById('wallets-container');
+
+  btn.onclick = function() {
+    box.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب... (10-15 ثانية)</div></div>';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/wallets/balances', true);
+    xhr.timeout = 30000;
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status !== 200) {
+        box.innerHTML = '<div class="error">❌ خطأ ' + xhr.status + ': ' + xhr.responseText.slice(0, 200) + '</div>';
+        return;
+      }
+      try {
+        var data = JSON.parse(xhr.responseText);
+        render(data.wallets || []);
+      } catch (e) {
+        box.innerHTML = '<div class="error">❌ رد غير صالح: ' + xhr.responseText.slice(0, 200) + '</div>';
+      }
+    };
+    xhr.ontimeout = function() { box.innerHTML = '<div class="error">⏱️ انتهت المدة — حاول مجدداً</div>'; };
+    xhr.onerror = function() { box.innerHTML = '<div class="error">🌐 فشل الاتصال بالسيرفر</div>'; };
+    xhr.send();
+  };
+
+  function render(wallets) {
+    if (!wallets.length) { box.innerHTML = '<div class="empty">لا توجد محافظ</div>'; return; }
+    var html = '';
+    for (var i = 0; i < wallets.length; i++) {
+      var w = wallets[i];
+      html += '<div class="card">';
+      html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
+      html += '<div class="balance-big">' + w.balance + w.symbol + '<span class="balance-sym">' + w.symbol + '</span></div>';
+      if (w.note) html += '<div class="note">' + w.note + '</div>';
+      html += '<div class="stat"><span class="label">العملة الأصلية</span><span class="value">' + w.nativeBalance + ' ' + w.native + '</span></div>';
+      html += '<div class="addr-box">' + w.address + '</div>';
+      html += '<button class="btn-copy" data-addr="' + w.address + '">📋 نسخ العنوان</button>';
+      html += '</div>';
+    }
+    box.innerHTML = html;
+    var btns = box.querySelectorAll('.btn-copy');
+    for (var j = 0; j < btns.length; j++) {
+      btns[j].onclick = function() { copyText(this.getAttribute('data-addr'), this); };
+    }
+  }
+
+  function copyText(text, btn) {
     var old = btn.textContent;
-    btn.textContent = '✅ تم النسخ';
-    setTimeout(function(){ btn.textContent = old; }, 1500);
-  }).catch(function() {
-    alert('العنوان: ' + addr);
-  });
-}
+    function done() { btn.textContent = '✅ تم النسخ'; setTimeout(function(){ btn.textContent = old; }, 1500); }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, 99999);
+      try { document.execCommand('copy'); done(); }
+      catch (e) { alert('انسخ يدوياً:\n' + text); }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else { fallback(); }
+  }
+})();
 </script>
 </body>
 </html>
