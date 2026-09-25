@@ -69,16 +69,12 @@
         <option value="scout">المستخبر</option>
       </select>
     </div>
-    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل... الفريق سيقرأه وينفذه."></textarea>
+    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل..."></textarea>
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
     <button id="exec-now-btn" class="btn-primary" style="background:#065f46; margin-top:8px;">▶️ تنفيذ مهمة الآن</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
-
-  <div class="card">
-    <h2>📺 السجل الحي (ما يفعله الفريق الآن)</h2>
-    <div id="live-log">جاري التحميل...</div>
-  </div>
+  <div class="card"><h2>📺 السجل الحي</h2><div id="live-log">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-tasks">
@@ -88,10 +84,10 @@
 <div class="panel" id="panel-wallets">
   <div class="card">
     <h2>💼 أرصدة المحافظ</h2>
-    <button id="load-wallets-btn" class="btn-primary">🔄 تحديث الأرصدة</button>
+    <button id="wallets-refresh" class="btn-primary">🔄 تحديث الأرصدة</button>
   </div>
-  <div id="wallets-container">
-    <div class="card"><div class="empty">اضغط زر التحديث لعرض الأرصدة</div></div>
+  <div id="wallets-output">
+    <div class="card"><div class="empty">اضغط الزر لعرض الأرصدة</div></div>
   </div>
 </div>
 
@@ -101,78 +97,43 @@
 
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
-<script src="/dashboard.js?v=4"></script>
+<script src="/dashboard.js?v=5"></script>
 
 <script>
-(function(){
-  var btn = document.getElementById('load-wallets-btn');
-  var box = document.getElementById('wallets-container');
-  if (!btn || !box) return;
+document.addEventListener('click', function(ev) {
+  var t = ev.target;
+  if (!t || t.id !== 'wallets-refresh') return;
 
-  btn.onclick = function() {
-    box.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب... (10-15 ثانية)</div></div>';
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/wallets/balances', true);
-    xhr.timeout = 30000;
-    xhr.onreadystatechange = function() {
-      if (xhr.readyState !== 4) return;
-      if (xhr.status !== 200) {
-        box.innerHTML = '<div class="error">❌ خطأ ' + xhr.status + ': ' + xhr.responseText.slice(0, 200) + '</div>';
+  var out = document.getElementById('wallets-output');
+  if (!out) return;
+
+  out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
+
+  fetch('/api/wallets/balances', { cache: 'no-store' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var wallets = (data && data.wallets) || [];
+      if (!wallets.length) {
+        out.innerHTML = '<div class="card"><div class="empty">لا توجد بيانات</div></div>';
         return;
       }
-      try {
-        var data = JSON.parse(xhr.responseText);
-        render(data.wallets || []);
-      } catch (e) {
-        box.innerHTML = '<div class="error">❌ رد غير صالح: ' + xhr.responseText.slice(0, 200) + '</div>';
+      var html = '';
+      for (var i = 0; i < wallets.length; i++) {
+        var w = wallets[i];
+        html += '<div class="card">';
+        html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
+        html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
+        html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
+        if (w.note) html += '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#fbbf24;">' + w.note + '</span></div>';
+        html += '<div class="addr-box">' + w.address + '</div>';
+        html += '</div>';
       }
-    };
-    xhr.ontimeout = function() { box.innerHTML = '<div class="error">⏱️ انتهت المدة</div>'; };
-    xhr.onerror = function() { box.innerHTML = '<div class="error">🌐 فشل الاتصال</div>'; };
-    xhr.send();
-  };
-
-  function render(wallets) {
-    if (!wallets.length) { box.innerHTML = '<div class="empty">لا توجد محافظ</div>'; return; }
-    var html = '';
-    for (var i = 0; i < wallets.length; i++) {
-      var w = wallets[i];
-      html += '<div class="card">';
-      html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
-      html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
-      if (w.note) html += '<div class="empty" style="padding:6px;">' + w.note + '</div>';
-      html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
-      html += '<div class="addr-box">' + w.address + '</div>';
-      html += '<button class="btn-copy" data-addr="' + w.address + '">📋 نسخ العنوان</button>';
-      html += '</div>';
-    }
-    box.innerHTML = html;
-    var btns = box.querySelectorAll('.btn-copy');
-    for (var j = 0; j < btns.length; j++) {
-      btns[j].onclick = function() { copyText(this.getAttribute('data-addr'), this); };
-    }
-  }
-
-  function copyText(text, btn) {
-    var old = btn.textContent;
-    function done() { btn.textContent = '✅ تم النسخ'; setTimeout(function(){ btn.textContent = old; }, 1500); }
-    function fallback() {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.top = '-1000px';
-      document.body.appendChild(ta);
-      ta.select();
-      ta.setSelectionRange(0, 99999);
-      try { document.execCommand('copy'); done(); }
-      catch (e) { alert('انسخ يدوياً:\n' + text); }
-      document.body.removeChild(ta);
-    }
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(done).catch(fallback);
-    } else { fallback(); }
-  }
-})();
+      out.innerHTML = html;
+    })
+    .catch(function(e){
+      out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
+    });
+}, false);
 </script>
 </body>
 </html>
