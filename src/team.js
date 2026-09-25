@@ -23,6 +23,9 @@ const MAX_AGENT_STEPS = 8;
 const STEP_DELAY_MS = 700;
 const TELEGRAM_MAX_LEN = 3800;
 
+// 🆕 الأدوات الحرجة: بعد نجاحها → توقف فوري
+const CRITICAL_TOOLS = new Set(['write_file', 'github_edit_file', 'render_env_set']);
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function collectSystemSnapshot() {
@@ -40,9 +43,6 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Prompt غني مع أمثلة واضحة
-// ═══════════════════════════════════════════════════════════
 function buildAgentPrompt(userMessage, ctx) {
   const toolsList = AVAILABLE_TOOLS.map(t => {
     const params = Object.entries(t.params || {}).map(([k, v]) => `      "${k}": ${v}`).join(',\n');
@@ -96,6 +96,13 @@ ${toolsList}
 3. بعد أن تستلم نتيجة أداة، إما تستدعي أداة أخرى، أو تُنهي بـ final.
 4. عند الفشل، جرّب أداة أو params مختلفة — لا تُكرر نفس الشيء.
 5. لا تختلق معلومات.
+
+🆕 6. بعد نجاح أي أداة حرجة (write_file / github_edit_file / render_env_set):
+   - توقف فوراً
+   - أعد {"action":"final","text":"تم بنجاح: <وصف موجز>"}
+   - لا تُعد العملية، لا تُحسّنها، لا تُكررها.
+
+🆕 7. ممنوع تكرار نفس الأداة بنفس المعاملات — سيُرفض تلقائياً ويُنهى التنفيذ.
 
 ═══════════════ أمر القائد ═══════════════
 ${userMessage}
@@ -174,6 +181,8 @@ async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
   const toolResults = [];
   let consecutiveFailures = 0;
+  const executedOps = new Set(); // 🆕 كاشف التكرار
+  let lastCriticalTool = null;   // 🆕 آخر أداة حرجة نجحت
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
@@ -186,7 +195,6 @@ async function runAgentLoop(userMessage, ctx) {
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
       console.warn('[agent] step ' + step + ' invalid JSON. Preview: ' + String(raw).slice(0, 200));
-      // 🆕 تصحيح فوري
       conversation += `\n\n⚠️ ردك السابق لم يكن JSON. أعد الإجابة بـ JSON فقط، بدون أي نص آخر.\n\nردّك JSON الآن:`;
       consecutiveFailures++;
       if (consecutiveFailures >= 4) {
@@ -200,10 +208,31 @@ async function runAgentLoop(userMessage, ctx) {
 
     if (parsed.action === 'tool' && parsed.tool) {
       console.log('[agent] step ' + step + ': tool=' + parsed.tool);
+
+      // 🆕 فحص التكرار الحرفي
+      const opKey = parsed.tool + '|' + JSON.stringify(parsed.params || {});
+      if (executedOps.has(opKey)) {
+        console.warn('[agent] duplicate op → force stop');
+        return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
+      }
+      executedOps.add(opKey);
+
       let toolResult;
       try { toolResult = await executeTool(parsed.tool, parsed.params || {}); }
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
+
+      // 🆕 توقف بعد نجاح أداة حرجة
+      if (toolResult.ok && CRITICAL_TOOLS.has(parsed.tool)) {
+        if (lastCriticalTool === parsed.tool) {
+          console.warn('[agent] same critical tool twice → force stop');
+          return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
+        }
+        lastCriticalTool = parsed.tool;
+        console.log('[agent] critical success (' + parsed.tool + ') → final stop');
+        return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
+      }
+
       const txt = JSON.stringify(toolResult).slice(0, 2500);
       const emoji = toolResult.ok ? '✅' : '❌';
       conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nاستمر: أعد JSON (tool آخر أو final).`;
