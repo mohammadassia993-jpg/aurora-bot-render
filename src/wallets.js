@@ -1,121 +1,105 @@
-import { config } from './config.js';
-import { db } from './db.js';
-import { notify } from './notifications.js';
-import { recordError } from './db.js';
+// wallets.js — جلب أرصدة المحافظ من blockchain مباشرة
+// لا مفاتيح خاصة — لا سحب — قراءة فقط
 
-const USDC_BASE_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const TON_API = 'https://tonapi.io/v2';
+const TON_USDT_MASTER = 'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs';
+const BASE_RPC = 'https://mainnet.base.org';
+const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 
-async function getJson(url, options = {}) {
-  const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+const TON_ADDRESS = process.env.USDT_RECEIVE_ADDRESS || 'UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f';
+const BASE_ADDRESS = process.env.USDC_RECEIVE_ADDRESS || '0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855';
+
+function formatUnits(raw, decimals) {
+  if (raw === null || raw === undefined) return '0';
+  const s = String(raw);
+  if (decimals === 0) return s;
+  const padded = s.padStart(decimals + 1, '0');
+  const whole = padded.slice(0, -decimals);
+  const frac = padded.slice(-decimals).replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : whole;
 }
 
-async function saveEvent({ network, symbol, amount, address, txHash, confirmed = true, metadata = {} }) {
-  if (!txHash || !Number.isFinite(amount) || amount <= 0) return false;
-  const existing = db.prepare('SELECT id FROM wallet_events WHERE tx_hash=?').get(txHash);
-  if (existing) return false;
-  db.prepare(`
-    INSERT INTO wallet_events(asset,network,symbol,amount,address,tx_hash,confirmed)
-    VALUES (?,?,?,?,?,?,?)
-  `).run(symbol, network, symbol, amount, address, txHash, confirmed ? 1 : 0);
-  await notify(
-    'wallet_received',
-    `💰 استلام ${amount} ${symbol} على ${network}`,
-    `المبلغ: ${amount} ${symbol}\nالشبكة: ${network}\nالعنوان: ${address}\nالتوقيع: ${txHash}`
-  );
-  return true;
-}
-
-async function monitorBase() {
-  const address = config.usdcBaseAddress;
-  if (!address) return;
-  const usdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-  let items = [];
+async function fetchJson(url, options = {}, timeoutMs = 12000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const data = await getJson(`${config.baseRpcUrl.replace(/\/$/, '')}/addresses/${address}/token-transfers?type=ERC-20`);
-    for (const item of data.items || []) {
-      const matches = item.to?.hash?.toLowerCase() === address.toLowerCase();
-      const isUsdc = item.token?.symbol?.toUpperCase() === 'USDC' || item.token?.address?.toLowerCase() === usdc.toLowerCase();
-      if (matches && isUsdc) items.push({
-        hash: item.transaction_hash, value: item.total.value,
-        time: item.timestamp, block: item.block_number
-      });
-    }
-  } catch {
-    const fallback = await getJson(`${config.baseRpcUrl.replace(/\/$/, '')}/api?module=account&action=tokentx&contractaddress=${usdc}&address=${address}&page=1&offset=50&sort=desc`);
-    if (fallback.status === '1') {
-      items = (fallback.result || []).filter(item => item.to?.toLowerCase() === address.toLowerCase()).map(item => ({
-        hash: item.hash, value: String(Number(item.value) / 10 ** Number(item.tokenDecimal || 6)),
-        time: Number(item.timeStamp) ? new Date(Number(item.timeStamp) * 1000).toISOString() : '', block: item.blockNumber
-      }));
-    }
-  }
-  for (const item of items) {
-    await saveEvent({
-      network: 'Base', symbol: 'USDC', amount: Number(item.value || 0),
-      address, txHash: item.hash, metadata: { block: item.block, time: item.time }
-    });
-  }
+    const res = await fetch(url, { ...options, signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally { clearTimeout(t); }
 }
 
-async function monitorSolana() {
-  const address = config.usdcSolanaAddress;
-  if (!address) return;
-  const signatures = await getJson(config.solanaRpcUrl, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 'aurora', method: 'getSignaturesForAddress', params: [address, { limit: 20 }] })
-  });
-  for (const signature of signatures.result || []) {
-    if (signature.err) continue;
-    const txHash = signature.signature;
-    if (db.prepare('SELECT id FROM wallet_events WHERE tx_hash=?').get(txHash)) continue;
-    const transaction = await getJson(config.solanaRpcUrl, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 'aurora', method: 'getTransaction', params: [txHash, 'jsonParsed'] })
-    });
-    const meta = transaction.result?.meta;
-    const pre = meta?.preTokenBalances || [];
-    const post = meta?.postTokenBalances || [];
-    for (const after of post) {
-      if (after.mint !== USDC_BASE_MINT || after.owner !== address) continue;
-      const before = pre.find(item => item.accountKey === after.accountKey && item.mint === after.mint);
-      const delta = Number(after.uiTokenAmount?.uiAmount || 0) - Number(before?.uiTokenAmount?.uiAmount || 0);
-      if (delta > 0) await saveEvent({ network: 'Solana', symbol: 'USDC', amount: delta, address, txHash });
-    }
-  }
-}
+export async function getTonWallet() {
+  const address = TON_ADDRESS;
+  if (!address) return { network: 'TON', address: '', tokens: [], error: 'العنوان غير مُعد' };
+  try {
+    const account = await fetchJson(`${TON_API}/accounts/${address}`);
+    const tonBalance = formatUnits(account.balance || '0', 9);
 
-async function monitorTon() {
-  const address = config.usdtTonAddress;
-  if (!address) return;
-  const data = await getJson(`${config.tonApiUrl.replace(/\/$/, '')}/transactions?account=${encodeURIComponent(address)}&limit=20`);
-  for (const tx of data.transactions || []) {
-    const incoming = Number(tx.in_msg?.value || 0) / 1_000_000_000;
-    if (incoming > 0 && !tx.in_msg?.source) continue;
-    await saveEvent({
-      network: 'TON', symbol: 'TON', amount: incoming,
-      address, txHash: tx.hash, metadata: { uxtime: tx.utime }
-    });
-  }
-}
-
-export async function pollWallets() {
-  const result = {};
-  for (const [name, operation] of [
-    ['base', monitorBase], ['solana', monitorSolana], ['ton', monitorTon]
-  ]) {
+    let usdtBalance = '0';
     try {
-      await operation();
-      result[name] = 'ok';
-    } catch (caught) {
-      result[name] = caught.message;
-      recordError(`wallet_${name}`, caught.name === 'TimeoutError' ? 'TIMEOUT' : 'MONITOR_ERROR', caught.message, {}, 'Will retry next cycle');
-    }
+      const jetton = await fetchJson(`${TON_API}/accounts/${address}/jettons/${TON_USDT_MASTER}`);
+      usdtBalance = formatUnits(jetton.balance || '0', 6);
+    } catch { /* لم يُستقبل USDT بعد */ }
+
+    return {
+      network: 'TON',
+      address,
+      tokens: [
+        { symbol: 'TON', balance: tonBalance },
+        { symbol: 'USDT', balance: usdtBalance }
+      ],
+      explorer: `https://tonviewer.com/${address}`
+    };
+  } catch (e) {
+    return { network: 'TON', address, tokens: [], error: e.message };
   }
-  return result;
 }
 
-export function startWalletMonitors(minutes = config.walletPollMinutes) {
-  setInterval(() => pollWallets().catch(() => {}), Math.max(1, minutes) * 60_000).unref();
+export async function getBaseWallet() {
+  const address = BASE_ADDRESS;
+  if (!address) return { network: 'Base', address: '', tokens: [], error: 'العنوان غير مُعد' };
+  try {
+    const ethRes = await fetchJson(BASE_RPC, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'eth_getBalance',
+        params: [address, 'latest']
+      })
+    });
+    const ethBalance = formatUnits(BigInt(ethRes.result || '0x0').toString(), 18);
+
+    const data = '0x70a08231' + address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+    const usdcRes = await fetchJson(BASE_RPC, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 2, method: 'eth_call',
+        params: [{ to: BASE_USDC, data }, 'latest']
+      })
+    });
+    const usdcBalance = formatUnits(BigInt(usdcRes.result || '0x0').toString(), 6);
+
+    return {
+      network: 'Base',
+      address,
+      tokens: [
+        { symbol: 'ETH', balance: ethBalance },
+        { symbol: 'USDC', balance: usdcBalance }
+      ],
+      explorer: `https://basescan.org/address/${address}`
+    };
+  } catch (e) {
+    return { network: 'Base', address, tokens: [], error: e.message };
+  }
+}
+
+export async function getAllWallets() {
+  const [ton, base] = await Promise.all([getTonWallet(), getBaseWallet()]);
+  return {
+    ok: true,
+    wallets: { ton, base },
+    fetchedAt: new Date().toISOString()
+  };
 }
