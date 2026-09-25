@@ -1,4 +1,4 @@
-// ai.js — Cloudflare Workers AI (أساسي) + LLM7 (احتياطي)
+// ai.js — Cloudflare Workers AI + LLM7
 import { config } from './config.js';
 
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
@@ -12,16 +12,14 @@ const metrics = new Map();
 
 function trackOk(name) {
   const m = metrics.get(name) || { ok: 0, fail: 0, lastErr: '', blockedUntil: 0 };
-  m.ok++;
-  m.blockedUntil = 0;
-  m.lastErr = '';
+  m.ok++; m.blockedUntil = 0; m.lastErr = '';
   metrics.set(name, m);
 }
 
 function trackFail(name, err) {
   const m = metrics.get(name) || { ok: 0, fail: 0, lastErr: '', blockedUntil: 0 };
   m.fail++;
-  m.lastErr = String(err || '').slice(0, 200);
+  m.lastErr = String(err || '').slice(0, 300);
   if (m.fail % 3 === 0) m.blockedUntil = Date.now() + 60000;
   metrics.set(name, m);
 }
@@ -33,14 +31,11 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function callCloudflare(messages, options = {}) {
-  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error('Cloudflare credentials missing');
+export async function callCloudflare(messages, options = {}) {
+  if (!CF_ACCOUNT_ID) throw new Error('CF_ACCOUNT_ID missing in env');
+  if (!CF_API_TOKEN) throw new Error('CF_API_TOKEN missing in env');
   const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/run/' + CF_MODEL;
-  const body = {
-    messages,
-    max_tokens: options.maxTokens || 2048,
-    temperature: options.temperature !== undefined ? options.temperature : 0.4
-  };
+  const body = { messages, max_tokens: options.maxTokens || 1024 };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
@@ -50,25 +45,19 @@ async function callCloudflare(messages, options = {}) {
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error('CF ' + res.status + ': ' + errText.slice(0, 200));
-    }
-    const data = await res.json();
-    if (!data.success) throw new Error('CF: ' + JSON.stringify(data.errors || data).slice(0, 200));
+    const rawText = await res.text();
+    if (!res.ok) throw new Error('CF HTTP ' + res.status + ': ' + rawText.slice(0, 300));
+    let data;
+    try { data = JSON.parse(rawText); } catch { throw new Error('CF bad JSON: ' + rawText.slice(0, 200)); }
+    if (!data.success) throw new Error('CF not success: ' + JSON.stringify(data.errors || data).slice(0, 300));
     const text = (data.result && (data.result.response || data.result.output_text)) || '';
-    if (!text) throw new Error('CF empty response');
+    if (!text) throw new Error('CF empty. keys: ' + Object.keys(data.result || {}).join(','));
     return String(text);
   } finally { clearTimeout(t); }
 }
 
-async function callLLM7(messages, options = {}) {
-  const body = {
-    model: LLM7_MODEL,
-    messages,
-    max_tokens: options.maxTokens || 2048,
-    temperature: options.temperature !== undefined ? options.temperature : 0.4
-  };
+export async function callLLM7(messages, options = {}) {
+  const body = { model: LLM7_MODEL, messages };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 45000);
   try {
@@ -78,43 +67,32 @@ async function callLLM7(messages, options = {}) {
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-    if (!res.ok) throw new Error('LLM7 ' + res.status);
-    const data = await res.json();
+    const rawText = await res.text();
+    if (!res.ok) throw new Error('LLM7 HTTP ' + res.status + ': ' + rawText.slice(0, 300));
+    let data;
+    try { data = JSON.parse(rawText); } catch { throw new Error('LLM7 bad JSON: ' + rawText.slice(0, 200)); }
     const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-    if (!text) throw new Error('LLM7 empty');
+    if (!text) throw new Error('LLM7 empty: ' + rawText.slice(0, 200));
     return String(text);
   } finally { clearTimeout(t); }
 }
 
-export function selectModel(agent) {
-  const map = {
-    aurora: 'cloudflare',
-    planner: 'cloudflare',
-    executor: 'cloudflare',
-    reviewer: 'cloudflare',
-    scout: 'cloudflare'
-  };
-  return map[agent] || 'cloudflare';
-}
+export function selectModel(agent) { return 'cloudflare'; }
 
 export function availableModels() {
   return [
-    { name: 'cloudflare', model: CF_MODEL, role: 'primary', provider: 'Cloudflare Workers AI' },
-    { name: 'llm7', model: LLM7_MODEL, role: 'fallback', provider: 'LLM7' }
+    { name: 'cloudflare', model: CF_MODEL, role: 'primary' },
+    { name: 'llm7', model: LLM7_MODEL, role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const preferred = selectModel(agent);
-  const providers = preferred === 'cloudflare' ? ['cloudflare', 'llm7'] : ['llm7', 'cloudflare'];
-  let lastErr = null;
+  const providers = ['cloudflare', 'llm7'];
+  const errors = [];
 
   for (const name of providers) {
-    if (isBlocked(name)) {
-      console.warn('[ai] ' + name + ' blocked, skipping');
-      continue;
-    }
+    if (isBlocked(name)) { errors.push(name + ': BLOCKED'); continue; }
     try {
       const fn = name === 'cloudflare' ? callCloudflare : callLLM7;
       const result = await fn(messages, options);
@@ -122,12 +100,12 @@ export async function callModel(agent, prompt, options = {}) {
       return result;
     } catch (e) {
       trackFail(name, e.message);
+      errors.push(name + ': ' + e.message);
       console.error('[ai] ' + name + ' failed: ' + e.message);
-      lastErr = e;
-      await sleep(500);
+      await sleep(300);
     }
   }
-  throw new Error('All providers failed. Last: ' + (lastErr && lastErr.message || 'unknown'));
+  throw new Error('All providers failed → ' + errors.join(' || '));
 }
 
 export function modelPerformance() {
