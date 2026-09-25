@@ -586,7 +586,16 @@ export async function startServer() {
         return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
       }
 
-      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html'].includes(url.pathname);
+      if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
+        try {
+          const data = await getAllWallets();
+          return json(response, 200, data);
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html', '/api/wallets/balances'].includes(url.pathname);
       const localReport = url.pathname === '/report' && isLoopback(request);
       const publicReadOnlyPath =
         (url.pathname === '/content' || config.publicReadOnly) &&
@@ -600,14 +609,6 @@ export async function startServer() {
 
       if (url.pathname === '/tasks') {
         return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
-      }
-      if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
-        try {
-          const data = await getAllWallets();
-          return json(response, 200, data);
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
       }
       if (url.pathname === '/api/live' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
