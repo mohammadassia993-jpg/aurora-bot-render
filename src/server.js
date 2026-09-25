@@ -595,17 +595,56 @@ export async function startServer() {
         }
       }
 
-      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html', '/api/wallets/balances'].includes(url.pathname);
+      const publicShell: [
+  '/api/wallets/balances',
+  '/api/connectors',
+  '/api/ai',
+  '/api/team',
+  '/api/performance',
+  '/api/agents',
+  '/api/approvals',
+  '/api/telegram',
+  '/api/errors',
+  '/api/backup',
+  '/api/audit',
+  '/api/security'
+] = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html', '/api/wallets/balances'].includes(url.pathname);
       const localReport = url.pathname === '/report' && isLoopback(request);
       const publicReadOnlyPath =
         (url.pathname === '/content' || config.publicReadOnly) &&
         request.method === 'GET' &&
-        (publicShell ||
+        (publicShell: [
+  '/api/wallets/balances',
+  '/api/connectors',
+  '/api/ai',
+  '/api/team',
+  '/api/performance',
+  '/api/agents',
+  '/api/approvals',
+  '/api/telegram',
+  '/api/errors',
+  '/api/backup',
+  '/api/audit',
+  '/api/security'
+] ||
           url.pathname === '/content' ||
           url.pathname.startsWith('/icons/') ||
           url.pathname.startsWith('/uploads/') ||
           ['/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/notifications', '/api/live'].includes(url.pathname));
-      if (!publicShell && !localReport && !publicReadOnlyPath && !authorized(request, url)) return json(response, 401, { error: 'team key required' });
+      if (!publicShell: [
+  '/api/wallets/balances',
+  '/api/connectors',
+  '/api/ai',
+  '/api/team',
+  '/api/performance',
+  '/api/agents',
+  '/api/approvals',
+  '/api/telegram',
+  '/api/errors',
+  '/api/backup',
+  '/api/audit',
+  '/api/security'
+] && !localReport && !publicReadOnlyPath && !authorized(request, url)) return json(response, 401, { error: 'team key required' });
 
       if (url.pathname === '/tasks') {
         return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
