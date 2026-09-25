@@ -86,9 +86,22 @@ async function callLLM7(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
+export function selectModel(agent) {
+  // يعيد اسم المزود المفضل لكل وكيل
+  const map = {
+    aurora: 'cloudflare',
+    planner: 'cloudflare',
+    executor: 'cloudflare',
+    reviewer: 'cloudflare',
+    scout: 'cloudflare'
+  };
+  return map[agent] || 'cloudflare';
+}
+
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const providers = ['cloudflare', 'llm7'];
+  const preferred = selectModel(agent);
+  const providers = preferred === 'cloudflare' ? ['cloudflare', 'llm7'] : ['llm7', 'cloudflare'];
   let lastErr = null;
 
   for (const name of providers) {
