@@ -87,7 +87,6 @@ async function serveFile(response, absolutePath, downloadName = '', cacheControl
   response.end(content);
 }
 
-// ⭐ إرسال آخر 5 أحداث جديدة للفريق عبر Telegram (بعد كل رسالة قائد)
 async function relayRecentTeamReplies() {
   try {
     const { sendMessageDetailed } = await import('./telegram.js');
@@ -308,54 +307,20 @@ export async function startServer() {
         }
       }
 
+      // ⭐ Serve wallets.html
+      if (url.pathname === '/wallets.html' && request.method === 'GET') {
+        try {
+          const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' });
+          return response.end(html);
+        } catch (err) {
+          response.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+          return response.end('<!doctype html><html lang="ar" dir="rtl"><body><h1>404</h1><p>wallets.html غير موجود</p></body></html>');
+        }
+      }
+
       // ⭐ Serve dashboard.js
-      if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  const response = new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' }});
-  return response.end(html);
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  const response = new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8' }
-  });
-  return response;
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  return response.end(html);
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  const response = new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8' }
-  });
-  return response;
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  const response = new Response(html, { 'content-type': 'text/html; charset=utf-8' });
-  return response.end(html);
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  const response = new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  return response;
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  const response = new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8' }
-  });
-  return response;
-}
-if (url.pathname === '/wallets.html') {
-  const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  return response.end(html);
-}
-if (url.pathname === '/dashboard.js' && request.method === 'GET') {
+      if (url.pathname === '/dashboard.js' && request.method === 'GET') {
         try {
           const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
           response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
@@ -608,18 +573,15 @@ if (url.pathname === '/dashboard.js' && request.method === 'GET') {
         return;
       }
 
-      // ⭐ POST رسالة من القائد — الحل الجديد هنا
       if (url.pathname === '/api/team/messages' && request.method === 'POST') {
         const body = await readBody(request);
         const saved = await createMessage(body);
         if (saved.sender === 'leader') {
           const safeBody = String(saved.body || '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]);
           const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
-          // 1. أرسل رسالة القائد للبوت فوراً
           sendMessageDetailed(`📤 <b>رسالة من القائد</b>\nإلى: ${target}\n\n${safeBody}`)
             .then(result => audit('aurora', 'leader_message_relayed', { delivered: result.delivered, messageId: saved.id }))
             .catch(() => {});
-          // 2. بعد 20 ثانية، أرسل ردود الفريق عبر البوت
           setTimeout(relayRecentTeamReplies, 20000);
         }
         return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
