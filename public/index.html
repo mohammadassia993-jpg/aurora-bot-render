@@ -28,7 +28,6 @@
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
   .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
 
-  /* ⭐ صندوق الكتابة الكبير */
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   #msg-body:focus { border-color: #a78bfa; outline: none; }
 
@@ -37,10 +36,19 @@
   .btn-exec { display: inline-block; margin-top: 8px; padding: 6px 12px; background: #065f46; color: #d1fae5; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
 
-  /* ⭐ السجل الحي */
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+
+  /* ⭐ المحافظ */
+  .wallet-addr { background: #0f172a; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; }
+  .wallet-btn { padding: 6px 12px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; margin-bottom: 12px; }
+  .wallet-btn:active { background: #4338ca; }
+  .wallet-token { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #0f172a; border-radius: 8px; margin-bottom: 6px; }
+  .wallet-token .sym { color: #94a3b8; font-size: 13px; font-weight: 600; }
+  .wallet-token .bal { color: #4ade80; font-size: 15px; font-weight: 700; }
+  .wallet-hint { color: #94a3b8; font-size: 11px; text-align: center; padding: 8px; }
+  .wallet-explorer { display: inline-block; margin-top: 8px; color: #a78bfa; font-size: 12px; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -55,6 +63,7 @@
   <div class="tab active" data-tab="main">الرئيسية</div>
   <div class="tab" data-tab="team">غرفة الفريق</div>
   <div class="tab" data-tab="tasks">المهام</div>
+  <div class="tab" data-tab="wallets">💼 المحافظ</div>
   <div class="tab" data-tab="notifications">الإشعارات</div>
 </div>
 
@@ -102,6 +111,10 @@
   </div>
 </div>
 
+<div class="panel" id="panel-wallets">
+  <div id="wallets-container"><div class="empty">افتح هذا التاب لجلب الأرصدة</div></div>
+</div>
+
 <div class="panel" id="panel-notifications">
   <div class="card">
     <h2>🔔 الإشعارات</h2>
@@ -112,5 +125,87 @@
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
 <script src="/dashboard.js?v=3"></script>
+
+<script>
+(function(){
+  const walletsPanel = document.getElementById('panel-wallets');
+  const walletsContainer = document.getElementById('wallets-container');
+  const teamKey = localStorage.getItem('teamKey')||'__TEAM_KEY__';
+  let loadedOnce = false;
+
+  async function loadWallets() {
+    walletsContainer.innerHTML = '<div class="card"><div class="empty">⏳ جاري جلب الأرصدة من blockchain...</div></div>';
+    try {
+      const res = await fetch('/api/wallets/balances?key=' + encodeURIComponent(teamKey));
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'فشل جلب الأرصدة');
+      renderWallets(data);
+      loadedOnce = true;
+    } catch (e) {
+      walletsContainer.innerHTML = '<div class="error">❌ فشل جلب الأرصدة: ' + e.message + '</div>';
+    }
+  }
+
+  function renderWallets(data) {
+    const w = data.wallets;
+    let html = '';
+    html += '<div class="card" style="display:flex; justify-content:space-between; align-items:center;">';
+    html += '<h2 style="margin:0;">💼 المحافظ الرقمية</h2>';
+    html += '<button id="refresh-wallets" style="padding:6px 12px; background:#1e40af; color:#e0e7ff; border:none; border-radius:8px; font-size:12px; cursor:pointer;">🔄 تحديث</button>';
+    html += '</div>';
+    html += '<div class="wallet-hint">⚠️ استقبال فقط — السحب يدوياً من محفظتك (Trust/MetaMask)</div>';
+
+    for (const key of ['ton', 'base']) {
+      const wallet = w[key];
+      if (!wallet) continue;
+      html += '<div class="card">';
+      html += '<h2>' + (key === 'ton' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
+      if (wallet.error) {
+        html += '<div class="error" style="margin-bottom:8px;">⚠️ ' + wallet.error + '</div>';
+      }
+      html += '<div style="font-size:11px; color:#94a3b8; margin-bottom:6px;">العنوان:</div>';
+      html += '<div class="wallet-addr">' + wallet.address + '</div>';
+      html += '<button class="wallet-btn copy-addr" data-addr="' + wallet.address + '">📋 نسخ العنوان</button>';
+
+      html += '<div style="font-size:11px; color:#94a3b8; margin-bottom:6px;">الأرصدة:</div>';
+      for (const t of wallet.tokens) {
+        html += '<div class="wallet-token"><span class="sym">' + t.symbol + '</span><span class="bal">' + t.balance + '</span></div>';
+      }
+      if (wallet.explorer) {
+        html += '<a href="' + wallet.explorer + '" target="_blank" class="wallet-explorer">🔗 عرض في المستكشف</a>';
+      }
+      html += '</div>';
+    }
+
+    html += '<div class="wallet-hint">آخر تحديث: ' + new Date(data.fetchedAt).toLocaleTimeString('ar-EG') + '</div>';
+    walletsContainer.innerHTML = html;
+
+    const refreshBtn = document.getElementById('refresh-wallets');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadWallets);
+
+    document.querySelectorAll('.copy-addr').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const addr = btn.getAttribute('data-addr');
+        try {
+          await navigator.clipboard.writeText(addr);
+          const old = btn.textContent;
+          btn.textContent = '✅ تم النسخ';
+          setTimeout(() => btn.textContent = old, 1500);
+        } catch {
+          alert('العنوان: ' + addr);
+        }
+      });
+    });
+  }
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.getAttribute('data-tab') === 'wallets' && !loadedOnce) {
+        loadWallets();
+      }
+    });
+  });
+})();
+</script>
 </body>
 </html>
