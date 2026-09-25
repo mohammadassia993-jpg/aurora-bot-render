@@ -19,6 +19,7 @@ import { dashboardData } from './dashboard.js';
 import { securityHeaders, globalRateLimit, adminRateLimit, validateWebhookSecret, sanitizeObject, buildSecurityReport } from './security.js';
 import { performancePlan } from './performance.js';
 import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from './team.js';
+import { getAllWallets } from './wallets.js';
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -307,7 +308,6 @@ export async function startServer() {
         }
       }
 
-      // ⭐ Serve wallets.html
       if (url.pathname === '/wallets.html' && request.method === 'GET') {
         try {
           const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
@@ -319,7 +319,6 @@ export async function startServer() {
         }
       }
 
-      // ⭐ Serve dashboard.js
       if (url.pathname === '/dashboard.js' && request.method === 'GET') {
         try {
           const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
@@ -601,6 +600,14 @@ export async function startServer() {
 
       if (url.pathname === '/tasks') {
         return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
+      }
+      if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
+        try {
+          const data = await getAllWallets();
+          return json(response, 200, data);
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
       }
       if (url.pathname === '/api/live' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
