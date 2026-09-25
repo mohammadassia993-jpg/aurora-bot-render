@@ -586,6 +586,22 @@ export async function startServer() {
         return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
       }
 
+      // ✅ المسار الصحيح لصفحة المحافظ
+      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html', '/api/wallets/balances'].includes(url.pathname);
+      const localReport = url.pathname === '/report' && isLoopback(request);
+      const publicReadOnlyPath =
+        (url.pathname === '/content' || config.publicReadOnly) &&
+        request.method === 'GET' &&
+        (publicShell ||
+          url.pathname === '/content' ||
+          url.pathname.startsWith('/icons/') ||
+          url.pathname.startsWith('/uploads/') ||
+          ['/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/notifications', '/api/live'].includes(url.pathname));
+      if (!publicShell && !localReport && !publicReadOnlyPath && !authorized(request, url)) return json(response, 401, { error: 'team key required' });
+
+      if (url.pathname === '/tasks') {
+        return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
+      }
       if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
         try {
           const data = await getAllWallets();
@@ -593,61 +609,6 @@ export async function startServer() {
         } catch (e) {
           return json(response, 500, { ok: false, error: e.message });
         }
-      }
-
-      const publicShell: [
-  '/api/wallets/balances',
-  '/api/connectors',
-  '/api/ai',
-  '/api/team',
-  '/api/performance',
-  '/api/agents',
-  '/api/approvals',
-  '/api/telegram',
-  '/api/errors',
-  '/api/backup',
-  '/api/audit',
-  '/api/security'
-] = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html', '/api/wallets/balances'].includes(url.pathname);
-      const localReport = url.pathname === '/report' && isLoopback(request);
-      const publicReadOnlyPath =
-        (url.pathname === '/content' || config.publicReadOnly) &&
-        request.method === 'GET' &&
-        (publicShell: [
-  '/api/wallets/balances',
-  '/api/connectors',
-  '/api/ai',
-  '/api/team',
-  '/api/performance',
-  '/api/agents',
-  '/api/approvals',
-  '/api/telegram',
-  '/api/errors',
-  '/api/backup',
-  '/api/audit',
-  '/api/security'
-] ||
-          url.pathname === '/content' ||
-          url.pathname.startsWith('/icons/') ||
-          url.pathname.startsWith('/uploads/') ||
-          ['/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/notifications', '/api/live'].includes(url.pathname));
-      if (!publicShell: [
-  '/api/wallets/balances',
-  '/api/connectors',
-  '/api/ai',
-  '/api/team',
-  '/api/performance',
-  '/api/agents',
-  '/api/approvals',
-  '/api/telegram',
-  '/api/errors',
-  '/api/backup',
-  '/api/audit',
-  '/api/security'
-] && !localReport && !publicReadOnlyPath && !authorized(request, url)) return json(response, 401, { error: 'team key required' });
-
-      if (url.pathname === '/tasks') {
-        return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
       }
       if (url.pathname === '/api/live' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
