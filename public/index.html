@@ -3,122 +3,162 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>عمالقة الصمت</title>
+<title>عمالقة الصمت — لوحة التحكم</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; padding: 16px; min-height: 100vh; }
-  h1 { color: #a78bfa; text-align: center; margin-bottom: 16px; }
+  body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
+  header { text-align: center; margin-bottom: 20px; padding: 12px; }
+  header h1 { font-size: 22px; color: #a78bfa; margin-bottom: 6px; }
+  header p { color: #94a3b8; font-size: 12px; }
   .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; flex-wrap: wrap; }
-  .tab { padding: 10px 14px; background: #1e293b; color: #cbd5e1; border: 2px solid transparent; border-radius: 10px; cursor: pointer; font-size: 13px; }
-  .tab.active { background: #312e81; color: #fff; border-color: #a78bfa; }
+  .tab { padding: 8px 14px; background: #1e293b; border-radius: 10px; color: #cbd5e1; cursor: pointer; border: 2px solid transparent; font-size: 13px; font-weight: 500; }
+  .tab.active { background: #312e81; color: #e0e7ff; border-color: #a78bfa; }
+  .panel { display: none; }
+  .panel.active { display: block; }
   .card { background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #334155; }
   .card h2 { color: #a78bfa; font-size: 15px; margin-bottom: 10px; }
-  pre { background: #0f172a; padding: 12px; border-radius: 8px; overflow: auto; font-size: 11px; color: #a5b4fc; line-height: 1.6; }
-  .err { color: #f87171; padding: 10px; background: #7f1d1d; border-radius: 8px; }
-  .ok { color: #4ade80; }
-  .addr { background: #0f172a; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; color: #a5b4fc; margin: 8px 0; }
-  button.action { padding: 12px; width: 100%; background: #312e81; color: #fff; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; }
+  .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; font-size: 13px; }
+  .stat:last-child { border-bottom: none; }
+  .stat .label { color: #94a3b8; }
+  .stat .value { color: #e0e7ff; font-weight: 600; }
+  .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
+  .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
+  #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
+  .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
+  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
+  .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
+  .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; }
+  .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; }
+  .addr-box { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; line-height: 1.6; }
+  .btn-copy { display: block; width: 100%; padding: 10px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
 </style>
 </head>
 <body>
-<h1>⚡ عمالقة الصمت</h1>
+<header>
+  <h1>⚡ عمالقة الصمت</h1>
+  <p>لوحة تحكم الفريق — Silent Giants</p>
+</header>
 
 <div class="tabs">
-  <button class="tab active" data-t="main">الرئيسية</button>
-  <button class="tab" data-t="wallets">💼 المحافظ</button>
-  <button class="tab" data-t="team">الفريق</button>
+  <div class="tab active" data-tab="main">الرئيسية</div>
+  <div class="tab" data-tab="team">غرفة الفريق</div>
+  <div class="tab" data-tab="tasks">المهام</div>
+  <div class="tab" data-tab="wallets">💼 المحافظ</div>
+  <div class="tab" data-tab="notifications">الإشعارات</div>
 </div>
 
-<div id="view"></div>
+<div class="panel active" id="panel-main">
+  <div class="card"><h2>📊 حالة النظام</h2><div id="system-stats">جاري التحميل...</div></div>
+  <div class="card"><h2>👥 الوكلاء</h2><div id="agents-list">جاري التحميل...</div></div>
+</div>
+
+<div class="panel" id="panel-team">
+  <div class="card">
+    <h2>📤 إرسال أمر للفريق</h2>
+    <div style="margin-bottom: 10px;">
+      <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
+        <option value="all">الفريق الكامل</option>
+        <option value="aurora">أورورا</option>
+        <option value="planner">المخطط</option>
+        <option value="executor">المنفذ</option>
+        <option value="reviewer">المراجع</option>
+        <option value="scout">المستخبر</option>
+      </select>
+    </div>
+    <textarea id="msg-body" placeholder="اكتب الأمر..."></textarea>
+    <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
+    <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
+  </div>
+  <div class="card"><h2>📺 السجل الحي</h2><div id="live-log">جاري التحميل...</div></div>
+</div>
+
+<div class="panel" id="panel-tasks">
+  <div class="card"><h2>📋 المهام النشطة</h2><div id="tasks-list">جاري التحميل...</div></div>
+</div>
+
+<div class="panel" id="panel-wallets">
+  <div class="card">
+    <h2>💼 أرصدة المحافظ</h2>
+    <button id="wallets-refresh" class="btn-primary">🔄 تحديث الأرصدة</button>
+  </div>
+  <div id="wallets-output"><div class="card"><div class="empty">اضغط الزر</div></div></div>
+</div>
+
+<div class="panel" id="panel-notifications">
+  <div class="card"><h2>🔔 الإشعارات</h2><div id="notifications-list">جاري التحميل...</div></div>
+</div>
+
+<button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
+
+<script src="/dashboard.js?v=3"></script>
 
 <script>
-var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
-var view = document.getElementById('view');
+// ---- المحافظ: كود مستقل لا يتدخل في dashboard.js ----
+(function(){
+  function key() {
+    return localStorage.getItem('teamKey') || new URLSearchParams(location.search).get('key') || '';
+  }
 
-function q(p) { return p + (p.indexOf('?') === -1 ? '?' : '&') + 'key=' + encodeURIComponent(KEY); }
+  function copyAddr(btn, addr) {
+    var old = btn.textContent;
+    function ok() { btn.textContent = '✅ تم النسخ'; setTimeout(function(){ btn.textContent = old; }, 1500); }
+    function fb() {
+      var ta = document.createElement('textarea');
+      ta.value = addr; ta.style.position = 'fixed'; ta.style.top = '-1000px';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); ok(); } catch(e) { alert(addr); }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(addr).then(ok).catch(fb); }
+    else { fb(); }
+  }
+  window.__copyAddr = copyAddr;
 
-function renderMain() {
-  view.innerHTML = '<div class="card"><h2>حالة النظام</h2><div id="out">⏳ جاري التحميل...</div></div>';
-  fetch(q('/api/dashboard'))
-    .then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function(d) {
-      document.getElementById('out').innerHTML = '<span class="ok">✅ يعمل</span><pre>' + JSON.stringify(d.system || d, null, 2).slice(0, 800) + '</pre>';
-    })
-    .catch(function(e) {
-      document.getElementById('out').innerHTML = '<div class="err">❌ ' + e.message + '</div>';
+  function loadWallets() {
+    var out = document.getElementById('wallets-output');
+    if (!out) return;
+    out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
+    var url = '/api/wallets/balances' + (key() ? '?key=' + encodeURIComponent(key()) : '');
+    fetch(url, { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var ws = (data && data.wallets) || [];
+        if (!ws.length) { out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>'; return; }
+        var html = '';
+        for (var i=0;i<ws.length;i++){
+          var w = ws[i];
+          html += '<div class="card">';
+          html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
+          html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
+          html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
+          if (w.note) html += '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#fbbf24;">' + w.note + '</span></div>';
+          html += '<div class="addr-box">' + w.address + '</div>';
+          html += '<button class="btn-copy" onclick="__copyAddr(this, \'' + w.address + '\')">📋 نسخ العنوان</button>';
+          html += '</div>';
+        }
+        out.innerHTML = html;
+      })
+      .catch(function(e){
+        out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
+      });
+  }
+
+  function bind() {
+    var btn = document.getElementById('wallets-refresh');
+    if (btn && !btn.__bound) { btn.__bound = true; btn.addEventListener('click', loadWallets, false); }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else { bind(); }
+
+  // راقب فتح التاب لتحميل تلقائي
+  document.querySelectorAll('.tab').forEach(function(t) {
+    t.addEventListener('click', function() {
+      if (t.getAttribute('data-tab') === 'wallets') setTimeout(loadWallets, 100);
     });
-}
-
-function renderWallets() {
-  view.innerHTML = '<div class="card"><h2>💼 المحافظ</h2><button class="action" id="rf">🔄 تحديث الأرصدة</button><div id="out" style="margin-top:10px;"></div></div>';
-  document.getElementById('rf').onclick = loadWallets;
-  loadWallets();
-}
-
-function loadWallets() {
-  var out = document.getElementById('out');
-  out.innerHTML = '⏳ جاري الجلب...';
-  fetch(q('/api/wallets/balances'))
-    .then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function(d) {
-      var ws = d.wallets || [];
-      if (!ws.length) { out.innerHTML = 'لا بيانات'; return; }
-      var html = '';
-      for (var i = 0; i < ws.length; i++) {
-        var w = ws[i];
-        html += '<div style="border-top:1px solid #334155; padding-top:10px; margin-top:10px;">';
-        html += '<h2>' + (w.network === 'TON' ? '💎 TON' : '🔵 Base') + '</h2>';
-        html += '<div style="font-size:28px; font-weight:800; color:#4ade80; text-align:center; padding:10px;">' + w.balance + ' ' + w.symbol + '</div>';
-        html += '<div style="color:#94a3b8; font-size:12px; text-align:center;">' + w.native + ': ' + w.nativeBalance + '</div>';
-        html += '<div class="addr">' + w.address + '</div>';
-        if (w.note) html += '<div style="color:#fbbf24; font-size:11px; text-align:center;">' + w.note + '</div>';
-        html += '</div>';
-      }
-      out.innerHTML = html;
-    })
-    .catch(function(e) {
-      out.innerHTML = '<div class="err">❌ ' + e.message + '</div>';
-    });
-}
-
-function renderTeam() {
-  view.innerHTML = '<div class="card"><h2>الفريق</h2><textarea id="b" style="width:100%;min-height:120px;background:#0f172a;color:#e0e7ff;border:1px solid #334155;border-radius:8px;padding:10px;font-size:14px;"></textarea><button class="action" id="sb" style="margin-top:10px;">📤 إرسال</button><div id="st" style="margin-top:10px;text-align:center;font-size:12px;color:#94a3b8;"></div></div>';
-  document.getElementById('sb').onclick = function() {
-    var body = document.getElementById('b').value.trim();
-    if (!body) return;
-    document.getElementById('st').textContent = '⏳ إرسال...';
-    fetch(q('/api/team/messages'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sender: 'leader', recipient: 'all', thread: 'team', body: body })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function() {
-      document.getElementById('st').textContent = '✅ تم';
-      document.getElementById('b').value = '';
-    })
-    .catch(function(e) { document.getElementById('st').textContent = '❌ ' + e.message; });
-  };
-}
-
-document.querySelectorAll('.tab').forEach(function(t) {
-  t.onclick = function() {
-    document.querySelectorAll('.tab').forEach(function(x) { x.classList.remove('active'); });
-    t.classList.add('active');
-    var n = t.getAttribute('data-t');
-    if (n === 'main') renderMain();
-    else if (n === 'wallets') renderWallets();
-    else if (n === 'team') renderTeam();
-  };
-});
-
-renderMain();
+  });
+})();
 </script>
 </body>
 </html>
