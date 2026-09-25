@@ -19,8 +19,8 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 10;
-const STEP_DELAY_MS = 800;
+const MAX_AGENT_STEPS = 8;
+const STEP_DELAY_MS = 700;
 const TELEGRAM_MAX_LEN = 3800;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -40,30 +40,67 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
+// ═══════════════════════════════════════════════════════════
+// Prompt غني مع أمثلة واضحة
+// ═══════════════════════════════════════════════════════════
 function buildAgentPrompt(userMessage, ctx) {
-  const toolsList = AVAILABLE_TOOLS.map(t => '- ' + t.name + ': ' + t.description).join('\n');
-  return `أنت "أورورا" في فريق عمالقة الصمت.
+  const toolsList = AVAILABLE_TOOLS.map(t => {
+    const params = Object.entries(t.params || {}).map(([k, v]) => `      "${k}": ${v}`).join(',\n');
+    return `• ${t.name}\n  ${t.description}\n  params: {\n${params}\n  }`;
+  }).join('\n\n');
 
-النظام:
-${JSON.stringify(ctx)}
+  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". مهمتك تنفيذ أوامر القائد.
 
-الأدوات:
+═══════════════ بيانات النظام ═══════════════
+${JSON.stringify(ctx, null, 2)}
+
+═══════════════ الأدوات المتاحة ═══════════════
 ${toolsList}
 
-قواعد صارمة:
-1. أعد JSON فقط.
-2. صيغة الرد:
-   - لتنفيذ أداة: {"action":"tool","tool":"اسم_الأداة","params":{...}}
-   - للرد النهائي: {"action":"final","text":"إجابة"}
+═══════════════ شكل الرد المطلوب ═══════════════
+يجب أن يكون ردّك JSON واحد فقط. لا نص قبله، لا نص بعده، لا markdown.
 
-3. نفّذ خطوة واحدة في كل نداء.
-4. لا تُعد المحاولة بنفس الطريقة عند الفشل. جرّب بديلاً.
-5. بعد نجاح أداة، انتقل للخطوة التالية أو اكتب final.
+شكل 1 — إذا أردت تنفيذ أداة:
+{
+  "action": "tool",
+  "tool": "اسم_الأداة",
+  "params": { "المعامل": "القيمة" }
+}
 
-أمر القائد:
+شكل 2 — إذا أردت إنهاء المهمة:
+{
+  "action": "final",
+  "text": "الرد النهائي بالعربية"
+}
+
+═══════════════ أمثلة توضيحية ═══════════════
+
+مثال 1 — القائد يقول: "اقرأ config.js"
+ردك:
+{"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
+
+مثال 2 — بعد أن تستلم نتيجة الملف، تُنهي:
+{"action":"final","text":"قرأت الملف. يحتوي على 28 متغيراً..."}
+
+مثال 3 — القائد يقول: "ابحث عن socks-proxy-agent"
+ردك:
+{"action":"tool","tool":"grep_files","params":{"pattern":"socks-proxy-agent","file_ext":".js"}}
+
+مثال 4 — القائد يقول: "ابحث في الإنترنت عن أخبار AI"
+ردك:
+{"action":"tool","tool":"web_search","params":{"query":"أخبار الذكاء الاصطناعي"}}
+
+═══════════════ قواعد صارمة ═══════════════
+1. أعد JSON واحد فقط. لا نص إضافي.
+2. نفّذ خطوة واحدة في كل رد.
+3. بعد أن تستلم نتيجة أداة، إما تستدعي أداة أخرى، أو تُنهي بـ final.
+4. عند الفشل، جرّب أداة أو params مختلفة — لا تُكرر نفس الشيء.
+5. لا تختلق معلومات.
+
+═══════════════ أمر القائد ═══════════════
 ${userMessage}
 
-أعد JSON فقط:`;
+ردّك JSON الآن:`;
 }
 
 function parseAgentResponse(raw) {
@@ -98,32 +135,32 @@ function cleanText(text) {
 }
 
 function formatToolResult(toolName, toolResult, originalParams) {
-  if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 400)}`;
+  if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 500)}`;
   const data = toolResult.result;
   if (toolName === 'grep_files') {
     if (!data?.results?.length) return `🔍 لا نتائج لـ "${originalParams?.pattern}"`;
-    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count}):`, ''];
-    for (const r of data.results.slice(0, 15)) { lines.push(`📄 ${r.file}:${r.line}`); lines.push(`   ${String(r.text).slice(0, 120)}`); }
+    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count} نتيجة):`, ''];
+    for (const r of data.results.slice(0, 20)) { lines.push(`📄 ${r.file}:${r.line}`); lines.push(`   ${String(r.text).slice(0, 150)}`); }
     return lines.join('\n');
   }
-  if (toolName === 'read_file') { if (!data?.content) return '📄 فارغ'; return `📄 ${data.path || ''} (${data.total_lines || '?'} سطر):\n\`\`\`\n${String(data.content).slice(0, 2000)}\n\`\`\``; }
+  if (toolName === 'read_file') { if (!data?.content) return '📄 فارغ'; return `📄 ${data.path || ''} (${data.total_lines || '?'} سطر):\n\`\`\`\n${String(data.content).slice(0, 2500)}\n\`\`\``; }
   if (toolName === 'read_many_files') {
     if (!data?.files) return '📄 لا ملفات';
     const lines = [`📚 ${data.count} ملف:`, ''];
-    for (const f of data.files) { if (f.error) lines.push(`❌ ${f.file}: ${f.error}`); else { lines.push(`📄 ${f.file} (${f.size}B):`); lines.push(`\`\`\`\n${String(f.content).slice(0, 800)}\n\`\`\``); lines.push(''); } }
+    for (const f of data.files) { if (f.error) lines.push(`❌ ${f.file}: ${f.error}`); else { lines.push(`📄 ${f.file} (${f.size}B):`); lines.push(`\`\`\`\n${String(f.content).slice(0, 1000)}\n\`\`\``); lines.push(''); } }
     return lines.join('\n');
   }
-  if (toolName === 'list_files') { if (!data?.items) return '📂 فارغ'; return `📂 ${data.dir} (${data.count}):\n` + data.items.slice(0, 50).map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.path}`).join('\n'); }
+  if (toolName === 'list_files') { if (!data?.items) return '📂 فارغ'; return `📂 ${data.dir} (${data.count}):\n` + data.items.slice(0, 60).map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.path}`).join('\n'); }
   if (toolName === 'web_search') {
     if (!data?.results?.length) return `🌐 لا نتائج لـ "${originalParams?.query}"`;
     const lines = [`🌐 "${originalParams?.query}":`, ''];
-    for (let i = 0; i < data.results.length; i++) { const r = data.results[i]; lines.push(`${i+1}. ${r.title}`); if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 150)}`); if (r.url) lines.push(`   🔗 ${r.url}`); lines.push(''); }
+    for (let i = 0; i < data.results.length; i++) { const r = data.results[i]; lines.push(`${i+1}. ${r.title}`); if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 200)}`); if (r.url) lines.push(`   🔗 ${r.url}`); lines.push(''); }
     return lines.join('\n');
   }
-  if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 50).map(v => '• ' + v.key).join('\n'); }
+  if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 60).map(v => '• ' + v.key).join('\n'); }
   if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}`;
   if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}`;
-  if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}`;
+  if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}\n${JSON.stringify(data.data || {}).slice(0, 500)}`;
   if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
   if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
   if (toolName === 'platform_fetch') { const p = typeof data.data === 'string' ? data.data.slice(0, 800) : JSON.stringify(data.data).slice(0, 800); return `🌐 ${data.status}\n\`\`\`\n${p}\n\`\`\``; }
@@ -136,16 +173,30 @@ function formatToolResult(toolName, toolResult, originalParams) {
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
   const toolResults = [];
+  let consecutiveFailures = 0;
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
     let raw;
     try { raw = await callModel('aurora', conversation, { noJsonMode: false }); }
-    catch (e) { console.error('[agent] step ' + step + ' LLM threw: ' + e.message); continue; }
-    if (!raw || String(raw).trim().length < 5) continue;
+    catch (e) { console.error('[agent] step ' + step + ' LLM: ' + e.message); continue; }
+
+    if (!raw || String(raw).trim().length < 5) { consecutiveFailures++; continue; }
 
     const parsed = parseAgentResponse(raw);
-    if (!parsed || !parsed.action) { console.warn('[agent] step ' + step + ' invalid JSON'); continue; }
+    if (!parsed || !parsed.action) {
+      console.warn('[agent] step ' + step + ' invalid JSON. Preview: ' + String(raw).slice(0, 200));
+      // 🆕 تصحيح فوري
+      conversation += `\n\n⚠️ ردك السابق لم يكن JSON. أعد الإجابة بـ JSON فقط، بدون أي نص آخر.\n\nردّك JSON الآن:`;
+      consecutiveFailures++;
+      if (consecutiveFailures >= 4) {
+        console.error('[agent] too many JSON failures');
+        return null;
+      }
+      continue;
+    }
+
+    consecutiveFailures = 0;
 
     if (parsed.action === 'tool' && parsed.tool) {
       console.log('[agent] step ' + step + ': tool=' + parsed.tool);
@@ -153,9 +204,9 @@ async function runAgentLoop(userMessage, ctx) {
       try { toolResult = await executeTool(parsed.tool, parsed.params || {}); }
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
-      const txt = JSON.stringify(toolResult).slice(0, 2000);
+      const txt = JSON.stringify(toolResult).slice(0, 2500);
       const emoji = toolResult.ok ? '✅' : '❌';
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nأعد JSON فقط.`;
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nاستمر: أعد JSON (tool آخر أو final).`;
       continue;
     }
 
@@ -178,16 +229,8 @@ async function runAgentLoop(userMessage, ctx) {
 
 function buildDiagnosticFallback(ctx) {
   const lines = [`⚠️ لم أتمكن من معالجة أمرك`];
-  if (ctx.error) lines.push(`خطأ في النظام: ${ctx.error}`);
-  const recentErrors = db.prepare(`SELECT scope, error_type, message FROM errors WHERE resolved=0 AND last_seen >= datetime('now','-1 hour') ORDER BY last_seen DESC LIMIT 3`).all();
-  if (recentErrors.length) {
-    lines.push('');
-    lines.push('آخر الأخطاء:');
-    for (const e of recentErrors) lines.push(`• ${e.scope}/${e.error_type}: ${String(e.message).slice(0, 100)}`);
-  }
-  lines.push('');
+  if (ctx.error) lines.push(`خطأ: ${ctx.error}`);
   lines.push(`حالة النظام: ${ctx.health?.healthy || 0}/${ctx.health?.total || 0} سليمة`);
-  lines.push(`يرجى إعادة صياغة الأمر.`);
   return lines.join('\n');
 }
 
