@@ -103,3 +103,7 @@ export async function getAllWallets() {
     fetchedAt: new Date().toISOString()
   };
 }
+
+export async function startWalletMonitors() {
+  return { ok: true, note: 'wallet monitors disabled (read-only mode)' };
+}
