@@ -23,11 +23,16 @@
   .stat .value { color: #e0e7ff; font-weight: 600; }
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
+  .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
+  .btn-primary:active { background: #4338ca; }
+  .btn-exec { display: inline-block; margin-top: 8px; padding: 6px 12px; background: #065f46; color: #d1fae5; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
+  .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
+  .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
   .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; }
   .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; }
   .addr-box { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; line-height: 1.6; }
@@ -69,12 +74,15 @@
         <option value="scout">المستخبر</option>
       </select>
     </div>
-    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل..."></textarea>
+    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل... الفريق سيقرأه وينفذه."></textarea>
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
     <button id="exec-now-btn" class="btn-primary" style="background:#065f46; margin-top:8px;">▶️ تنفيذ مهمة الآن</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
-  <div class="card"><h2>📺 السجل الحي</h2><div id="live-log">جاري التحميل...</div></div>
+  <div class="card">
+    <h2>📺 السجل الحي (ما يفعله الفريق الآن)</h2>
+    <div id="live-log">جاري التحميل...</div>
+  </div>
 </div>
 
 <div class="panel" id="panel-tasks">
@@ -84,10 +92,10 @@
 <div class="panel" id="panel-wallets">
   <div class="card">
     <h2>💼 أرصدة المحافظ</h2>
-    <button id="wallets-refresh" class="btn-primary" class="btn-primary">🔄 تحديث الأرصدة</button>
+    <button id="wallets-refresh" class="btn-primary" onclick="loadWallets(event)">🔄 تحديث الأرصدة</button>
   </div>
   <div id="wallets-output">
-    <div class="card"><div class="empty">اضغط الزر لعرض الأرصدة</div></div>
+    <div class="card"><div class="empty">اضغط زر التحديث لعرض الأرصدة</div></div>
   </div>
 </div>
 
@@ -97,21 +105,17 @@
 
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
-<script src="/dashboard.js?v=5"></script>
+<script src="/dashboard.js?v=6"></script>
 
 <script>
-document.addEventListener('click', function(ev) {
-  var t = ev.target;
-  if (!t || t.id !== 'wallets-refresh') return;
-
+function loadWallets(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
   var out = document.getElementById('wallets-output');
   if (!out) return;
-
   out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
-
   fetch('/api/wallets/balances', { cache: 'no-store' })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
       var wallets = (data && data.wallets) || [];
       if (!wallets.length) {
         out.innerHTML = '<div class="card"><div class="empty">لا توجد بيانات</div></div>';
@@ -126,14 +130,33 @@ document.addEventListener('click', function(ev) {
         html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
         if (w.note) html += '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#fbbf24;">' + w.note + '</span></div>';
         html += '<div class="addr-box">' + w.address + '</div>';
+        html += '<button class="btn-copy" onclick="copyAddr(this, \'' + w.address + '\')">📋 نسخ العنوان</button>';
         html += '</div>';
       }
       out.innerHTML = html;
     })
-    .catch(function(e){
+    .catch(function(e) {
       out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
     });
-}, false);
+}
+
+function copyAddr(btn, addr) {
+  var old = btn.textContent;
+  function ok() { btn.textContent = '✅ تم النسخ'; setTimeout(function() { btn.textContent = old; }, 1500); }
+  function fb() {
+    var ta = document.createElement('textarea');
+    ta.value = addr;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { alert(addr); }
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(addr).then(ok).catch(fb);
+  } else { fb(); }
+}
 </script>
 </body>
 </html>
