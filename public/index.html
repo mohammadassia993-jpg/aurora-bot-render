@@ -40,7 +40,6 @@
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 
-  /* ⭐ المحافظ */
   .wallet-addr { background: #0f172a; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; }
   .wallet-btn { padding: 6px 12px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; margin-bottom: 12px; }
   .wallet-btn:active { background: #4338ca; }
@@ -112,7 +111,12 @@
 </div>
 
 <div class="panel" id="panel-wallets">
-  <div id="wallets-container"><div class="empty">افتح هذا التاب لجلب الأرصدة</div></div>
+  <div class="card">
+    <h2>💼 المحافظ الرقمية</h2>
+    <button id="load-wallets-btn" class="btn-primary" style="margin-bottom:12px;">🔄 جلب الأرصدة من Blockchain</button>
+    <div class="wallet-hint">⚠️ استقبال فقط — السحب يدوياً من محفظتك (Trust/MetaMask)</div>
+  </div>
+  <div id="wallets-container"></div>
 </div>
 
 <div class="panel" id="panel-notifications">
@@ -128,32 +132,36 @@
 
 <script>
 (function(){
-  const walletsPanel = document.getElementById('panel-wallets');
   const walletsContainer = document.getElementById('wallets-container');
-  const teamKey = localStorage.getItem('teamKey')||'__TEAM_KEY__';
+  const loadBtn = document.getElementById('load-wallets-btn');
   let loadedOnce = false;
+  let loading = false;
+
+  function getKey() {
+    return localStorage.getItem('teamKey') || new URLSearchParams(location.search).get('key') || '';
+  }
 
   async function loadWallets() {
+    if (loading) return;
+    loading = true;
     walletsContainer.innerHTML = '<div class="card"><div class="empty">⏳ جاري جلب الأرصدة من blockchain...</div></div>';
     try {
-      const res = await fetch('/api/wallets/balances?key=' + encodeURIComponent(teamKey));
+      const key = getKey();
+      const res = await fetch('/api/wallets/balances?key=' + encodeURIComponent(key));
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'فشل جلب الأرصدة');
       renderWallets(data);
       loadedOnce = true;
     } catch (e) {
       walletsContainer.innerHTML = '<div class="error">❌ فشل جلب الأرصدة: ' + e.message + '</div>';
+    } finally {
+      loading = false;
     }
   }
 
   function renderWallets(data) {
     const w = data.wallets;
     let html = '';
-    html += '<div class="card" style="display:flex; justify-content:space-between; align-items:center;">';
-    html += '<h2 style="margin:0;">💼 المحافظ الرقمية</h2>';
-    html += '<button id="refresh-wallets" style="padding:6px 12px; background:#1e40af; color:#e0e7ff; border:none; border-radius:8px; font-size:12px; cursor:pointer;">🔄 تحديث</button>';
-    html += '</div>';
-    html += '<div class="wallet-hint">⚠️ استقبال فقط — السحب يدوياً من محفظتك (Trust/MetaMask)</div>';
 
     for (const key of ['ton', 'base']) {
       const wallet = w[key];
@@ -180,9 +188,6 @@
     html += '<div class="wallet-hint">آخر تحديث: ' + new Date(data.fetchedAt).toLocaleTimeString('ar-EG') + '</div>';
     walletsContainer.innerHTML = html;
 
-    const refreshBtn = document.getElementById('refresh-wallets');
-    if (refreshBtn) refreshBtn.addEventListener('click', loadWallets);
-
     document.querySelectorAll('.copy-addr').forEach(btn => {
       btn.addEventListener('click', async () => {
         const addr = btn.getAttribute('data-addr');
@@ -198,13 +203,7 @@
     });
   }
 
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      if (tab.getAttribute('data-tab') === 'wallets' && !loadedOnce) {
-        loadWallets();
-      }
-    });
-  });
+  loadBtn.addEventListener('click', loadWallets);
 })();
 </script>
 </body>
