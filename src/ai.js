@@ -1,4 +1,4 @@
-// ai.js — Cloudflare Workers AI + LLM7
+// ai.js — Cloudflare (أساسي) + LLM7 (متعدد النماذج)
 import { config } from './config.js';
 
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
@@ -6,7 +6,7 @@ const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'gpt-4o-mini';
+const LLM7_MODELS = ['gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'gpt-3.5-turbo'];
 
 const metrics = new Map();
 
@@ -32,8 +32,8 @@ function isBlocked(name) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 export async function callCloudflare(messages, options = {}) {
-  if (!CF_ACCOUNT_ID) throw new Error('CF_ACCOUNT_ID missing in env');
-  if (!CF_API_TOKEN) throw new Error('CF_API_TOKEN missing in env');
+  if (!CF_ACCOUNT_ID) throw new Error('CF_ACCOUNT_ID missing');
+  if (!CF_API_TOKEN) throw new Error('CF_API_TOKEN missing');
   const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/run/' + CF_MODEL;
   const body = { messages, max_tokens: options.maxTokens || 1024 };
   const ctrl = new AbortController();
@@ -46,35 +46,41 @@ export async function callCloudflare(messages, options = {}) {
       signal: ctrl.signal
     });
     const rawText = await res.text();
-    if (!res.ok) throw new Error('CF HTTP ' + res.status + ': ' + rawText.slice(0, 300));
-    let data;
-    try { data = JSON.parse(rawText); } catch { throw new Error('CF bad JSON: ' + rawText.slice(0, 200)); }
-    if (!data.success) throw new Error('CF not success: ' + JSON.stringify(data.errors || data).slice(0, 300));
+    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + rawText.slice(0, 200));
+    const data = JSON.parse(rawText);
+    if (!data.success) throw new Error(JSON.stringify(data.errors || data).slice(0, 200));
     const text = (data.result && (data.result.response || data.result.output_text)) || '';
-    if (!text) throw new Error('CF empty. keys: ' + Object.keys(data.result || {}).join(','));
+    if (!text) throw new Error('empty response');
     return String(text);
   } finally { clearTimeout(t); }
 }
 
 export async function callLLM7(messages, options = {}) {
-  const body = { model: LLM7_MODEL, messages };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 45000);
-  try {
-    const res = await fetch(LLM7_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const rawText = await res.text();
-    if (!res.ok) throw new Error('LLM7 HTTP ' + res.status + ': ' + rawText.slice(0, 300));
-    let data;
-    try { data = JSON.parse(rawText); } catch { throw new Error('LLM7 bad JSON: ' + rawText.slice(0, 200)); }
-    const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-    if (!text) throw new Error('LLM7 empty: ' + rawText.slice(0, 200));
-    return String(text);
-  } finally { clearTimeout(t); }
+  const errors = [];
+  for (const model of LLM7_MODELS) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 45000);
+    try {
+      const res = await fetch(LLM7_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages }),
+        signal: ctrl.signal
+      });
+      const rawText = await res.text();
+      if (!res.ok) {
+        errors.push(model + ': HTTP ' + res.status);
+        continue;
+      }
+      const data = JSON.parse(rawText);
+      const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      if (text) return String(text);
+      errors.push(model + ': empty');
+    } catch (e) {
+      errors.push(model + ': ' + e.message.slice(0, 100));
+    } finally { clearTimeout(t); }
+  }
+  throw new Error('all models failed: ' + errors.join(' | '));
 }
 
 export function selectModel(agent) { return 'cloudflare'; }
@@ -82,7 +88,7 @@ export function selectModel(agent) { return 'cloudflare'; }
 export function availableModels() {
   return [
     { name: 'cloudflare', model: CF_MODEL, role: 'primary' },
-    { name: 'llm7', model: LLM7_MODEL, role: 'fallback' }
+    { name: 'llm7', model: LLM7_MODELS[0], role: 'fallback' }
   ];
 }
 
