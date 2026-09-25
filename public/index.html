@@ -29,10 +29,11 @@
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
-  .wallet-addr { background: #0f172a; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; }
-  .wallet-token { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #0f172a; border-radius: 8px; margin-bottom: 6px; }
-  .wallet-token .sym { color: #94a3b8; font-size: 13px; font-weight: 600; }
-  .wallet-token .bal { color: #4ade80; font-size: 15px; font-weight: 700; }
+  .wallet-addr { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px; word-break: break-all; margin-bottom: 10px; color: #a5b4fc; line-height: 1.5; }
+  .wallet-btn { padding: 8px 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-inline-end: 8px; margin-bottom: 8px; }
+  .wallet-btn:active { background: #4338ca; }
+  .wallet-link { display: inline-block; padding: 8px 14px; background: #065f46; color: #d1fae5; border-radius: 8px; font-size: 13px; text-decoration: none; margin-bottom: 8px; }
+  .wallet-hint { color: #94a3b8; font-size: 12px; text-align: center; padding: 10px; background: #0f172a; border-radius: 8px; }
 </style>
 </head>
 <body>
@@ -69,10 +70,22 @@
 
 <div class="panel" id="panel-wallets">
   <div class="card">
-    <h2>💼 المحافظ الرقمية</h2>
-    <button id="load-wallets-btn" class="btn-primary" style="margin-bottom:12px;">🔄 جلب الأرصدة</button>
+    <h2>💎 TON Network (USDT)</h2>
+    <div class="wallet-addr">UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f</div>
+    <button class="wallet-btn" onclick="copyAddr('UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f', this)">📋 نسخ العنوان</button>
+    <a class="wallet-link" href="https://tonviewer.com/UQCmuxmPwCwBxYchu6rXNP90Va0MqP1RD3kzGaTbEHb70Z1f" target="_blank">🔗 عرض الرصيد</a>
   </div>
-  <div id="wallets-container"><div class="card"><div class="empty">اضغط الزر أعلاه لجلب الأرصدة</div></div></div>
+
+  <div class="card">
+    <h2>🔵 Base Network (USDC)</h2>
+    <div class="wallet-addr">0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855</div>
+    <button class="wallet-btn" onclick="copyAddr('0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855', this)">📋 نسخ العنوان</button>
+    <a class="wallet-link" href="https://basescan.org/address/0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855" target="_blank">🔗 عرض الرصيد</a>
+  </div>
+
+  <div class="card">
+    <div class="wallet-hint">⚠️ للاستقبال فقط — السحب من محفظتك (Trust/MetaMask) يدوياً</div>
+  </div>
 </div>
 
 <div class="panel" id="panel-notifications">
@@ -82,43 +95,16 @@
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
 <script src="/dashboard.js?v=3"></script>
-
 <script>
-(function() {
-  var btn = document.getElementById('load-wallets-btn');
-  var c = document.getElementById('wallets-container');
-
-  if (!btn) { alert('خطأ: الزر غير موجود في الصفحة'); return; }
-  if (!c) { alert('خطأ: حاوية الأرصدة غير موجودة'); return; }
-
-  btn.onclick = async function() {
-    c.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب... انتظر 15 ثانية</div></div>';
-    try {
-      var key = localStorage.getItem('teamKey') || new URLSearchParams(location.search).get('key') || '';
-      var res = await fetch('/api/wallets/balances?key=' + encodeURIComponent(key), { cache: 'no-store' });
-      var text = await res.text();
-      var json;
-      try { json = JSON.parse(text); } catch(e) { throw new Error('رد ليس JSON: ' + text.slice(0, 200)); }
-      if (!json.wallets) throw new Error('لا يوجد حقل wallets في الرد: ' + JSON.stringify(json).slice(0, 200));
-      var html = '';
-      var w = json.wallets;
-      ['ton', 'base'].forEach(function(k) {
-        var wl = w[k];
-        if (!wl) return;
-        html += '<div class="card"><h2>' + (k === 'ton' ? '💎 TON' : '🔵 Base') + '</h2>';
-        if (wl.error) html += '<div class="error">⚠️ ' + wl.error + '</div>';
-        html += '<div class="wallet-addr">' + (wl.address || '—') + '</div>';
-        (wl.tokens || []).forEach(function(t) {
-          html += '<div class="wallet-token"><span class="sym">' + t.symbol + '</span><span class="bal">' + t.balance + '</span></div>';
-        });
-        html += '</div>';
-      });
-      c.innerHTML = html;
-    } catch (e) {
-      c.innerHTML = '<div class="error">❌ ' + e.message + '</div>';
-    }
-  };
-})();
+function copyAddr(addr, btn) {
+  navigator.clipboard.writeText(addr).then(function() {
+    var old = btn.textContent;
+    btn.textContent = '✅ تم النسخ';
+    setTimeout(function(){ btn.textContent = old; }, 1500);
+  }).catch(function() {
+    alert('العنوان: ' + addr);
+  });
+}
 </script>
 </body>
 </html>
