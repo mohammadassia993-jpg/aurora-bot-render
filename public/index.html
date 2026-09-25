@@ -24,14 +24,14 @@
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
+  #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
-  .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; letter-spacing: 1px; }
-  .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; letter-spacing: 0; }
+  .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
+  .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; }
+  .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; }
   .addr-box { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; line-height: 1.6; }
   .btn-copy { display: block; width: 100%; padding: 10px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
-  .btn-copy:active { background: #4338ca; }
-  .note { color: #fbbf24; font-size: 11px; text-align: center; padding: 6px; }
 </style>
 </head>
 <body>
@@ -39,6 +39,8 @@
   <h1>⚡ عمالقة الصمت</h1>
   <p>لوحة تحكم الفريق — Silent Giants</p>
 </header>
+
+<div id="error" class="error" style="display:none"></div>
 
 <div class="tabs">
   <div class="tab active" data-tab="main">الرئيسية</div>
@@ -56,20 +58,37 @@
 <div class="panel" id="panel-team">
   <div class="card">
     <h2>📤 إرسال أمر للفريق</h2>
-    <textarea id="msg-body" placeholder="اكتب الأمر..."></textarea>
-    <button id="send-btn" class="btn-primary">📤 إرسال الأمر</button>
+    <div style="margin-bottom: 10px;">
+      <label style="color:#94a3b8; font-size:12px; display:block; margin-bottom:6px;">إلى:</label>
+      <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
+        <option value="all">الفريق الكامل</option>
+        <option value="aurora">أورورا (المنسق)</option>
+        <option value="planner">المخطط</option>
+        <option value="executor">المنفذ</option>
+        <option value="reviewer">المراجع</option>
+        <option value="scout">المستخبر</option>
+      </select>
+    </div>
+    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل... الفريق سيقرأه وينفذه."></textarea>
+    <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
+    <button id="exec-now-btn" class="btn-primary" style="background:#065f46; margin-top:8px;">▶️ تنفيذ مهمة الآن</button>
+    <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
-  <div class="card"><h2>📺 السجل الحي</h2><div id="live-log">جاري التحميل...</div></div>
+
+  <div class="card">
+    <h2>📺 السجل الحي (ما يفعله الفريق الآن)</h2>
+    <div id="live-log">جاري التحميل...</div>
+  </div>
 </div>
 
 <div class="panel" id="panel-tasks">
-  <div class="card"><h2>📋 المهام</h2><div id="tasks-list">جاري التحميل...</div></div>
+  <div class="card"><h2>📋 المهام النشطة</h2><div id="tasks-list">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-wallets">
   <div class="card">
     <h2>💼 أرصدة المحافظ</h2>
-    <button id="load-btn" class="btn-primary">🔄 تحديث الأرصدة</button>
+    <button id="load-wallets-btn" class="btn-primary">🔄 تحديث الأرصدة</button>
   </div>
   <div id="wallets-container">
     <div class="card"><div class="empty">اضغط زر التحديث لعرض الأرصدة</div></div>
@@ -82,12 +101,13 @@
 
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
-<script src="/dashboard.js?v=3"></script>
+<script src="/dashboard.js?v=4"></script>
 
 <script>
 (function(){
-  var btn = document.getElementById('load-btn');
+  var btn = document.getElementById('load-wallets-btn');
   var box = document.getElementById('wallets-container');
+  if (!btn || !box) return;
 
   btn.onclick = function() {
     box.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب... (10-15 ثانية)</div></div>';
@@ -107,8 +127,8 @@
         box.innerHTML = '<div class="error">❌ رد غير صالح: ' + xhr.responseText.slice(0, 200) + '</div>';
       }
     };
-    xhr.ontimeout = function() { box.innerHTML = '<div class="error">⏱️ انتهت المدة — حاول مجدداً</div>'; };
-    xhr.onerror = function() { box.innerHTML = '<div class="error">🌐 فشل الاتصال بالسيرفر</div>'; };
+    xhr.ontimeout = function() { box.innerHTML = '<div class="error">⏱️ انتهت المدة</div>'; };
+    xhr.onerror = function() { box.innerHTML = '<div class="error">🌐 فشل الاتصال</div>'; };
     xhr.send();
   };
 
@@ -119,9 +139,9 @@
       var w = wallets[i];
       html += '<div class="card">';
       html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
-      html += '<div class="balance-big">' + w.balance + w.symbol + '<span class="balance-sym">' + w.symbol + '</span></div>';
-      if (w.note) html += '<div class="note">' + w.note + '</div>';
-      html += '<div class="stat"><span class="label">العملة الأصلية</span><span class="value">' + w.nativeBalance + ' ' + w.native + '</span></div>';
+      html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
+      if (w.note) html += '<div class="empty" style="padding:6px;">' + w.note + '</div>';
+      html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
       html += '<div class="addr-box">' + w.address + '</div>';
       html += '<button class="btn-copy" data-addr="' + w.address + '">📋 نسخ العنوان</button>';
       html += '</div>';
