@@ -87,7 +87,6 @@ async function callLLM7(messages, options = {}) {
 }
 
 export function selectModel(agent) {
-  // يعيد اسم المزود المفضل لكل وكيل
   const map = {
     aurora: 'cloudflare',
     planner: 'cloudflare',
@@ -96,6 +95,13 @@ export function selectModel(agent) {
     scout: 'cloudflare'
   };
   return map[agent] || 'cloudflare';
+}
+
+export function availableModels() {
+  return [
+    { name: 'cloudflare', model: CF_MODEL, role: 'primary', provider: 'Cloudflare Workers AI' },
+    { name: 'llm7', model: LLM7_MODEL, role: 'fallback', provider: 'LLM7' }
+  ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
