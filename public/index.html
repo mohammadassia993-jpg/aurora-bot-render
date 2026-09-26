@@ -4,20 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>عمالقة الصمت — لوحة التحكم</title>
-<script>
-// ⚡ تثبيت المفتاح قبل أي شيء — يمنع 401 نهائياً
-(function(){
-  var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
-  try { localStorage.setItem('teamKey', KEY); } catch(e){}
-  try {
-    var u = new URL(window.location.href);
-    if (u.searchParams.get('key') !== KEY) {
-      u.searchParams.set('key', KEY);
-      window.history.replaceState(null, '', u.pathname + u.search);
-    }
-  } catch(e){}
-})();
-</script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
@@ -45,8 +31,7 @@
   #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .btn-primary:active { background: #4338ca; }
-  .reload-link { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; text-align: center; text-decoration: none; }
-  .reload-link:active { background: #1d4ed8; }
+  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; text-align: center; text-decoration: none; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
@@ -127,12 +112,11 @@
   </div>
 </div>
 
-<a href="?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr" class="reload-link">🔄 تحديث البيانات</a>
+<a href="/" class="reload">🔄 تحديث البيانات</a>
 
-<script src="/dashboard.js?v=12"></script>
+<script src="/dashboard.js?v=14"></script>
 
 <script>
-// ═══ المحافظ ═══
 (function () {
   var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
@@ -158,7 +142,7 @@
     }
   }
 
-  window.__loadWallets = function () {
+  function loadWallets() {
     var out = document.getElementById('wallets-output');
     if (!out) return;
     out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
@@ -183,22 +167,19 @@
           html += '</div>';
         }
         out.innerHTML = html;
-
         var btns = out.querySelectorAll('.btn-copy');
-        for (var b = 0; b < btns.length; b++) {
-          btns[b].onclick = copyHandler;
-        }
+        for (var b = 0; b < btns.length; b++) btns[b].onclick = copyHandler;
       })
       .catch(function (e) {
         out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
       });
-  };
+  }
 
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     while (el && el !== document.body) {
       if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
-        setTimeout(window.__loadWallets, 200);
+        setTimeout(loadWallets, 200);
         return;
       }
       el = el.parentElement;
