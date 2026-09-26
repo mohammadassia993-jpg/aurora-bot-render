@@ -46,6 +46,26 @@ function initDashboard() {
     let cachedDashboard = null;
 
     async function loadDashboard() {
+  const response = await fetch('/api/wallets/balances');
+  const wallets = await response.json();
+  const walletElements = wallets.map(wallet => {
+    return `
+      <div class="card">
+        <h2>${wallet.name}</h2>
+        <div class="stat">
+          <span class="label">العنوان</span>
+          <span class="value">${wallet.address}</span>
+          <button class="btn-copy" onclick="copyAddress('${wallet.address}')">نسخ</button>
+        </div>
+        <div class="stat">
+          <span class="label">الرصيد</span>
+          <span class="value">${wallet.balance}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+  document.getElementById('wallets').innerHTML = walletElements;
+
       cachedDashboard = await fetchJson('/api/dashboard');
       return cachedDashboard;
     }
