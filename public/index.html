@@ -4,6 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>عمالقة الصمت — لوحة التحكم</title>
+<script>
+// ⚡ تثبيت المفتاح قبل أي شيء — يمنع 401 نهائياً
+(function(){
+  var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
+  try { localStorage.setItem('teamKey', KEY); } catch(e){}
+  try {
+    var u = new URL(window.location.href);
+    if (u.searchParams.get('key') !== KEY) {
+      u.searchParams.set('key', KEY);
+      window.history.replaceState(null, '', u.pathname + u.search);
+    }
+  } catch(e){}
+})();
+</script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
@@ -115,10 +129,10 @@
 
 <a href="?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr" class="reload-link">🔄 تحديث البيانات</a>
 
-<script src="/dashboard.js?v=11"></script>
+<script src="/dashboard.js?v=12"></script>
 
 <script>
-// ═══ المحافظ — كود مستقل ═══
+// ═══ المحافظ ═══
 (function () {
   var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
