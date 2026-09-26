@@ -1,5 +1,6 @@
-// ai.js — KeylessAI (أساسي مجاني بلا مفتاح) + Pollinations (احتياطي)
-const KEYLESS_URL = 'https://keylessai.thryx.workers.dev/v1/chat/completions';
+// ai.js — OVH AI Endpoints (أساسي مجاني بلا مفتاح) + Pollinations (احتياطي)
+const OVH_URL = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions';
+const OVH_MODEL = 'Meta-Llama-3_3-70B-Instruct';
 const POLLINATIONS_URL = 'https://text.pollinations.ai/openai';
 
 const metrics = new Map();
@@ -14,7 +15,8 @@ function trackFail(name, err) {
   const m = metrics.get(name) || { ok: 0, fail: 0, lastErr: '', blockedUntil: 0 };
   m.fail++;
   m.lastErr = String(err || '').slice(0, 300);
-  if (m.fail % 3 === 0) m.blockedUntil = Date.now() + 30000;
+  // OVH: 2 طلب/دقيقة → حظر 35 ثانية عند 429
+  if (m.fail % 2 === 0) m.blockedUntil = Date.now() + 35000;
   metrics.set(name, m);
 }
 
@@ -25,15 +27,15 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ═══ KeylessAI (أساسي — لا يحتاج مفتاح) ═══
-async function callKeyless(messages, options = {}) {
+// ═══ OVH (أساسي — لا يحتاج مفتاح) ═══
+async function callOvh(messages, options = {}) {
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation, no text before or after.' }].concat(messages)
     : messages;
 
   const body = {
-    model: 'gpt-4o',
+    model: OVH_MODEL,
     messages: msgs,
     max_tokens: options.maxTokens || 2048,
     temperature: options.temperature !== undefined ? options.temperature : 0.3
@@ -42,19 +44,22 @@ async function callKeyless(messages, options = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
-    const res = await fetch(KEYLESS_URL, {
+    const res = await fetch(OVH_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer anonymous'
+      },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error('Keyless HTTP ' + res.status + ': ' + errText.slice(0, 200));
+      throw new Error('OVH HTTP ' + res.status + ': ' + errText.slice(0, 200));
     }
     const data = await res.json();
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('Keyless empty response');
+    if (!text) throw new Error('OVH empty response');
     return String(text);
   } finally { clearTimeout(t); }
 }
@@ -93,24 +98,24 @@ async function callPollinations(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-export function selectModel() { return 'keyless'; }
+export function selectModel() { return 'ovh'; }
 
 export function availableModels() {
   return [
-    { name: 'keyless', model: 'gpt-4o', role: 'primary' },
+    { name: 'ovh', model: OVH_MODEL, role: 'primary' },
     { name: 'pollinations', model: 'mistral', role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const providers = ['keyless', 'pollinations'];
+  const providers = ['ovh', 'pollinations'];
   const errors = [];
 
   for (const name of providers) {
     if (isBlocked(name)) { errors.push(name + ': BLOCKED'); continue; }
     try {
-      const fn = name === 'keyless' ? callKeyless : callPollinations;
+      const fn = name === 'ovh' ? callOvh : callPollinations;
       const result = await fn(messages, options);
       trackOk(name);
       return result;
