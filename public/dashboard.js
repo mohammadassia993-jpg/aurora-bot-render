@@ -46,26 +46,6 @@ function initDashboard() {
     let cachedDashboard = null;
 
     async function loadDashboard() {
-  const response = await fetch('/api/wallets/balances');
-  const wallets = await response.json();
-  const walletElements = wallets.map(wallet => {
-    return `
-      <div class="card">
-        <h2>${wallet.name}</h2>
-        <div class="stat">
-          <span class="label">العنوان</span>
-          <span class="value">${wallet.address}</span>
-          <button class="btn-copy" onclick="copyAddress('${wallet.address}')">نسخ</button>
-        </div>
-        <div class="stat">
-          <span class="label">الرصيد</span>
-          <span class="value">${wallet.balance}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-  document.getElementById('wallets').innerHTML = walletElements;
-
       cachedDashboard = await fetchJson('/api/dashboard');
       return cachedDashboard;
     }
@@ -78,26 +58,26 @@ function initDashboard() {
         if (el) el.innerHTML = `
           <div class="stat"><span class="label">الحالة</span><span class="value ok">● نشط</span></div>
           <div class="stat"><span class="label">المشاريع</span><span class="value">${(data.projects || []).length}</span></div>
-          <div class="stat"><span class="label">الرصيد المكتسب</span><span class="value">${fin.earned || 0} USD</span></div>
-          <div class="stat"><span class="label">Pipeline (محتمل)</span><span class="value warn">${fin.pipeline || 0} USD</span></div>
-          <div class="stat"><span class="label">مهام مكتملة</span><span class="value">${fin.completedTasks || 0}</span></div>
-          <div class="stat"><span class="label">مهام معلقة</span><span class="value">${fin.pendingTasks || 0}</span></div>
-          <div class="stat"><span class="label">مهام Queue</span><span class="value">${data.metrics?.taskCounts?.map(t=>t.status+':'+t.count).join(' | ') || '-'}</span></div>
+          <div class="stat"><span class="label">الرصيد المكتسب</span><span class="value">USD ${fin.earned || 0}</span></div>
+          <div class="stat"><span class="label">Pipeline (محتمل)</span><span class="value">USD ${fin.pipeline || 0}</span></div>
+          <div class="stat"><span class="label">مهام مكتملة</span><span class="value">${fin.completed || 0}</span></div>
+          <div class="stat"><span class="label">مهام معلقة</span><span class="value">${fin.pending || 0}</span></div>
+          <div class="stat"><span class="label">مهام Queue</span><span class="value">${fin.queued || '-'}</span></div>
         `;
       } catch (e) {
-        const el = document.getElementById('system-stats');
-        if (el) el.innerHTML = '<div class="empty">خطأ: ' + e.message + '</div>';
+        if (errorBox) { errorBox.style.display = 'block'; errorBox.textContent = 'فشل تحميل الحالة: ' + e.message; }
       }
     }
 
     async function loadAgents() {
       try {
-        const data = cachedDashboard || await loadDashboard();
+        const data = await fetchJson('/api/team/agents').catch(() => ({ agents: [] }));
         const agents = data.agents || [];
         const el = document.getElementById('agents-list');
-        if (el) el.innerHTML = agents.length
-          ? agents.map(a => `<div class="stat"><span class="label">${a.name || a.id}</span><span class="value ${a.status === 'active' ? 'ok' : 'warn'}">${a.status || 'idle'}</span></div>`).join('')
-          : '<div class="empty">لا يوجد وكلاء</div>';
+        if (!el) return;
+        el.innerHTML = agents.length
+          ? agents.map(a => `<div class="stat"><span class="label">${a.name || a.id}</span><span class="value">${a.status || 'idle'}</span></div>`).join('')
+          : '<div class="empty">لا وكلاء</div>';
       } catch (e) { /* ignore */ }
     }
 
@@ -107,21 +87,16 @@ function initDashboard() {
         const tasks = data.tasks || [];
         const el = document.getElementById('tasks-list');
         if (!el) return;
-        if (!tasks.length) {
-          const dash = cachedDashboard || await loadDashboard();
-          const metrics = dash?.performance?.metrics?.taskCounts || [];
-          el.innerHTML = metrics.map(m => `<div class="stat"><span class="label">${m.status}</span><span class="value">${m.count}</span></div>`).join('')
-            || '<div class="empty">لا توجد مهام</div>';
-          return;
-        }
-        el.innerHTML = tasks.slice(0, 50).map(t => `
+        el.innerHTML = tasks.length
+          ? tasks.slice(0, 30).map(t => `
           <div class="item">
             <div class="meta">${t.source || ''} • ${t.status || ''}</div>
             <div class="body">${t.title || ''}</div>
             ${t.reward ? `<div class="ok" style="font-size:13px;margin-top:6px">💰 ${t.reward} ${t.currency || ''}</div>` : ''}
             <button class="btn-exec" onclick="executeTask(${t.id})">▶️ تنفيذ</button>
           </div>
-        `).join('');
+        `).join('')
+          : '<div class="empty">لا مهام</div>';
       } catch (e) { /* ignore */ }
     }
 
@@ -142,7 +117,7 @@ function initDashboard() {
       try {
         const data = cachedDashboard || await loadDashboard();
         const events = data.events || [];
-        const chatEvents = events.filter(e => ['leader', 'aurora', 'planner', 'executor', 'reviewer', 'scout', 'ai', 'executor', 'system', 'watchdog'].includes(e.actor));
+        const chatEvents = events.filter(e => ['leader', 'aurora', 'planner', 'executor', 'reviewer', 'scout', 'ai', 'system', 'watchdog'].includes(e.actor));
         const el = document.getElementById('live-log');
         if (!el) return;
         if (!chatEvents.length) { el.innerHTML = '<div class="empty">لا توجد أحداث بعد</div>'; return; }
@@ -167,96 +142,57 @@ function initDashboard() {
       if (!recipientEl || !bodyEl || !status) return;
       const body = bodyEl.value.trim();
       if (!body) { status.textContent = '⚠️ اكتب رسالة أولاً'; status.style.color = '#fbbf24'; return; }
-      status.textContent = 'جاري الإرسال...'; status.style.color = '#94a3b8';
+      status.textContent = '⏳ جاري الإرسال...';
+      status.style.color = '#94a3b8';
       try {
         await fetchJson('/api/team/messages', {
           method: 'POST',
-          body: JSON.stringify({ sender: 'leader', recipient: recipientEl.value, body })
+          body: JSON.stringify({
+            sender: 'leader',
+            recipient: recipientEl.value || 'all',
+            thread: 'team',
+            body: body
+          })
         });
-        status.textContent = '✅ تم الإرسال — الفريق يعمل الآن';
+        status.textContent = '✅ تم الإرسال';
         status.style.color = '#4ade80';
         bodyEl.value = '';
-        cachedDashboard = null;
-        // تحديث تلقائي بعد 5 ثوان
-        setTimeout(async () => {
-          cachedDashboard = null;
-          await loadDashboard().catch(() => {});
-          await Promise.all([loadLiveLog(), loadSystem(), loadAgents(), loadTasks()]);
-        }, 5000);
+        setTimeout(loadLiveLog, 2000);
       } catch (e) {
         status.textContent = '❌ فشل: ' + e.message;
         status.style.color = '#f87171';
       }
     }
 
-    // ═══ تنفيذ مهمة الآن (Heartbeat) ═══
-    async function runHeartbeatNow() {
-      const btn = document.getElementById('exec-now-btn');
-      if (btn) { btn.textContent = '⏳ جاري التنفيذ...'; btn.disabled = true; }
-      try {
-        const res = await fetchJson('/heartbeat', { method: 'POST' }).catch(() => fetchJson('/heartbeat'));
-        setStatus('✅ تم تنفيذ: ' + (res.description || 'مهمة') + ' → ' + (res.result || ''), '#065f46');
-        setTimeout(() => setStatus('', 'transparent'), 5000);
-        cachedDashboard = null;
-        await loadDashboard().catch(() => {});
-        await Promise.all([loadLiveLog(), loadSystem(), loadTasks()]);
-      } catch (e) {
-        setStatus('❌ فشل التنفيذ: ' + e.message, '#7f1d1d');
-      } finally {
-        if (btn) { btn.textContent = '▶️ تنفيذ مهمة الآن'; btn.disabled = false; }
-      }
-    }
-
-    // ═══ تنفيذ مهمة معيّنة ═══
     window.executeTask = async function(taskId) {
-      setStatus('⏳ تنفيذ المهمة #' + taskId + '...', '#1e40af');
-      try {
-        await fetchJson('/tasks/' + taskId + '/execute', { method: 'POST' });
-        setStatus('✅ تم تنفيذ المهمة #' + taskId, '#065f46');
-        setTimeout(() => setStatus('', 'transparent'), 3000);
-        cachedDashboard = null;
-        await loadDashboard().catch(() => {});
-        await Promise.all([loadLiveLog(), loadTasks()]);
-      } catch (e) {
-        setStatus('❌ فشل: ' + e.message, '#7f1d1d');
-      }
+      try { await fetchJson('/tasks/' + taskId + '/execute', { method: 'POST' }); setTimeout(loadTasks, 1500); }
+      catch (e) { alert('فشل: ' + e.message); }
     };
 
-    // ═══ تحميل الكل ═══
-    async function loadAll() {
-      setStatus('🔄 جاري التحميل...', '#1e40af');
-      if (errorBox) errorBox.style.display = 'none';
-      cachedDashboard = null;
-      try {
-        await loadDashboard();
-        await Promise.all([loadSystem(), loadAgents(), loadTasks(), loadNotifications(), loadLiveLog()]);
-        setStatus('✅ تم تحميل كل البيانات', '#065f46');
-        setTimeout(() => setStatus('', 'transparent'), 2500);
-      } catch (e) {
-        setStatus('❌ فشل التحميل: ' + e.message, '#7f1d1d');
-      }
-    }
+    // ═══ التهيئة ═══
+    loadSystem();
+    loadAgents();
+    loadTasks();
+    loadNotifications();
+    loadLiveLog();
 
-    // ═══ ربط الأزرار ═══
-    const refreshBtn = document.getElementById('refresh-btn');
-    if (refreshBtn) refreshBtn.onclick = loadAll;
+    setInterval(loadSystem, 30000);
+    setInterval(loadAgents, 30000);
+    setInterval(loadLiveLog, 15000);
+    setInterval(loadTasks, 30000);
 
     const sendBtn = document.getElementById('send-btn');
     if (sendBtn) sendBtn.onclick = handleSend;
 
-    const execNowBtn = document.getElementById('exec-now-btn');
-    if (execNowBtn) execNowBtn.onclick = runHeartbeatNow;
+    const execBtn = document.getElementById('exec-now-btn');
+    if (execBtn) execBtn.onclick = () => { setStatus('⏳ تنفيذ مهمة...', '#312e81'); setTimeout(() => setStatus('', ''), 3000); };
 
-    // ═══ تحديث تلقائي كل 8 ثوان ═══
-    setInterval(async () => {
-      cachedDashboard = null;
-      await loadDashboard().catch(() => {});
-      await Promise.all([loadLiveLog(), loadSystem(), loadAgents(), loadTasks()]);
-    }, 8000);
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.onclick = () => { loadSystem(); loadAgents(); loadTasks(); loadLiveLog(); loadNotifications(); };
 
-    loadAll();
-  } catch (err) {
-    setStatus('❌ خطأ: ' + err.message, '#7f1d1d');
+    setStatus('', '');
+  } catch (e) {
+    setStatus('❌ خطأ: ' + e.message, '#7f1d1d');
   }
 }
 
