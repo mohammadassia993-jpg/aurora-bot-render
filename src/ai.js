@@ -1,6 +1,4 @@
 // ai.js — Cloudflare Workers AI (JSON mode) + LLM7
-import { config } from './config.js';
-
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -31,7 +29,6 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// يحوّل رسائلنا لتنسيق OpenAI (نطلب JSON)
 function buildMessages(messages, wantJson) {
   const out = [];
   if (wantJson) {
@@ -69,7 +66,7 @@ async function callCloudflare(messages, options = {}) {
     if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + rawText.slice(0, 200));
     const data = JSON.parse(rawText);
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('empty response: ' + rawText.slice(0, 200));
+    if (!text) throw new Error('empty response');
     return String(text);
   } finally { clearTimeout(t); }
 }
@@ -81,10 +78,7 @@ async function callLLM7(messages, options = {}) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 45000);
     try {
-      const body = {
-        model,
-        messages: buildMessages(messages, wantJson)
-      };
+      const body = { model, messages: buildMessages(messages, wantJson) };
       if (wantJson) body.response_format = { type: 'json_object' };
       const res = await fetch(LLM7_URL, {
         method: 'POST',
@@ -105,7 +99,7 @@ async function callLLM7(messages, options = {}) {
   throw new Error('all LLM7 models failed: ' + errors.join(' | '));
 }
 
-export function selectModel(agent) { return 'cloudflare'; }
+export function selectModel() { return 'cloudflare'; }
 
 export function availableModels() {
   return [
