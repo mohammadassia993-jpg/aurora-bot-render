@@ -31,19 +31,10 @@
   #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .btn-primary:active { background: #4338ca; }
-  .btn-exec { display: inline-block; margin-top: 8px; padding: 6px 12px; background: #065f46; color: #d1fae5; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
-  .wallet-card { background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #334155; }
-  .wallet-card h2 { color: #a78bfa; font-size: 15px; margin-bottom: 12px; text-align: center; }
-  .bal-row { display: flex; align-items: baseline; justify-content: center; gap: 8px; padding: 12px; background: #0f172a; border-radius: 12px; margin-bottom: 12px; }
-  .bal-num { font-size: 32px; font-weight: 800; color: #4ade80; }
-  .bal-sym { font-size: 14px; color: #94a3b8; font-weight: 600; }
-  .addr-row { background: #0f172a; padding: 12px; border-radius: 10px; font-family: monospace; font-size: 11px; word-break: break-all; color: #a5b4fc; line-height: 1.6; margin-bottom: 10px; }
-  .btn-copy { display: block; width: 100%; padding: 12px; background: #312e81; color: #e0e7ff; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600; }
-  .btn-copy:active { background: #4338ca; }
 </style>
 </head>
 <body>
@@ -58,7 +49,6 @@
   <div class="tab active" data-tab="main">الرئيسية</div>
   <div class="tab" data-tab="team">غرفة الفريق</div>
   <div class="tab" data-tab="tasks">المهام</div>
-  <div class="tab" data-tab="wallets">💼 المحافظ</div>
   <div class="tab" data-tab="notifications">الإشعارات</div>
 </div>
 
@@ -87,14 +77,13 @@
         <option value="scout">المستخبر</option>
       </select>
     </div>
-    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل... الفريق سيقرأه وينفذه."></textarea>
+    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل..."></textarea>
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
-    <button id="exec-now-btn" class="btn-primary" style="background:#065f46; margin-top:8px;">▶️ تنفيذ مهمة الآن</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
 
   <div class="card">
-    <h2>📺 السجل الحي (ما يفعله الفريق الآن)</h2>
+    <h2>📺 السجل الحي</h2>
     <div id="live-log">جاري التحميل...</div>
   </div>
 </div>
@@ -106,10 +95,6 @@
   </div>
 </div>
 
-<div class="panel" id="panel-wallets">
-  <div id="wallets-output"><div class="card"><div class="empty">⏳ جاري التحميل...</div></div></div>
-</div>
-
 <div class="panel" id="panel-notifications">
   <div class="card">
     <h2>🔔 الإشعارات</h2>
@@ -119,77 +104,6 @@
 
 <button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
-<script src="/dashboard.js?v=3"></script>
-
-<script>
-/* ═══════════════════════════════════════════════════════════
-   المحافظ — مستقل تماماً (لا يتعارض مع dashboard.js)
-   ═══════════════════════════════════════════════════════════ */
-(function() {
-  var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
-
-  window.__loadWallets = function() {
-    var out = document.getElementById('wallets-output');
-    if (!out) return;
-    out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
-
-    fetch('/api/wallets/balances?key=' + encodeURIComponent(KEY), { cache: 'no-store' })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var ws = (data && data.wallets) || [];
-        if (!ws.length) {
-          out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
-          return;
-        }
-        var html = '';
-        for (var n = 0; n < ws.length; n++) {
-          var w = ws[n];
-          var title = w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network';
-          html += '<div class="wallet-card">';
-          html += '<h2>' + title + '</h2>';
-          html += '<div class="bal-row"><span class="bal-num">' + (w.balance || '0') + '</span><span class="bal-sym">' + (w.symbol || '') + '</span></div>';
-          html += '<div class="addr-row">' + (w.address || '') + '</div>';
-          html += '<button class="btn-copy" data-addr="' + (w.address || '') + '">📋 نسخ العنوان</button>';
-          html += '</div>';
-        }
-        out.innerHTML = html;
-
-        var btns = out.querySelectorAll('.btn-copy');
-        for (var b = 0; b < btns.length; b++) {
-          btns[b].onclick = function() {
-            var addr = this.getAttribute('data-addr');
-            var self = this;
-            var oldText = self.textContent;
-            function done() { self.textContent = '✅ تم النسخ'; setTimeout(function(){ self.textContent = oldText; }, 1500); }
-            if (navigator.clipboard && window.isSecureContext) {
-              navigator.clipboard.writeText(addr).then(done).catch(function(){ alert(addr); });
-            } else {
-              var ta = document.createElement('textarea');
-              ta.value = addr; ta.style.position = 'fixed'; ta.style.top = '-1000px';
-              document.body.appendChild(ta); ta.select();
-              try { document.execCommand('copy'); done(); } catch(e) { alert(addr); }
-              document.body.removeChild(ta);
-            }
-          };
-        }
-      })
-      .catch(function(e) {
-        out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
-      });
-  };
-
-  // عند الضغط على تاب المحافظ → حمّل تلقائياً
-  document.addEventListener('click', function(ev) {
-    var el = ev.target;
-    while (el && el !== document.body) {
-      if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
-        setTimeout(window.__loadWallets, 200);
-        return;
-      }
-      el = el.parentElement;
-    }
-  }, true);
-})();
-</script>
+<script src="/dashboard.js?v=10"></script>
 </body>
 </html>
