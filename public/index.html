@@ -24,9 +24,7 @@
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
-  #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
-  .btn-primary:active { background: #4338ca; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; }
@@ -59,16 +57,14 @@
 <div class="panel" id="panel-team">
   <div class="card">
     <h2>📤 إرسال أمر للفريق</h2>
-    <div style="margin-bottom: 10px;">
-      <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
-        <option value="all">الفريق الكامل</option>
-        <option value="aurora">أورورا</option>
-        <option value="planner">المخطط</option>
-        <option value="executor">المنفذ</option>
-        <option value="reviewer">المراجع</option>
-        <option value="scout">المستخبر</option>
-      </select>
-    </div>
+    <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; margin-bottom:10px;">
+      <option value="all">الفريق الكامل</option>
+      <option value="aurora">أورورا</option>
+      <option value="planner">المخطط</option>
+      <option value="executor">المنفذ</option>
+      <option value="reviewer">المراجع</option>
+      <option value="scout">المستخبر</option>
+    </select>
     <textarea id="msg-body" placeholder="اكتب الأمر..."></textarea>
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
@@ -85,7 +81,7 @@
     <h2>💼 أرصدة المحافظ</h2>
     <button id="wallets-refresh" class="btn-primary" type="button">🔄 تحديث الأرصدة</button>
   </div>
-  <div id="wallets-output"><div class="card"><div class="empty">اضغط الزر</div></div></div>
+  <div id="wallets-output"><div class="card"><div class="empty">اضغط زر التحديث</div></div></div>
 </div>
 
 <div class="panel" id="panel-notifications">
@@ -97,20 +93,18 @@
 <script src="/dashboard.js?v=3"></script>
 
 <script>
-// === Event Delegation: يعمل حتى لو أعاد dashboard.js بناء DOM ===
+// ═══════════════════════════════════════════════════════════
+// المحافظ — كود مستقل تماماً
+// ═══════════════════════════════════════════════════════════
 (function() {
-  function getKey() {
-    return localStorage.getItem('teamKey') || window.__TEAM_KEY__ || '';
-  }
+  var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
   window.__loadWallets = function() {
     var out = document.getElementById('wallets-output');
-    if (!out) { alert('wallets-output مفقود'); return; }
+    if (!out) { return; }
     out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
 
-    var url = '/api/wallets/balances';
-    var k = getKey();
-    if (k) url += '?key=' + encodeURIComponent(k);
+    var url = '/api/wallets/balances?key=' + encodeURIComponent(TEAM_KEY);
 
     fetch(url, { cache: 'no-store' })
       .then(function(r) { return r.json(); })
@@ -138,18 +132,35 @@
       });
   };
 
-  // Event Delegation على المستند كاملاً
+  // ربط الزر — عدة طرق للاحتياط
+  function bind() {
+    var btn = document.getElementById('wallets-refresh');
+    if (btn) {
+      btn.onclick = function(ev) { if (ev) ev.preventDefault(); window.__loadWallets(); };
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+
+  // إعادة الربط كل ثانية لمدة 10 ثوانٍ (لأن dashboard.js قد يعيد البناء)
+  var tries = 0;
+  var timer = setInterval(function() {
+    bind();
+    tries++;
+    if (tries >= 10) clearInterval(timer);
+  }, 1000);
+
+  // عند فتح تاب المحافظ: حمّل تلقائياً
   document.addEventListener('click', function(ev) {
-    var t = ev.target;
-    if (!t) return;
-    // ابحث عن أقرب زر بـ id wallets-refresh
-    var el = t;
+    var el = ev.target;
     while (el && el !== document.body) {
-      if (el.id === 'wallets-refresh') {
-        ev.preventDefault();
-        ev.stopPropagation();
-        window.__loadWallets();
-        return false;
+      if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
+        setTimeout(function() { bind(); window.__loadWallets(); }, 150);
+        return;
       }
       el = el.parentElement;
     }
