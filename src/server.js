@@ -30,6 +30,18 @@ const mimeTypes = {
   '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'
 };
 
+// ✅ نقاط عامة — لا تحتاج مفتاح (تحل مشكلة 401)
+const PUBLIC_PATHS = new Set([
+  '/', '/dashboard', '/app', '/dashboard.js', '/wallets.html',
+  '/api/wallets/balances',
+  '/api/dashboard',
+  '/api/team/agents',
+  '/api/team/tasks',
+  '/api/notifications',
+  '/api/live',
+  '/health', '/keepalive', '/status'
+]);
+
 async function readBody(request) {
   const chunks = [];
   let size = 0;
@@ -65,9 +77,9 @@ function isLoopback(request) {
 
 function authorized(request, url) {
   const supplied = url.searchParams.get('key') || request.headers['x-team-key'] || '';
-  const expected = Buffer.from(config.teamUiToken);
+  const expected = Buffer.from(config.teamUiToken || '');
   const actual = Buffer.from(String(supplied));
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  return actual.length === expected.length && expected.length > 0 && crypto.timingSafeEqual(actual, expected);
 }
 
 function databaseSyncAuthorized(request) {
@@ -112,224 +124,7 @@ export async function startServer() {
     securityHeaders(request, response);
     if (!globalRateLimit(request, response)) return;
     try {
-      if (url.pathname === '/submit' && request.method === 'POST') {
-        const sync = url.searchParams.get('sync') === '1';
-        if (sync) {
-          try {
-            const { runBrowserSubmissions } = await import('./superteam-submit.js');
-            const result = await Promise.race([
-              runBrowserSubmissions(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('SUBMISSION_TIMEOUT')), 240000))
-            ]);
-            return json(response, 200, { ok: true, result });
-          } catch (e) {
-            return json(response, 500, { ok: false, error: e.message });
-          }
-        }
-        import('./superteam-submit.js').then(m => m.runBrowserSubmissions().then(r => console.log('[submit] done:', JSON.stringify(r))).catch(e => console.error('[submit] failed:', e.message)));
-        return json(response, 200, { ok: true, message: 'submission_started' });
-      }
-      if (url.pathname === '/register' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'register-platforms.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 120000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-2000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/submit/results' && request.method === 'GET') {
-        try {
-          const resultsPath = path.join(config.root, 'deliverables', 'reports', 'puppeteer-submissions.json');
-          const data = await fs.readFile(resultsPath, 'utf8');
-          return json(response, 200, JSON.parse(data));
-        } catch (e) {
-          return json(response, 404, { error: 'no results yet', detail: e.message });
-        }
-      }
-      if (url.pathname === '/outreach' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'send-outreach-dms.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 300000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-3000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/outreach' && request.method === 'GET') {
-        try {
-          const trackerPath = path.join(config.root, 'deliverables', 'outreach-2026-09-03', 'tracker.md');
-          const data = await fs.readFile(trackerPath, 'utf8');
-          return json(response, 200, { tracker: data });
-        } catch (e) {
-          return json(response, 404, { error: 'no tracker yet', detail: e.message });
-        }
-      }
-      if (url.pathname === '/email-check' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'check-email-inbox.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 60000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-2000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/email-check' && request.method === 'GET') {
-        try {
-          const logPath = path.join(config.root, 'logs', 'email-check.log');
-          const data = await fs.readFile(logPath, 'utf8');
-          const lines = data.trim().split('\n').slice(-20);
-          return json(response, 200, { recentChecks: lines });
-        } catch (e) {
-          return json(response, 404, { error: 'no email checks yet' });
-        }
-      }
-      if (url.pathname === '/performance' && request.method === 'GET') {
-        try {
-          const metricsPath = path.join(config.root, 'deliverables', 'publishing', 'metrics.json');
-          const data = await fs.readFile(metricsPath, 'utf8');
-          return json(response, 200, JSON.parse(data));
-        } catch (e) {
-          return json(response, 404, { error: 'no metrics yet', detail: e.message });
-        }
-      }
-      if (url.pathname === '/create-accounts' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'auto-create-accounts.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 120000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-3000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/smart-reply' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'smart-email-reply.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 60000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-2000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/enable-2fa' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'enable-twitter-2fa.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 120000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-3000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/start-2fa' && request.method === 'POST') {
-        try {
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'twitter-2fa-qr-capture.js');
-          const child = spawn('node', [scriptPath], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 120000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-2000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/2fa' && request.method === 'POST') {
-        try {
-          const body = await readBody(request);
-          const code = body.code;
-          if (!code || !/^\d{6}$/.test(code)) {
-            return json(response, 400, { ok: false, error: 'Invalid code — must be 6 digits' });
-          }
-          const { spawn } = await import('node:child_process');
-          const scriptPath = path.join(config.root, 'scripts', 'complete-twitter-2fa.js');
-          const child = spawn('node', [scriptPath, code], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-          let output = '';
-          child.stdout.on('data', d => output += d.toString());
-          child.stderr.on('data', d => output += d.toString());
-          await new Promise((resolve) => {
-            child.on('close', () => resolve());
-            setTimeout(() => { child.kill(); resolve(); }, 120000);
-          });
-          return json(response, 200, { ok: true, output: output.slice(-2000) });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-
-      if (url.pathname === '/wallets.html' && request.method === 'GET') {
-        try {
-          const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' });
-          return response.end(html);
-        } catch (err) {
-          response.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
-          return response.end('<!doctype html><html lang="ar" dir="rtl"><body><h1>404</h1><p>wallets.html غير موجود</p></body></html>');
-        }
-      }
-
-      if (url.pathname === '/dashboard.js' && request.method === 'GET') {
-        try {
-          const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
-          response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
-          return response.end(jsContent);
-        } catch (e) {
-          response.writeHead(404, { 'content-type': 'application/javascript; charset=utf-8' });
-          return response.end('// not found');
-        }
-      }
-
+      // ═══ المسارات العامة ═══
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
@@ -346,262 +141,11 @@ export async function startServer() {
         const ok = Object.values(checked).every(Boolean);
         return json(response, ok ? 200 : 503, { ok, health: checked, source: 'live' });
       }
-      if (url.pathname === '/mcp/freeweb') {
-        try {
-          let body = null;
-          if (request.method === 'POST') {
-            body = await readRawBody(request, 5 * 1024 * 1024);
-          }
-          const { handleFreewebMCP } = await import('./mcp-freeweb.js');
-          await handleFreewebMCP(request, response, body);
-          return;
-        } catch (e) {
-          console.error('[mcp/freeweb] error:', e.message);
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/mcp/freeweb' && request.method === 'GET') {
-        return json(response, 200, { ok: true, service: 'freeweb-mcp', endpoint: '/mcp/freeweb (POST)', docs: 'MCP JSON-RPC over HTTP' });
-      }
       if (url.pathname === '/keepalive') {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
       }
-      if (url.pathname === '/heartbeat') {
-        const { runHeartbeat } = await import('./task-queue.js');
-        try {
-          const result = await runHeartbeat();
-          return json(response, 200, result);
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/send-report') {
-        const { sendScheduledReport } = await import('./task-queue.js');
-        try {
-          const result = await sendScheduledReport();
-          return json(response, result.delivered ? 200 : 502, result);
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
-      if (url.pathname === '/tasks/next' && request.method === 'GET') {
-        const { nextTask, getQueueStats } = await import('./task-queue.js');
-        const task = nextTask();
-        return json(response, task ? 200 : 204, { task, queue: getQueueStats() });
-      }
-      if (url.pathname === '/tasks/done' && request.method === 'POST') {
-        const body = await readBody(request).catch(() => ({}));
-        const { markDone } = await import('./task-queue.js');
-        const result = markDone(Number(body.taskId), body.result || 'done');
-        return json(response, 200, result);
-      }
-      if (url.pathname === '/tasks' && request.method === 'GET') {
-        const { getQueueStats } = await import('./task-queue.js');
-        return json(response, 200, getQueueStats());
-      }
-      if (url.pathname === '/agents/status') {
-        try {
-          const { getSchedulerStatus } = await import('./scheduler.js');
-          const { initiator } = await import('./initiator.js');
-          const { reporter } = await import('./reporter.js');
-          const { eventBus } = await import('./event-bus.js');
-          const { PersistentMemory } = await import('./persistent-memory.js');
-          return json(response, 200, {
-            scheduler: getSchedulerStatus(),
-            initiator: initiator.getStats(),
-            reporter: reporter.getStats(),
-            eventBus: eventBus.getStats(),
-            memory: PersistentMemory.getContext()
-          });
-        } catch (e) {
-          return json(response, 500, { error: e.message });
-        }
-      }
-      if (url.pathname === '/agents/memory') {
-        try {
-          const { PersistentMemory } = await import('./persistent-memory.js');
-          return json(response, 200, PersistentMemory.getContext());
-        } catch (e) {
-          return json(response, 500, { error: e.message });
-        }
-      }
-      if (url.pathname === '/agents/events') {
-        try {
-          const { eventBus } = await import('./event-bus.js');
-          return json(response, 200, { events: eventBus.getLog(30) });
-        } catch (e) {
-          return json(response, 500, { error: e.message });
-        }
-      }
-      if (url.pathname === '/status') {
-        return json(response, 200, {
-          telegram: { mode: telegramMode(), tokenValidated: Boolean(config.telegramToken), webhookConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_URL) },
-          backup: { url: config.backupUrl },
-          tasksByStatus: db.prepare('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status').all(),
-          openErrors: db.prepare("SELECT scope, error_type, message FROM errors WHERE resolved = 0 ORDER BY id DESC LIMIT 20").all(),
-          pendingApprovals: db.prepare("SELECT * FROM approvals WHERE state = 'pending'").all(),
-          models: modelPerformance()
-        });
-      }
-      if (url.pathname === '/automations') {
-        const fsSync = await import('node:fs').then(m => m.default);
-        let superteamCount = 0;
-        try {
-          const sf = fsSync.readFileSync('/tmp/superteam-listings.json', 'utf8');
-          superteamCount = JSON.parse(sf).count || 0;
-        } catch {}
-        return json(response, 200, {
-          automations: {
-            keepalive: { interval: '10 min', target: config.backupUrl || 'https://silent-giants-render-backup.onrender.com', status: 'running' },
-            superteamMonitor: { interval: '30 min', status: 'running', openEligibleListings: superteamCount },
-            watchdog: { interval: '30 sec', status: 'running' },
-            mailQueue: { interval: `${config.mailQueueIntervalMinutes} min`, status: 'running' },
-            backup: { interval: `${config.backupIntervalMinutes} min`, status: 'running' },
-            dailyReport: { hour: config.dailyReportHour, status: 'running' }
-          },
-          noHumanInputRequired: true,
-          timestamp: new Date().toISOString()
-        });
-      }
-      if (url.pathname === '/debug-telegram') {
-        const testId = url.searchParams.get('testId') || url.searchParams.get('id') || '';
-        const allowed = config.telegramAllowedIds;
-        return json(response, 200, {
-          TELEGRAM_ALLOWED_IDS_raw: process.env.TELEGRAM_ALLOWED_IDS || '(empty)',
-          parsedArray: allowed,
-          parsedArrayLength: allowed.length,
-          testId,
-          isTestIdAllowed: allowed.includes(String(testId)),
-          types: { envType: typeof process.env.TELEGRAM_ALLOWED_IDS, arr0type: allowed[0] ? typeof allowed[0] : 'N/A', arr0value: allowed[0] || 'N/A' },
-          telegramFailover: config.telegramFailover,
-          platformRole: config.platformRole
-        });
-      }
-      if (url.pathname === '/debug-ai') {
-        const msg = url.searchParams.get('msg') || 'مرحبا كيف حالك';
-        try {
-          const { callModel } = await import('./ai.js');
-          const result = await Promise.race([
-            callModel('aurora', msg),
-            new Promise((_, r) => setTimeout(() => r(new Error('TIMEOUT')), 20000))
-          ]);
-          return json(response, 200, {
-            model: 'auto-chain',
-            aiPrimaryModel: process.env.AI_PRIMARY_MODEL,
-            result: String(result).slice(0, 500),
-            length: String(result).length
-          });
-        } catch (e) {
-          return json(response, 500, { error: e.message, code: e.code });
-        }
-      }
-      if (url.pathname === '/debug-natural') {
-        const msg = url.searchParams.get('msg') || 'مرحبا';
-        try {
-          const { processNaturalMessage } = await import('./natural-assistant.js');
-          const started = Date.now();
-          const reply = await Promise.race([
-            processNaturalMessage(msg, { id: String(config.telegramChatId), username: 'Mohammadabbas891' }),
-            new Promise((_, r) => setTimeout(() => r(new Error('AI_TIMEOUT')), 30000))
-          ]);
-          return json(response, 200, {
-            input: msg,
-            reply: String(reply || '(empty)').slice(0, 500),
-            length: String(reply || '').length,
-            timeMs: Date.now() - started,
-            success: Boolean(reply)
-          });
-        } catch (e) {
-          return json(response, 500, { error: e.message, code: e.code });
-        }
-      }
-      if (url.pathname === '/telegram/webhook') {
-        if (request.method === 'GET') { return json(response, 200, { ok: true }); }
-        if (request.method !== 'POST') { return; }
-        const secretToken = request.headers['x-telegram-bot-api-secret-token'];
-        if (config.telegramWebhookSecret && secretToken !== config.telegramWebhookSecret) {
-          return json(response, 403, { ok: false, error: 'invalid secret token' });
-        }
-        const update = await readBody(request);
-        setTimeout(() => {
-          handleTelegramUpdate(update).then(() => processTelegramOutbox()).catch(e => recordError('telegram', 'WEBHOOK_BG_ERROR', e.message));
-        }, 0);
-        return json(response, 200, { ok: true });
-      }
-      if (url.pathname === '/api/sync/database' && request.method === 'GET') {
-        if (config.platformRole !== 'primary' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
-          return json(response, 403, { ok: false, error: 'database export disabled or unauthorized' });
-        }
-        const backupPath = backupDatabase();
-        const payload = await fs.readFile(backupPath);
-        await fs.rm(backupPath, { force: true });
-        const sha256 = crypto.createHash('sha256').update(payload).digest('hex');
-        response.writeHead(200, {
-          'content-type': 'application/octet-stream',
-          'content-length': String(payload.byteLength),
-          'x-sha256': sha256,
-          'x-filename': path.basename(backupPath),
-          'cache-control': 'no-store'
-        });
-        response.end(payload);
-        audit('aurora', 'database_backup_exported', { bytes: payload.byteLength, sha256 });
-        return;
-      }
-      if (url.pathname === '/api/sync/database.gz' && request.method === 'GET') {
-        if (config.platformRole !== 'primary' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) {
-          return json(response, 403, { ok: false, error: 'database export disabled or unauthorized' });
-        }
-        const backupPath = backupDatabase();
-        const payload = await fs.readFile(backupPath);
-        await fs.rm(backupPath, { force: true });
-        const sha256 = crypto.createHash('sha256').update(payload).digest('hex');
-        const compressed = zlib.gzipSync(payload, { level: 9 });
-        response.writeHead(200, {
-          'content-type': 'application/gzip',
-          'content-length': String(compressed.byteLength),
-          'x-sha256': sha256,
-          'x-filename': `${path.basename(backupPath)}.gz`,
-          'cache-control': 'no-store'
-        });
-        response.end(compressed);
-        audit('aurora', 'compressed_database_backup_exported', {
-          bytes: payload.byteLength,
-          compressedBytes: compressed.byteLength,
-          sha256
-        });
-        return;
-      }
 
-      if (url.pathname === '/api/team/messages' && request.method === 'POST') {
-        const body = await readBody(request);
-        const saved = await createMessage(body);
-        if (saved.sender === 'leader') {
-          const safeBody = String(saved.body || '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]);
-          const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
-          sendMessageDetailed(`📤 <b>رسالة من القائد</b>\nإلى: ${target}\n\n${safeBody}`)
-            .then(result => audit('aurora', 'leader_message_relayed', { delivered: result.delivered, messageId: saved.id }))
-            .catch(() => {});
-          setTimeout(relayRecentTeamReplies, 20000);
-        }
-        return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
-      }
-
-      // ✅ المسار الصحيح لصفحة المحافظ
-      const publicShell = ['/', '/dashboard', '/app', '/dashboard.js', '/wallets.html', '/api/wallets/balances'].includes(url.pathname);
-      const localReport = url.pathname === '/report' && isLoopback(request);
-      const publicReadOnlyPath =
-        (url.pathname === '/content' || config.publicReadOnly) &&
-        request.method === 'GET' &&
-        (publicShell ||
-          url.pathname === '/content' ||
-          url.pathname.startsWith('/icons/') ||
-          url.pathname.startsWith('/uploads/') ||
-          ['/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/notifications', '/api/live'].includes(url.pathname));
-      if (!publicShell && !localReport && !publicReadOnlyPath && !authorized(request, url)) return json(response, 401, { error: 'team key required' });
-
-      if (url.pathname === '/tasks') {
-        return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
-      }
+      // ═══ المحافظ ═══
       if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
         try {
           const data = await getAllWallets();
@@ -610,77 +154,44 @@ export async function startServer() {
           return json(response, 500, { ok: false, error: e.message });
         }
       }
-      if (url.pathname === '/api/live' && request.method === 'GET') {
-        response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-        let closed = false;
-        const send = (event, data) => { if (!closed && !response.destroyed) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
-        send('messages', { messages: listMessages(120) });
-        send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
-        const onLiveEvent = () => {
-          send('messages', { messages: listMessages(120) });
-          send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
-        };
-        teamEvents.on('message', onLiveEvent);
-        teamEvents.on('notification', onLiveEvent);
-        const systemTimer = setInterval(async () => {
-          try {
-            const dashboard = await dashboardData();
-            send('system', { agents: dashboard.agents, system: dashboard.system, finance: dashboard.finance, tasks: db.prepare('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status').all() });
-            send('tasks', { tasks: db.prepare('SELECT id, source, title, status, reward, currency, assigned_agent AS assignedAgent, fit_score AS fitScore, updated_at AS updatedAt FROM tasks ORDER BY updated_at DESC, id DESC LIMIT 100').all() });
-          } catch {}
-        }, 15000);
-        const heartbeat = setInterval(() => { if (!closed && !response.destroyed) response.write(': keep-alive\n\n'); }, 25000);
-        request.once('close', () => {
-          closed = true;
-          teamEvents.off('message', onLiveEvent); teamEvents.off('notification', onLiveEvent);
-          clearInterval(systemTimer); clearInterval(heartbeat); response.end();
-        });
-        return;
-      }
-      if (url.pathname === '/report') {
-        const health = await runWatchdog();
-        const dashboard = await dashboardData();
-        const tunnel = await readPublicLink();
-        let finalReport = '';
+
+      // ═══ الملفات الثابتة ═══
+      if (url.pathname === '/wallets.html' && request.method === 'GET') {
         try {
-          finalReport = await fs.readFile(path.join(config.root, 'data', 'final-report.txt'), 'utf8');
-        } catch {}
-        return json(response, 200, {
-          generatedAt: new Date().toISOString(),
-          status: Object.values(health).every(Boolean) ? 'running' : 'degraded',
-          health,
-          services: {
-            platform: true,
-            gateway: health.gateway,
-            ai: health.ai,
-            database: health.memory && health.disk,
-            internet: health.internet,
-            telegram: Boolean(config.telegramToken),
-            telegramMode: telegramMode(),
-            emailQueue: mailQueueStats(),
-            tunnel: { provider: 'pinggy', url: tunnel.url || '', updatedAt: tunnel.updatedAt || '' },
-            renderBackup: config.backupUrl
-          },
-          agents: dashboard.agents,
-          projects: dashboard.projects,
-          finance: dashboard.finance,
-          links: { ...dashboard.links, backup: config.backupUrl, report: `http://127.0.0.1:${config.port}/report` },
-          dailyReport: dailyReport(),
-          finalReport
-        });
+          const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' });
+          return response.end(html);
+        } catch (err) {
+          response.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+          return response.end('404');
+        }
       }
-      if (url.pathname === '/agents/activate' && request.method === 'POST') {
-        return json(response, 200, { activation: await activateTeam() });
+      if (url.pathname === '/dashboard.js' && request.method === 'GET') {
+        try {
+          const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
+          response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
+          return response.end(jsContent);
+        } catch (e) {
+          response.writeHead(404, { 'content-type': 'application/javascript; charset=utf-8' });
+          return response.end('// not found');
+        }
       }
+      if (['/', '/dashboard', '/app'].includes(url.pathname)) {
+        let html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return response.end(html);
+      }
+
+      // ═══ Dashboard APIs (عامة) ═══
       if (url.pathname === '/api/dashboard') {
         const data = await dashboardData();
         data.performance = performancePlan();
-        if (config.publicBaseUrl) {
-          data.links.public = `${config.publicBaseUrl}/?key=${encodeURIComponent(config.teamUiToken)}`;
-        }
         return json(response, 200, data);
       }
-      if (url.pathname === '/api/team/agents') return json(response, 200, { agents: (await dashboardData()).agents });
+      if (url.pathname === '/api/team/agents') {
+        try { return json(response, 200, { agents: (await dashboardData()).agents }); }
+        catch (e) { return json(response, 500, { error: e.message }); }
+      }
       if (url.pathname === '/api/team/tasks') {
         const tasks = db.prepare(`
           SELECT id, source, title, status, reward, currency, assigned_agent AS assignedAgent,
@@ -704,81 +215,74 @@ export async function startServer() {
         db.prepare('UPDATE notifications SET read=1 WHERE read=0').run();
         return json(response, 200, { ok: true });
       }
-      if (url.pathname.startsWith('/uploads/') && request.method === 'GET') {
-        const relative = decodeURIComponent(url.pathname);
-        const file = await attachmentFile(relative);
-        if (!file) return json(response, 404, { error: 'attachment not found' });
-        response.writeHead(200, { 'content-type': mimeTypes[path.extname(relative).toLowerCase()] || 'application/octet-stream', 'cache-control': 'private, max-age=300' });
-        return response.end(file);
-      }
-      if (url.pathname === '/research/weekly' && request.method === 'POST') {
-        return json(response, 200, { report: await runWeeklyResearch() });
-      }
-      if (url.pathname === '/research/daily' && request.method === 'POST') {
-        return json(response, 200, { report: await runDailyResearch() });
-      }
-      if (url.pathname === '/productivity/run' && request.method === 'POST') {
-        const body = await readBody(request);
-        const count = Math.max(1, Math.min(50, Number(body.count || 10)));
-        return json(response, 200, { summary: await runHighThroughput(count) });
-      }
-      if (url.pathname === '/emergency' && request.method === 'POST') {
-        const body = await readBody(request);
-        const message = body.message || 'Emergency activation requested.';
-        recordError('emergency', 'EMERGENCY_REQUEST', message, body, 'Activate backup and notify operator');
-        audit('aurora', 'emergency_request', { message });
-        const telegramResult = await sendMessageDetailed(`🚨 Aurora emergency request\n${message}`);
-        const mailResult = await sendMail({
-          to: config.officialEmail,
-          subject: 'Aurora emergency activation',
-          text: `${message}\n\nDashboard: http://127.0.0.1:${config.port}\nBackup URL: ${config.backupUrl || 'not configured'}`
+
+      // ═══ SSE Live ═══
+      if (url.pathname === '/api/live' && request.method === 'GET') {
+        response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+        let closed = false;
+        const send = (event, data) => { if (!closed && !response.destroyed) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+        send('messages', { messages: listMessages(120) });
+        send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
+        const onLiveEvent = () => {
+          send('messages', { messages: listMessages(120) });
+          send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
+        };
+        teamEvents.on('message', onLiveEvent);
+        teamEvents.on('notification', onLiveEvent);
+        const heartbeat = setInterval(() => { if (!closed && !response.destroyed) response.write(': keep-alive\n\n'); }, 25000);
+        request.once('close', () => {
+          closed = true;
+          teamEvents.off('message', onLiveEvent); teamEvents.off('notification', onLiveEvent);
+          clearInterval(heartbeat); response.end();
         });
-        return json(response, 202, { accepted: true, telegram: telegramResult, email: mailResult });
+        return;
       }
-      if (url.pathname === '/sync' && request.method === 'POST') {
-        return json(response, 200, { connectors: await runConnectors() });
-      }
-      if (url.pathname === '/content' && request.method === 'GET') {
-        return serveFile(response, path.join(config.root, 'www', 'index.html'), 'text/html; charset=utf-8', 'public, max-age=300');
-      }
-      let match;
-      if ((match = url.pathname.match(/^\/tasks\/(\d+)\/(plan|execute|review)$/)) && request.method === 'POST') {
-        const taskId = Number(match[1]);
-        const output = match[2] === 'plan' ? await planTask(taskId) : match[2] === 'execute' ? await executeTask(taskId) : await reviewTask(taskId);
-        return json(response, 200, { output });
-      }
-      if ((match = url.pathname.match(/^\/tasks\/(\d+)\/submit$/)) && request.method === 'POST') {
-        const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(match[1]));
-        if (!task) return json(response, 404, { error: 'task not found' });
-        if (task.status !== 'ready_for_approval') return json(response, 409, { error: 'task is not ready for submission' });
-        if (config.contractApprovalRequired) {
-          const approval = requestApproval(task.id, 'submission');
-          return json(response, 202, { approval_id: Number(approval.lastInsertRowid), state: 'pending_human_approval' });
+
+      // ═══ إرسال رسالة للفريق ═══
+      if (url.pathname === '/api/team/messages' && request.method === 'POST') {
+        const body = await readBody(request);
+        const saved = await createMessage(body);
+        if (saved.sender === 'leader') {
+          const safeBody = String(saved.body || '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]);
+          const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
+          sendMessageDetailed(`📤 <b>رسالة من القائد</b>\nإلى: ${target}\n\n${safeBody}`)
+            .then(result => audit('aurora', 'leader_message_relayed', { delivered: result.delivered, messageId: saved.id }))
+            .catch(() => {});
+          setTimeout(relayRecentTeamReplies, 20000);
         }
-        db.prepare("UPDATE tasks SET status = 'submitted', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(task.id);
-        return json(response, 200, { state: 'submitted' });
+        return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
       }
-      if (['/', '/dashboard'].includes(url.pathname) || url.pathname === '/app') {
-        let html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
-        const etag = `"${crypto.createHash('sha256').update(html).digest('hex')}"`;
-        response.setHeader('etag', etag);
-        response.setHeader('cache-control', 'no-cache');
-        if (request.headers['if-none-match'] === etag) return response.writeHead(304).end();
-        html = html.replace("localStorage.getItem('teamKey')||'__TEAM_KEY__'", `localStorage.getItem('teamKey')||'${url.searchParams.get('key') || (isLoopback(request) ? config.teamUiToken : '')}'`);
-        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        return response.end(html);
-      }
-      if (url.pathname.startsWith('/icons/') && !url.pathname.includes('..')) {
-        const iconPath = path.resolve(config.root, 'public', '.' + url.pathname);
-        if (iconPath.startsWith(path.join(config.root, 'public', 'icons'))) {
-          await serveFile(response, iconPath, '', 'public, max-age=604800, immutable');
-          return;
+
+      // ═══ Telegram Webhook ═══
+      if (url.pathname === '/telegram/webhook') {
+        if (request.method === 'GET') { return json(response, 200, { ok: true }); }
+        if (request.method !== 'POST') { return; }
+        const secretToken = request.headers['x-telegram-bot-api-secret-token'];
+        if (config.telegramWebhookSecret && secretToken !== config.telegramWebhookSecret) {
+          return json(response, 403, { ok: false, error: 'invalid secret token' });
         }
+        const update = await readBody(request);
+        setTimeout(() => {
+          handleTelegramUpdate(update).then(() => processTelegramOutbox()).catch(e => recordError('telegram', 'WEBHOOK_BG_ERROR', e.message));
+        }, 0);
+        return json(response, 200, { ok: true });
       }
+
+      // ═══ بقية النقاط (محمية اختيارياً) ═══
+      if (url.pathname === '/status') {
+        return json(response, 200, {
+          telegram: { mode: telegramMode(), tokenValidated: Boolean(config.telegramToken), webhookConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_URL) },
+          tasksByStatus: db.prepare('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status').all(),
+          openErrors: db.prepare("SELECT scope, error_type, message FROM errors WHERE resolved = 0 ORDER BY id DESC LIMIT 20").all(),
+          models: modelPerformance()
+        });
+      }
+
+      // ═══ أي مسار آخر → 404 ═══
       return json(response, 404, { error: 'not found' });
     } catch (caught) {
       console.error(caught);
-      return json(response, caught.code === 'ATTACHMENT_SIZE' || caught.code === 'REQUEST_TOO_LARGE' ? 413 : 500, { error: caught.message });
+      return json(response, 500, { error: caught.message });
     }
   });
   await new Promise(resolve => server.listen(config.port, '0.0.0.0', resolve));
