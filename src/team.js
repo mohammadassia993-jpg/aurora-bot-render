@@ -23,8 +23,6 @@ const MAX_AGENT_STEPS = 10;
 const STEP_DELAY_MS = 700;
 const TELEGRAM_MAX_LEN = 3800;
 
-// الأدوات الحرجة: بعد نجاحها → توقف فوري
-// ملاحظة: github_edit_file مُستثنى حتى يستطيع الوكيل قراءة الملف للتحقق بعده
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -59,67 +57,58 @@ ${JSON.stringify(ctx, null, 2)}
 ${toolsList}
 
 ═══════════════ شكل الرد المطلوب ═══════════════
-يجب أن يكون ردّك JSON واحد فقط. لا نص قبله، لا نص بعده، لا markdown.
+يجب أن يكون ردّك JSON واحد فقط. لا نص قبله، لا نص بعده، لا markdown، لا \`\`\`.
 
 شكل 1 — تنفيذ أداة:
-{
-  "action": "tool",
-  "tool": "اسم_الأداة",
-  "params": { "المعامل": "القيمة" }
-}
+{"action":"tool","tool":"اسم_الأداة","params":{...}}
 
 شكل 2 — إنهاء المهمة:
-{
-  "action": "final",
-  "text": "الرد النهائي بالعربية"
-}
+{"action":"final","text":"الرد النهائي بالعربية"}
 
-═══════════════ أمثلة توضيحية ═══════════════
+═══════════════ أمثلة ═══════════════
 
 مثال 1 — اقرأ config.js:
 {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
 
-مثال 2 — بعد قراءة الملف أنهِ:
-{"action":"final","text":"قرأت الملف. يحتوي على 28 متغيراً..."}
+مثال 2 — أنهِ:
+{"action":"final","text":"قرأت الملف. يحتوي على..."}
 
-مثال 3 — ابحث عن socks-proxy-agent:
-{"action":"tool","tool":"grep_files","params":{"pattern":"socks-proxy-agent","file_ext":".js"}}
+مثال 3 — عدّل سطراً:
+{"action":"tool","tool":"github_edit_file","params":{"path":"src/wallets.js","search":"// wallets module v2","replace":"// wallets module v3","message":"chore: update comment"}}
 
-مثال 4 — ابحث في الإنترنت:
-{"action":"tool","tool":"web_search","params":{"query":"أخبار الذكاء الاصطناعي"}}
+═══════════════ 🚨 قواعد github_edit_file (مهم جداً) ═══════════════
 
-═══════════════ 🆕 قواعد التحقق الإلزامية ═══════════════
+1. **search نص عادي — لا regex**:
+   - ❌ ممنوع: "^// wallets"  أو  "$"  أو  "\\d+"  أو  ".*"
+   - ✅ الصحيح: "// wallets module v2"  (نسخة حرفية من الملف)
 
-🔴 القاعدة 8 — قبل أي تعديل:
-   - قبل github_edit_file أو write_file، يجب أولاً read_file على نفس المسار.
-   - اقرأ النص الفعلي الذي ستستبدله. لا تخمّن.
-   - إذا كان الملف كبيراً، استخدم start_line/end_line لجزء محدد.
+2. **search يجب أن يطابق حرفياً** ما في الملف (حتى المسافات والرموز).
+   - قبل التعديل، اقرأ الملف بـ read_file وتأكد من السطر بالضبط.
+   - انسخ السطر كما هو (بدون ^ أو $ أو أي إضافات).
 
-🔴 القاعدة 9 — بعد نجاح github_edit_file:
-   - لا تنهِ المهمة فوراً. اقرأ الملف مرة أخرى بـ read_file على نفس المسار.
-   - تحقق أن التعديل صحيح وأن الصيغة سليمة.
-   - إذا ظهر خطأ نحوي → أصلحه فوراً (اقرأ ثم عدّل).
-   - إذا سليم → أعد final مع ملخص موجز.
+3. **search فريد** — لو السطر يظهر أكثر من مرة، أضف سياقاً (أسطر قبله/بعده) ليكون فريداً.
 
-🔴 القاعدة 10 — تحذيرات صيغة JavaScript:
-   - ممنوع: const x: [ — الصحيح: const x = [
-   - ممنوع: let y: { — الصحيح: let y = {
-   - ممنوع: var z: ( — الصحيح: var z = (
-   - عند استبدال سطر، لا تحذف الفواصل أو الأقواس المجاورة.
-   - تأكد أن كل قوس { له } مقابل.
+4. **replace يحتوي على السطر الجديد كاملاً**، لا جزء منه فقط.
 
-🔴 القاعدة 11 — عند فشل النشر:
-   - لا تعيد المحاولة بنفس الطريقة.
-   - اقرأ الملف الذي عدّلته، افحص الصيغة، أصلح الخطأ.
+═══════════════ 🚨 قواعد التحقق (إلزامية) ═══════════════
 
-═══════════════ قواعد عامة صارمة ═══════════════
-1. أعد JSON واحد فقط. لا نص إضافي.
-2. نفّذ خطوة واحدة في كل رد.
-3. بعد نتيجة أداة: استدعِ أداة أخرى أو أنهِ بـ final.
-4. عند الفشل جرّب زاوية مختلفة — لا تُكرر نفس الأداة بنفس المعاملات.
-5. لا تختلق معلومات.
-6. بعد نجاح write_file أو render_env_set → توقف وأعد final فوراً.
-7. ممنوع تكرار نفس الأداة بنفس المعاملات.
+5. **قبل أي تعديل**: اقرأ الملف (read_file) لترى السطر الفعلي.
+
+6. **بعد نجاح github_edit_file**:
+   - اقرأ الملف مرة أخرى بـ read_file على نفس المسار.
+   - تحقق أن التعديل طُبِّق بشكل صحيح.
+   - إذا سليم → final مع ملخص.
+   - إذا خطأ → أصلحه.
+
+7. **بعد نجاح write_file أو render_env_set** → توقف فوراً وأعد final.
+
+═══════════════ قواعد عامة ═══════════════
+
+8. JSON واحد فقط — لا نص إضافي.
+9. خطوة واحدة في كل رد.
+10. لا تُكرر نفس الأداة بنفس المعاملات.
+11. لا تختلق معلومات.
+12. عند الفشل، جرّب زاوية مختلفة.
 
 ═══════════════ أمر القائد ═══════════════
 ${userMessage}
@@ -213,7 +202,7 @@ async function runAgentLoop(userMessage, ctx) {
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
       console.warn('[agent] step ' + step + ' invalid JSON. Preview: ' + String(raw).slice(0, 200));
-      conversation += `\n\n⚠️ ردك السابق لم يكن JSON. أعد الإجابة بـ JSON فقط.\n\nردّك JSON الآن:`;
+      conversation += `\n\n⚠️ ردك السابق لم يكن JSON صالحاً. أعد بـ JSON فقط بدون نص.\n\nردّك JSON الآن:`;
       consecutiveFailures++;
       if (consecutiveFailures >= 4) { console.error('[agent] too many JSON failures'); return null; }
       continue;
@@ -236,50 +225,39 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
 
-      // تتبع آخر ملف تم تعديله — لإلزام التحقق
       if (parsed.tool === 'github_edit_file' && toolResult.ok) {
-        lastEditFile = parsed.params?.file_path || parsed.params?.path || null;
+        lastEditFile = parsed.params?.path || parsed.params?.file_path || null;
       }
 
-      // إذا الوكيل قرأ الملف للتو بعد تعديله → اسمح له بالإنهاء
       if (parsed.tool === 'read_file' && lastEditFile) {
         const readPath = parsed.params?.file_path || parsed.params?.path;
-        if (readPath === lastEditFile) {
-          lastEditFile = null; // اكتمل التحقق
-        }
+        if (readPath === lastEditFile) lastEditFile = null;
       }
 
-      // التوقف بعد الأدوات الحرجة (write_file, render_env_set)
       if (toolResult.ok && CRITICAL_TOOLS.has(parsed.tool)) {
         if (lastCriticalTool === parsed.tool) {
-          console.warn('[agent] same critical tool twice → force stop');
           return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
         }
         lastCriticalTool = parsed.tool;
-        console.log('[agent] critical success (' + parsed.tool + ') → final stop');
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
-      }
-
-      // منع إنهاء المهمة قبل التحقق من التعديل
-      if (parsed.tool === 'final' && lastEditFile) {
-        conversation += `\n\n⚠️ عدّلت ${lastEditFile} لكن لم تتحقق منه بعد. اقرأه بـ read_file أولاً ثم أنهِ.\n\nردّك JSON الآن:`;
-        continue;
       }
 
       const txt = JSON.stringify(toolResult).slice(0, 2500);
       const emoji = toolResult.ok ? '✅' : '❌';
       let hint = '';
       if (parsed.tool === 'github_edit_file' && toolResult.ok && lastEditFile) {
-        hint = `\n\n⚠️ إلزامي: اقرأ الملف الآن بـ read_file على "${lastEditFile}" للتحقق قبل final.`;
+        hint = `\n\n⚠️ إلزامي: اقرأ الملف الآن بـ read_file على "${lastEditFile}" للتحقق.`;
       }
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}${hint}\n\nاستمر: أعد JSON (tool آخر أو final).`;
+      if (parsed.tool === 'github_edit_file' && !toolResult.ok) {
+        hint = `\n\n💡 تذكير: search نص عادي (بدون ^ $ \\d .*). انسخ السطر من الملف حرفياً.`;
+      }
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}${hint}\n\nاستمر: أعد JSON.`;
       continue;
     }
 
     if (parsed.action === 'final') {
-      // منع final قبل التحقق
       if (lastEditFile) {
-        conversation += `\n\n⚠️ لا يمكن الإنهاء قبل التحقق من ${lastEditFile}. اقرأه بـ read_file أولاً.\n\nردّك JSON الآن:`;
+        conversation += `\n\n⚠️ لا يمكن الإنهاء قبل التحقق من ${lastEditFile}. اقرأه بـ read_file.\n\nردّك JSON الآن:`;
         continue;
       }
       const summary = cleanText(parsed.text || '');
