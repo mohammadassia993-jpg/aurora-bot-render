@@ -114,7 +114,17 @@
   }
   window.__copyAddr = copyAddr;
 
-  function loadWallets() {
+  function loadWallets(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  alert('1- تم استدعاء الدالة');
+  var out = document.getElementById('wallets-output');
+  alert('2- عنصر wallets-output: ' + (out ? 'موجود' : 'مفقود'));
+  if (!out) return;
+  out.innerHTML = '<div class="card"><div class="empty">⏳...</div></div>';
+  fetch('/api/wallets/balances', { cache: 'no-store' })
+    .then(function(r){ alert('3- HTTP: ' + r.status); return r.json(); })
+    .then(function(data){ alert('4- JSON: ' + JSON.stringify(data).slice(0, 200)); })
+    .catch(function(e){ alert('5- خطأ: ' + e.message); });
     var out = document.getElementById('wallets-output');
     if (!out) return;
     out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
