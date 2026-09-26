@@ -1,25 +1,9 @@
 // عمالقة الصمت — لوحة التحكم
 (function () {
-  function setStatus(msg, color) {
-    var box = document.getElementById('diag-status');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'diag-status';
-      box.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px;background:#1e293b;color:#e0e7ff;text-align:center;font-size:12px;z-index:9999;';
-      if (document.body) document.body.prepend(box);
-    }
-    box.textContent = msg || '';
-    box.style.background = color || 'transparent';
-    box.style.display = msg ? 'block' : 'none';
-  }
+  var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
   function init() {
-    var params = new URLSearchParams(location.search);
-    var key = params.get('key') || localStorage.getItem('teamKey') || '';
-    if (key) localStorage.setItem('teamKey', key);
-    if (!key) { setStatus('⚠️ أضف ?key=... إلى الرابط', '#7c2d12'); return; }
-
-    var headers = { 'x-team-key': key, 'content-type': 'application/json' };
+    var headers = { 'x-team-key': TEAM_KEY, 'content-type': 'application/json' };
     var errorBox = document.getElementById('error');
 
     function fetchJson(path, options) {
@@ -32,7 +16,7 @@
       });
     }
 
-    // ═══ التبويبات ═══
+    // التبويبات
     var tabs = document.querySelectorAll('.tab');
     for (var i = 0; i < tabs.length; i++) {
       tabs[i].onclick = function () {
@@ -184,13 +168,6 @@
 
     var sendBtn = document.getElementById('send-btn');
     if (sendBtn) sendBtn.onclick = handleSend;
-
-    var refreshBtn = document.getElementById('refresh-btn');
-    if (refreshBtn) refreshBtn.onclick = function () {
-      loadSystem(); loadAgents(); loadTasks(); loadLiveLog(); loadNotifications();
-    };
-
-    setStatus('', '');
   }
 
   if (document.readyState === 'loading') {
