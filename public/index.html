@@ -26,13 +26,12 @@
   .item .body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
-  .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
+  .ok { color: #4ade80; }
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .btn-primary:active { background: #4338ca; }
-  .reload-form { display: block; margin-top: 12px; }
-  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; font-weight: 600; text-align: center; text-decoration: none; }
+  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; text-decoration: none; text-align: center; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
@@ -60,46 +59,30 @@
 </div>
 
 <div class="panel active" id="panel-main">
-  <div class="card">
-    <h2>📊 حالة النظام</h2>
-    <div id="system-stats">جاري التحميل...</div>
-  </div>
-  <div class="card">
-    <h2>👥 الوكلاء</h2>
-    <div id="agents-list">جاري التحميل...</div>
-  </div>
+  <div class="card"><h2>📊 حالة النظام</h2><div id="system-stats">جاري التحميل...</div></div>
+  <div class="card"><h2>👥 الوكلاء</h2><div id="agents-list">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-team">
   <div class="card">
     <h2>📤 إرسال أمر للفريق</h2>
-    <div style="margin-bottom: 10px;">
-      <label style="color:#94a3b8; font-size:12px; display:block; margin-bottom:6px;">إلى:</label>
-      <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
-        <option value="all">الفريق الكامل</option>
-        <option value="aurora">أورورا (المنسق)</option>
-        <option value="planner">المخطط</option>
-        <option value="executor">المنفذ</option>
-        <option value="reviewer">المراجع</option>
-        <option value="scout">المستخبر</option>
-      </select>
-    </div>
+    <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; margin-bottom:10px;">
+      <option value="all">الفريق الكامل</option>
+      <option value="aurora">أورورا (المنسق)</option>
+      <option value="planner">المخطط</option>
+      <option value="executor">المنفذ</option>
+      <option value="reviewer">المراجع</option>
+      <option value="scout">المستخبر</option>
+    </select>
     <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل..."></textarea>
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
-
-  <div class="card">
-    <h2>📺 السجل الحي</h2>
-    <div id="live-log">جاري التحميل...</div>
-  </div>
+  <div class="card"><h2>📺 السجل الحي</h2><div id="live-log">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-tasks">
-  <div class="card">
-    <h2>📋 المهام النشطة</h2>
-    <div id="tasks-list">جاري التحميل...</div>
-  </div>
+  <div class="card"><h2>📋 المهام النشطة</h2><div id="tasks-list">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-wallets">
@@ -107,43 +90,20 @@
 </div>
 
 <div class="panel" id="panel-notifications">
-  <div class="card">
-    <h2>🔔 الإشعارات</h2>
-    <div id="notifications-list">جاري التحميل...</div>
-  </div>
+  <div class="card"><h2>🔔 الإشعارات</h2><div id="notifications-list">جاري التحميل...</div></div>
 </div>
 
-<form action="/" method="get" class="reload-form">
-  <button type="submit" class="reload">🔄 تحديث البيانات</button>
-</form>
+<a href="?t=RELOAD_TS" id="refresh-btn" class="reload">🔄 تحديث البيانات</a>
 
-<script src="/dashboard.js?v=15"></script>
+<script src="/dashboard.js?v=16"></script>
 
 <script>
 (function () {
-  var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
+  // زر التحديث — يعمل بدون JavaScript
+  var btn = document.getElementById('refresh-btn');
+  if (btn) btn.setAttribute('href', '?t=' + Date.now());
 
-  function copyHandler() {
-    var addr = this.getAttribute('data-addr');
-    var self = this;
-    var oldText = self.textContent;
-    function done() {
-      self.textContent = '✅ تم النسخ';
-      setTimeout(function () { self.textContent = oldText; }, 1500);
-    }
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(addr).then(done).catch(function () { alert(addr); });
-    } else {
-      var ta = document.createElement('textarea');
-      ta.value = addr;
-      ta.style.position = 'fixed';
-      ta.style.top = '-1000px';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); done(); } catch (e) { alert(addr); }
-      document.body.removeChild(ta);
-    }
-  }
+  var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
   function loadWallets() {
     var out = document.getElementById('wallets-output');
@@ -154,29 +114,37 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var ws = (data && data.wallets) || [];
-        if (!ws.length) {
-          out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
-          return;
-        }
+        if (!ws.length) { out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>'; return; }
         var html = '';
         for (var i = 0; i < ws.length; i++) {
           var w = ws[i];
           var title = w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network';
-          html += '<div class="card">';
-          html += '<h2>' + title + '</h2>';
+          html += '<div class="card"><h2>' + title + '</h2>';
           html += '<div class="bal-row"><span class="bal-num">' + (w.balance || '0') + '</span><span class="bal-sym">' + (w.symbol || '') + '</span></div>';
           html += '<div class="addr-row">' + (w.address || '') + '</div>';
-          html += '<button class="btn-copy" data-addr="' + (w.address || '') + '">📋 نسخ العنوان</button>';
-          html += '</div>';
+          html += '<button class="btn-copy" data-addr="' + (w.address || '') + '">📋 نسخ العنوان</button></div>';
         }
         out.innerHTML = html;
-
         var btns = out.querySelectorAll('.btn-copy');
-        for (var b = 0; b < btns.length; b++) btns[b].onclick = copyHandler;
+        for (var b = 0; b < btns.length; b++) {
+          btns[b].onclick = function () {
+            var addr = this.getAttribute('data-addr');
+            var self = this;
+            var old = self.textContent;
+            function done() { self.textContent = '✅ تم النسخ'; setTimeout(function () { self.textContent = old; }, 1500); }
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(addr).then(done).catch(function () { alert(addr); });
+            } else {
+              var ta = document.createElement('textarea');
+              ta.value = addr; ta.style.position = 'fixed'; ta.style.top = '-1000px';
+              document.body.appendChild(ta); ta.select();
+              try { document.execCommand('copy'); done(); } catch (e) { alert(addr); }
+              document.body.removeChild(ta);
+            }
+          };
+        }
       })
-      .catch(function (e) {
-        out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
-      });
+      .catch(function (e) { out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>'; });
   }
 
   document.addEventListener('click', function (ev) {
