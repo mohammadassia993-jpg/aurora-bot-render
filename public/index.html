@@ -23,15 +23,19 @@
   .stat .value { color: #e0e7ff; font-weight: 600; }
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
-  #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
+  #msg-body { width: 100%; min-height: 160px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
-  .balance-big { font-size: 32px; font-weight: 800; color: #4ade80; text-align: center; padding: 16px 8px; background: #0f172a; border-radius: 12px; margin-bottom: 10px; }
-  .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; }
-  .addr-box { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; line-height: 1.6; }
-  .btn-copy { display: block; width: 100%; padding: 10px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
-  #diag { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 6px; margin: 6px 0; border-radius: 4px; white-space: pre-wrap; display: none; }
+  .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
+  .wallet-card { background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #334155; }
+  .wallet-card h2 { color: #a78bfa; font-size: 15px; margin-bottom: 12px; text-align: center; }
+  .bal-row { display: flex; align-items: baseline; justify-content: center; gap: 8px; padding: 12px; background: #0f172a; border-radius: 12px; margin-bottom: 12px; }
+  .bal-num { font-size: 32px; font-weight: 800; color: #4ade80; }
+  .bal-sym { font-size: 14px; color: #94a3b8; font-weight: 600; }
+  .addr-row { background: #0f172a; padding: 12px; border-radius: 10px; font-family: monospace; font-size: 11px; word-break: break-all; color: #a5b4fc; line-height: 1.6; margin-bottom: 10px; }
+  .btn-copy { display: block; width: 100%; padding: 12px; background: #312e81; color: #e0e7ff; border: none; border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600; }
+  .btn-copy:active { background: #4338ca; }
 </style>
 </head>
 <body>
@@ -39,8 +43,6 @@
   <h1>⚡ عمالقة الصمت</h1>
   <p>لوحة تحكم الفريق — Silent Giants</p>
 </header>
-
-<div id="diag"></div>
 
 <div class="tabs">
   <div class="tab active" data-tab="main">الرئيسية</div>
@@ -52,7 +54,6 @@
 
 <div class="panel active" id="panel-main">
   <div class="card"><h2>📊 حالة النظام</h2><div id="system-stats">جاري التحميل...</div></div>
-  <div class="card"><h2>👥 الوكلاء</h2><div id="agents-list">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-team">
@@ -70,113 +71,176 @@
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
-  <div class="card"><h2>📺 السجل الحي</h2><div id="live-log">جاري التحميل...</div></div>
 </div>
 
 <div class="panel" id="panel-tasks">
-  <div class="card"><h2>📋 المهام النشطة</h2><div id="tasks-list">جاري التحميل...</div></div>
+  <div class="card"><h2>📋 المهام النشطة</h2><div id="tasks-list"><div class="empty">جاري التحميل...</div></div></div>
 </div>
 
 <div class="panel" id="panel-wallets">
-  <div class="card">
-    <h2>💼 أرصدة المحافظ</h2>
-    <button id="wallets-refresh" class="btn-primary" onclick="loadWalletsNow()">🔄 تحديث الأرصدة</button>
-  </div>
-  <div id="wallets-output"><div class="card"><div class="empty">اضغط زر التحديث</div></div></div>
+  <div id="wallets-output"><div class="card"><div class="empty">⏳ جاري التحميل...</div></div></div>
 </div>
 
 <div class="panel" id="panel-notifications">
-  <div class="card"><h2>🔔 الإشعارات</h2><div id="notifications-list">جاري التحميل...</div></div>
+  <div class="card"><h2>🔔 الإشعارات</h2><div id="notifications-list"><div class="empty">جاري التحميل...</div></div></div>
 </div>
 
-<button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
-
-<script src="/dashboard.js?v=3"></script>
+<button id="refresh-btn" class="reload">🔄 تحديث الصفحة</button>
 
 <script>
-// ═══════════════════════════════════════════════════════════
-// نسخة بدائية — inline onclick + دالة عالمية
-// ═══════════════════════════════════════════════════════════
+var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
-function diag(msg) {
-  var d = document.getElementById('diag');
-  if (!d) return;
-  d.style.display = 'block';
-  d.textContent += msg + '\n';
+function apiUrl(p) {
+  return p + (p.indexOf('?') === -1 ? '?' : '&') + 'key=' + encodeURIComponent(KEY);
 }
 
-window.onerror = function(m, src, line) {
-  diag('ERR: ' + m + ' at ' + line);
-};
+/* ═══ التبويبات ═══ */
+var allTabs = document.querySelectorAll('.tab');
+for (var i = 0; i < allTabs.length; i++) {
+  allTabs[i].onclick = function() {
+    var name = this.getAttribute('data-tab');
+    for (var j = 0; j < allTabs.length; j++) allTabs[j].classList.remove('active');
+    this.classList.add('active');
+    var panels = document.querySelectorAll('.panel');
+    for (var k = 0; k < panels.length; k++) panels[k].classList.remove('active');
+    var target = document.getElementById('panel-' + name);
+    if (target) target.classList.add('active');
+    if (name === 'wallets') loadWallets();
+    if (name === 'tasks') loadTasks();
+    if (name === 'notifications') loadNotifications();
+  };
+}
 
-function loadWalletsNow() {
-  diag('1- استُدعيت الدالة');
+/* ═══ المحافظ ═══ */
+function loadWallets() {
   var out = document.getElementById('wallets-output');
-  if (!out) { diag('2- out مفقود'); return; }
-  diag('2- out موجود');
-
+  if (!out) return;
   out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
 
-  var url = '/api/wallets/balances?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
-  diag('3- fetch: ' + url);
-
-  fetch(url, { cache: 'no-store' })
-    .then(function(r) {
-      diag('4- HTTP ' + r.status);
-      return r.json();
-    })
+  fetch(apiUrl('/api/wallets/balances'), { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
     .then(function(data) {
-      diag('5- JSON keys: ' + Object.keys(data || {}).join(','));
       var ws = (data && data.wallets) || [];
-      diag('6- wallets count: ' + ws.length);
       if (!ws.length) {
         out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
         return;
       }
       var html = '';
-      for (var i = 0; i < ws.length; i++) {
-        var w = ws[i];
-        html += '<div class="card">';
-        html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
-        html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
-        html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
-        if (w.note) html += '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#fbbf24;">' + w.note + '</span></div>';
-        html += '<div class="addr-box">' + w.address + '</div>';
+      for (var n = 0; n < ws.length; n++) {
+        var w = ws[n];
+        var title = w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network';
+        html += '<div class="wallet-card">';
+        html += '<h2>' + title + '</h2>';
+        html += '<div class="bal-row"><span class="bal-num">' + (w.balance || '0') + '</span><span class="bal-sym">' + (w.symbol || '') + '</span></div>';
+        html += '<div class="addr-row">' + (w.address || '') + '</div>';
+        html += '<button class="btn-copy" data-addr="' + (w.address || '') + '">📋 نسخ العنوان</button>';
         html += '</div>';
       }
       out.innerHTML = html;
-      diag('7- تم الرسم');
+
+      var copyBtns = out.querySelectorAll('.btn-copy');
+      for (var b = 0; b < copyBtns.length; b++) {
+        copyBtns[b].onclick = function() {
+          var addr = this.getAttribute('data-addr');
+          var self = this;
+          var oldText = self.textContent;
+          function done() {
+            self.textContent = '✅ تم النسخ';
+            setTimeout(function() { self.textContent = oldText; }, 1500);
+          }
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(addr).then(done).catch(function() { alert(addr); });
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = addr;
+            ta.style.position = 'fixed';
+            ta.style.top = '-1000px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); done(); } catch (e) { alert(addr); }
+            document.body.removeChild(ta);
+          }
+        };
+      }
     })
     .catch(function(e) {
-      diag('X- خطأ: ' + e.message);
       out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
     });
 }
 
-// ربط إضافي (احتياط)
-document.addEventListener('click', function(ev) {
-  var el = ev.target;
-  while (el && el !== document.body) {
-    if (el.id === 'wallets-refresh') {
-      ev.preventDefault();
-      loadWalletsNow();
-      return;
-    }
-    el = el.parentElement;
-  }
-}, true);
+/* ═══ المهام ═══ */
+function loadTasks() {
+  var el = document.getElementById('tasks-list');
+  if (!el) return;
+  fetch(apiUrl('/api/team/tasks'))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var list = (d && d.tasks) || [];
+      if (!list.length) { el.innerHTML = '<div class="empty">لا مهام</div>'; return; }
+      var html = '';
+      for (var i = 0; i < Math.min(list.length, 20); i++) {
+        var t = list[i];
+        html += '<div class="live-item"><div class="live-body">' + (t.title || '') + '</div></div>';
+      }
+      el.innerHTML = html;
+    })
+    .catch(function() { el.innerHTML = '<div class="empty">تعذّر التحميل</div>'; });
+}
 
-// عند فتح التاب — حمّل تلقائياً
-document.addEventListener('click', function(ev) {
-  var el = ev.target;
-  while (el && el !== document.body) {
-    if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
-      setTimeout(loadWalletsNow, 200);
-      return;
-    }
-    el = el.parentElement;
-  }
-}, true);
+/* ═══ الإشعارات ═══ */
+function loadNotifications() {
+  var el = document.getElementById('notifications-list');
+  if (!el) return;
+  fetch(apiUrl('/api/notifications'))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var list = (d && d.notifications) || [];
+      if (!list.length) { el.innerHTML = '<div class="empty">لا إشعارات</div>'; return; }
+      var html = '';
+      for (var i = 0; i < Math.min(list.length, 20); i++) {
+        var n = list[i];
+        html += '<div class="live-item"><div class="live-body">' + (n.title || '') + '</div></div>';
+      }
+      el.innerHTML = html;
+    })
+    .catch(function() { el.innerHTML = '<div class="empty">تعذّر التحميل</div>'; });
+}
+
+/* ═══ حالة النظام ═══ */
+fetch(apiUrl('/api/dashboard'))
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    var el = document.getElementById('system-stats');
+    if (!el) return;
+    var tasks = (d && d.tasks) || [];
+    var html = '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#4ade80;">● نشط</span></div>';
+    html += '<div class="stat"><span class="label">المشاريع</span><span class="value">' + ((d && d.projects && d.projects.length) || 0) + '</span></div>';
+    el.innerHTML = html;
+  })
+  .catch(function() {});
+
+/* ═══ إرسال رسالة ═══ */
+document.getElementById('send-btn').onclick = function() {
+  var body = document.getElementById('msg-body').value.trim();
+  var to = document.getElementById('msg-recipient').value;
+  var st = document.getElementById('send-status');
+  if (!body) { st.textContent = '⚠️ اكتب أمراً'; return; }
+  st.textContent = '⏳ جاري الإرسال...';
+  fetch(apiUrl('/api/team/messages'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sender: 'leader', recipient: to, thread: 'team', body: body })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function() {
+    st.textContent = '✅ تم الإرسال';
+    document.getElementById('msg-body').value = '';
+  })
+  .catch(function(e) { st.textContent = '❌ ' + e.message; });
+};
+
+/* ═══ تحديث ═══ */
+document.getElementById('refresh-btn').onclick = function() { location.reload(); };
 </script>
 </body>
 </html>
