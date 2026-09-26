@@ -6,7 +6,7 @@
 <title>عمالقة الصمت — لوحة التحكم</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
+  body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
   header { text-align: center; margin-bottom: 20px; padding: 12px; }
   header h1 { font-size: 22px; color: #a78bfa; margin-bottom: 6px; }
   header p { color: #94a3b8; font-size: 12px; }
@@ -21,13 +21,21 @@
   .stat:last-child { border-bottom: none; }
   .stat .label { color: #94a3b8; }
   .stat .value { color: #e0e7ff; font-weight: 600; }
+  .item { padding: 10px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; }
+  .item .meta { color: #a78bfa; font-size: 11px; margin-bottom: 4px; }
+  .item .body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
   .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
   .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
-  #msg-body { width: 100%; min-height: 160px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
+  .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
+  #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
+  #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
+  .btn-primary:active { background: #4338ca; }
+  .btn-exec { display: inline-block; margin-top: 8px; padding: 6px 12px; background: #065f46; color: #d1fae5; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
   .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
-  .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
+  .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
+  .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
   .wallet-card { background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #334155; }
   .wallet-card h2 { color: #a78bfa; font-size: 15px; margin-bottom: 12px; text-align: center; }
   .bal-row { display: flex; align-items: baseline; justify-content: center; gap: 8px; padding: 12px; background: #0f172a; border-radius: 12px; margin-bottom: 12px; }
@@ -44,6 +52,8 @@
   <p>لوحة تحكم الفريق — Silent Giants</p>
 </header>
 
+<div id="error" class="error" style="display:none"></div>
+
 <div class="tabs">
   <div class="tab active" data-tab="main">الرئيسية</div>
   <div class="tab" data-tab="team">غرفة الفريق</div>
@@ -53,28 +63,47 @@
 </div>
 
 <div class="panel active" id="panel-main">
-  <div class="card"><h2>📊 حالة النظام</h2><div id="system-stats">جاري التحميل...</div></div>
+  <div class="card">
+    <h2>📊 حالة النظام</h2>
+    <div id="system-stats">جاري التحميل...</div>
+  </div>
+  <div class="card">
+    <h2>👥 الوكلاء</h2>
+    <div id="agents-list">جاري التحميل...</div>
+  </div>
 </div>
 
 <div class="panel" id="panel-team">
   <div class="card">
     <h2>📤 إرسال أمر للفريق</h2>
-    <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; margin-bottom:10px;">
-      <option value="all">الفريق الكامل</option>
-      <option value="aurora">أورورا</option>
-      <option value="planner">المخطط</option>
-      <option value="executor">المنفذ</option>
-      <option value="reviewer">المراجع</option>
-      <option value="scout">المستخبر</option>
-    </select>
-    <textarea id="msg-body" placeholder="اكتب الأمر..."></textarea>
+    <div style="margin-bottom: 10px;">
+      <label style="color:#94a3b8; font-size:12px; display:block; margin-bottom:6px;">إلى:</label>
+      <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px;">
+        <option value="all">الفريق الكامل</option>
+        <option value="aurora">أورورا (المنسق)</option>
+        <option value="planner">المخطط</option>
+        <option value="executor">المنفذ</option>
+        <option value="reviewer">المراجع</option>
+        <option value="scout">المستخبر</option>
+      </select>
+    </div>
+    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل... الفريق سيقرأه وينفذه."></textarea>
     <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
+    <button id="exec-now-btn" class="btn-primary" style="background:#065f46; margin-top:8px;">▶️ تنفيذ مهمة الآن</button>
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
+  </div>
+
+  <div class="card">
+    <h2>📺 السجل الحي (ما يفعله الفريق الآن)</h2>
+    <div id="live-log">جاري التحميل...</div>
   </div>
 </div>
 
 <div class="panel" id="panel-tasks">
-  <div class="card"><h2>📋 المهام النشطة</h2><div id="tasks-list"><div class="empty">جاري التحميل...</div></div></div>
+  <div class="card">
+    <h2>📋 المهام النشطة</h2>
+    <div id="tasks-list">جاري التحميل...</div>
+  </div>
 </div>
 
 <div class="panel" id="panel-wallets">
@@ -82,165 +111,85 @@
 </div>
 
 <div class="panel" id="panel-notifications">
-  <div class="card"><h2>🔔 الإشعارات</h2><div id="notifications-list"><div class="empty">جاري التحميل...</div></div></div>
+  <div class="card">
+    <h2>🔔 الإشعارات</h2>
+    <div id="notifications-list">جاري التحميل...</div>
+  </div>
 </div>
 
-<button id="refresh-btn" class="reload">🔄 تحديث الصفحة</button>
+<button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
+
+<script src="/dashboard.js?v=3"></script>
 
 <script>
-var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
+/* ═══════════════════════════════════════════════════════════
+   المحافظ — مستقل تماماً (لا يتعارض مع dashboard.js)
+   ═══════════════════════════════════════════════════════════ */
+(function() {
+  var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
-function apiUrl(p) {
-  return p + (p.indexOf('?') === -1 ? '?' : '&') + 'key=' + encodeURIComponent(KEY);
-}
+  window.__loadWallets = function() {
+    var out = document.getElementById('wallets-output');
+    if (!out) return;
+    out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
 
-/* ═══ التبويبات ═══ */
-var allTabs = document.querySelectorAll('.tab');
-for (var i = 0; i < allTabs.length; i++) {
-  allTabs[i].onclick = function() {
-    var name = this.getAttribute('data-tab');
-    for (var j = 0; j < allTabs.length; j++) allTabs[j].classList.remove('active');
-    this.classList.add('active');
-    var panels = document.querySelectorAll('.panel');
-    for (var k = 0; k < panels.length; k++) panels[k].classList.remove('active');
-    var target = document.getElementById('panel-' + name);
-    if (target) target.classList.add('active');
-    if (name === 'wallets') loadWallets();
-    if (name === 'tasks') loadTasks();
-    if (name === 'notifications') loadNotifications();
+    fetch('/api/wallets/balances?key=' + encodeURIComponent(KEY), { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var ws = (data && data.wallets) || [];
+        if (!ws.length) {
+          out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
+          return;
+        }
+        var html = '';
+        for (var n = 0; n < ws.length; n++) {
+          var w = ws[n];
+          var title = w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network';
+          html += '<div class="wallet-card">';
+          html += '<h2>' + title + '</h2>';
+          html += '<div class="bal-row"><span class="bal-num">' + (w.balance || '0') + '</span><span class="bal-sym">' + (w.symbol || '') + '</span></div>';
+          html += '<div class="addr-row">' + (w.address || '') + '</div>';
+          html += '<button class="btn-copy" data-addr="' + (w.address || '') + '">📋 نسخ العنوان</button>';
+          html += '</div>';
+        }
+        out.innerHTML = html;
+
+        var btns = out.querySelectorAll('.btn-copy');
+        for (var b = 0; b < btns.length; b++) {
+          btns[b].onclick = function() {
+            var addr = this.getAttribute('data-addr');
+            var self = this;
+            var oldText = self.textContent;
+            function done() { self.textContent = '✅ تم النسخ'; setTimeout(function(){ self.textContent = oldText; }, 1500); }
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(addr).then(done).catch(function(){ alert(addr); });
+            } else {
+              var ta = document.createElement('textarea');
+              ta.value = addr; ta.style.position = 'fixed'; ta.style.top = '-1000px';
+              document.body.appendChild(ta); ta.select();
+              try { document.execCommand('copy'); done(); } catch(e) { alert(addr); }
+              document.body.removeChild(ta);
+            }
+          };
+        }
+      })
+      .catch(function(e) {
+        out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
+      });
   };
-}
 
-/* ═══ المحافظ ═══ */
-function loadWallets() {
-  var out = document.getElementById('wallets-output');
-  if (!out) return;
-  out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
-
-  fetch(apiUrl('/api/wallets/balances'), { cache: 'no-store' })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var ws = (data && data.wallets) || [];
-      if (!ws.length) {
-        out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
+  // عند الضغط على تاب المحافظ → حمّل تلقائياً
+  document.addEventListener('click', function(ev) {
+    var el = ev.target;
+    while (el && el !== document.body) {
+      if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
+        setTimeout(window.__loadWallets, 200);
         return;
       }
-      var html = '';
-      for (var n = 0; n < ws.length; n++) {
-        var w = ws[n];
-        var title = w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network';
-        html += '<div class="wallet-card">';
-        html += '<h2>' + title + '</h2>';
-        html += '<div class="bal-row"><span class="bal-num">' + (w.balance || '0') + '</span><span class="bal-sym">' + (w.symbol || '') + '</span></div>';
-        html += '<div class="addr-row">' + (w.address || '') + '</div>';
-        html += '<button class="btn-copy" data-addr="' + (w.address || '') + '">📋 نسخ العنوان</button>';
-        html += '</div>';
-      }
-      out.innerHTML = html;
-
-      var copyBtns = out.querySelectorAll('.btn-copy');
-      for (var b = 0; b < copyBtns.length; b++) {
-        copyBtns[b].onclick = function() {
-          var addr = this.getAttribute('data-addr');
-          var self = this;
-          var oldText = self.textContent;
-          function done() {
-            self.textContent = '✅ تم النسخ';
-            setTimeout(function() { self.textContent = oldText; }, 1500);
-          }
-          if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(addr).then(done).catch(function() { alert(addr); });
-          } else {
-            var ta = document.createElement('textarea');
-            ta.value = addr;
-            ta.style.position = 'fixed';
-            ta.style.top = '-1000px';
-            document.body.appendChild(ta);
-            ta.select();
-            try { document.execCommand('copy'); done(); } catch (e) { alert(addr); }
-            document.body.removeChild(ta);
-          }
-        };
-      }
-    })
-    .catch(function(e) {
-      out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
-    });
-}
-
-/* ═══ المهام ═══ */
-function loadTasks() {
-  var el = document.getElementById('tasks-list');
-  if (!el) return;
-  fetch(apiUrl('/api/team/tasks'))
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var list = (d && d.tasks) || [];
-      if (!list.length) { el.innerHTML = '<div class="empty">لا مهام</div>'; return; }
-      var html = '';
-      for (var i = 0; i < Math.min(list.length, 20); i++) {
-        var t = list[i];
-        html += '<div class="live-item"><div class="live-body">' + (t.title || '') + '</div></div>';
-      }
-      el.innerHTML = html;
-    })
-    .catch(function() { el.innerHTML = '<div class="empty">تعذّر التحميل</div>'; });
-}
-
-/* ═══ الإشعارات ═══ */
-function loadNotifications() {
-  var el = document.getElementById('notifications-list');
-  if (!el) return;
-  fetch(apiUrl('/api/notifications'))
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var list = (d && d.notifications) || [];
-      if (!list.length) { el.innerHTML = '<div class="empty">لا إشعارات</div>'; return; }
-      var html = '';
-      for (var i = 0; i < Math.min(list.length, 20); i++) {
-        var n = list[i];
-        html += '<div class="live-item"><div class="live-body">' + (n.title || '') + '</div></div>';
-      }
-      el.innerHTML = html;
-    })
-    .catch(function() { el.innerHTML = '<div class="empty">تعذّر التحميل</div>'; });
-}
-
-/* ═══ حالة النظام ═══ */
-fetch(apiUrl('/api/dashboard'))
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    var el = document.getElementById('system-stats');
-    if (!el) return;
-    var tasks = (d && d.tasks) || [];
-    var html = '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#4ade80;">● نشط</span></div>';
-    html += '<div class="stat"><span class="label">المشاريع</span><span class="value">' + ((d && d.projects && d.projects.length) || 0) + '</span></div>';
-    el.innerHTML = html;
-  })
-  .catch(function() {});
-
-/* ═══ إرسال رسالة ═══ */
-document.getElementById('send-btn').onclick = function() {
-  var body = document.getElementById('msg-body').value.trim();
-  var to = document.getElementById('msg-recipient').value;
-  var st = document.getElementById('send-status');
-  if (!body) { st.textContent = '⚠️ اكتب أمراً'; return; }
-  st.textContent = '⏳ جاري الإرسال...';
-  fetch(apiUrl('/api/team/messages'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sender: 'leader', recipient: to, thread: 'team', body: body })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function() {
-    st.textContent = '✅ تم الإرسال';
-    document.getElementById('msg-body').value = '';
-  })
-  .catch(function(e) { st.textContent = '❌ ' + e.message; });
-};
-
-/* ═══ تحديث ═══ */
-document.getElementById('refresh-btn').onclick = function() { location.reload(); };
+      el = el.parentElement;
+    }
+  }, true);
+})();
 </script>
 </body>
 </html>
