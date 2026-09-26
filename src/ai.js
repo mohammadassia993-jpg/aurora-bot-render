@@ -1,4 +1,4 @@
-// ai.js — Cloudflare (أساسي) + LLM7 (متعدد النماذج)
+// ai.js — Cloudflare Workers AI (JSON mode) + LLM7
 import { config } from './config.js';
 
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
@@ -6,7 +6,7 @@ const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODELS = ['gpt-4o', 'gpt-4o-mini', 'deepseek-chat', 'gpt-3.5-turbo'];
+const LLM7_MODELS = ['gpt-4o', 'gpt-4o-mini', 'deepseek-chat'];
 
 const metrics = new Map();
 
@@ -31,11 +31,31 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-export async function callCloudflare(messages, options = {}) {
-  if (!CF_ACCOUNT_ID) throw new Error('CF_ACCOUNT_ID missing');
-  if (!CF_API_TOKEN) throw new Error('CF_API_TOKEN missing');
-  const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/run/' + CF_MODEL;
-  const body = { messages, max_tokens: options.maxTokens || 1024 };
+// يحوّل رسائلنا لتنسيق OpenAI (نطلب JSON)
+function buildMessages(messages, wantJson) {
+  const out = [];
+  if (wantJson) {
+    out.push({
+      role: 'system',
+      content: 'You MUST reply with a single valid JSON object. No markdown code fences, no explanation, no text before or after. Only JSON.'
+    });
+  }
+  for (const m of messages) out.push(m);
+  return out;
+}
+
+async function callCloudflare(messages, options = {}) {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error('CF credentials missing');
+  const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/v1/chat/completions';
+  const wantJson = options.noJsonMode === false;
+  const body = {
+    model: CF_MODEL,
+    messages: buildMessages(messages, wantJson),
+    max_tokens: options.maxTokens || 2048,
+    temperature: options.temperature !== undefined ? options.temperature : 0.3
+  };
+  if (wantJson) body.response_format = { type: 'json_object' };
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
@@ -48,39 +68,41 @@ export async function callCloudflare(messages, options = {}) {
     const rawText = await res.text();
     if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + rawText.slice(0, 200));
     const data = JSON.parse(rawText);
-    if (!data.success) throw new Error(JSON.stringify(data.errors || data).slice(0, 200));
-    const text = (data.result && (data.result.response || data.result.output_text)) || '';
-    if (!text) throw new Error('empty response');
+    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!text) throw new Error('empty response: ' + rawText.slice(0, 200));
     return String(text);
   } finally { clearTimeout(t); }
 }
 
-export async function callLLM7(messages, options = {}) {
+async function callLLM7(messages, options = {}) {
+  const wantJson = options.noJsonMode === false;
   const errors = [];
   for (const model of LLM7_MODELS) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 45000);
     try {
+      const body = {
+        model,
+        messages: buildMessages(messages, wantJson)
+      };
+      if (wantJson) body.response_format = { type: 'json_object' };
       const res = await fetch(LLM7_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages }),
+        body: JSON.stringify(body),
         signal: ctrl.signal
       });
       const rawText = await res.text();
-      if (!res.ok) {
-        errors.push(model + ': HTTP ' + res.status);
-        continue;
-      }
+      if (!res.ok) { errors.push(model + ': HTTP ' + res.status); continue; }
       const data = JSON.parse(rawText);
-      const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
       if (text) return String(text);
       errors.push(model + ': empty');
     } catch (e) {
-      errors.push(model + ': ' + e.message.slice(0, 100));
+      errors.push(model + ': ' + e.message.slice(0, 80));
     } finally { clearTimeout(t); }
   }
-  throw new Error('all models failed: ' + errors.join(' | '));
+  throw new Error('all LLM7 models failed: ' + errors.join(' | '));
 }
 
 export function selectModel(agent) { return 'cloudflare'; }
