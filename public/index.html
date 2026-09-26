@@ -31,7 +31,8 @@
   #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .btn-primary:active { background: #4338ca; }
-  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; text-align: center; text-decoration: none; }
+  .reload-form { display: block; margin-top: 12px; }
+  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; font-weight: 600; text-align: center; text-decoration: none; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
@@ -112,9 +113,11 @@
   </div>
 </div>
 
-<a href="/" class="reload">🔄 تحديث البيانات</a>
+<form action="/" method="get" class="reload-form">
+  <button type="submit" class="reload">🔄 تحديث البيانات</button>
+</form>
 
-<script src="/dashboard.js?v=14"></script>
+<script src="/dashboard.js?v=15"></script>
 
 <script>
 (function () {
@@ -167,6 +170,7 @@
           html += '</div>';
         }
         out.innerHTML = html;
+
         var btns = out.querySelectorAll('.btn-copy');
         for (var b = 0; b < btns.length; b++) btns[b].onclick = copyHandler;
       })
