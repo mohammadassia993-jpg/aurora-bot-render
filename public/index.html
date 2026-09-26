@@ -112,13 +112,32 @@
   </div>
 </div>
 
-<button id="refresh-btn" class="reload" onclick="window.location.reload()">🔄 تحديث البيانات</button>
+<button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
 
-<script src="/dashboard.js?v=10"></script>
+<script src="/dashboard.js?v=11"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// المحافظ — كود مستقل تماماً (لا يعتمد على dashboard.js)
+// 1) زر التحديث — التقاط قبل dashboard.js
+// ═══════════════════════════════════════════════════════════
+(function () {
+  document.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el !== document.body) {
+      if (el.id === 'refresh-btn') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+        window.location.reload();
+        return false;
+      }
+      el = el.parentElement;
+    }
+  }, true); // capture = true
+})();
+
+// ═══════════════════════════════════════════════════════════
+// 2) المحافظ — كود مستقل
 // ═══════════════════════════════════════════════════════════
 (function () {
   var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
@@ -181,7 +200,7 @@
       });
   };
 
-  // عند فتح تاب المحافظ → حمّل تلقائياً
+  // عند فتح تاب المحافظ → حمّل تلقائياً (capture لكي لا يمنعه dashboard.js)
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     while (el && el !== document.body) {
