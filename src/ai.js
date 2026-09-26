@@ -1,10 +1,10 @@
-// ai.js — Cloudflare (أساسي) + LLM7 (احتياطي بدون response_format)
+// ai.js — Pollinations.AI (أساسي مجاني بلا مفتاح) + Cloudflare (احتياطي)
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
-const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODELS = ['gpt-4o-mini', 'gpt-4o', 'deepseek-chat'];
+// Pollinations — لا يحتاج مفتاح، لا تسجيل، لا دفع
+const POLLINATIONS_URL = 'https://text.pollinations.ai/openai';
 
 const metrics = new Map();
 
@@ -18,7 +18,7 @@ function trackFail(name, err) {
   const m = metrics.get(name) || { ok: 0, fail: 0, lastErr: '', blockedUntil: 0 };
   m.fail++;
   m.lastErr = String(err || '').slice(0, 300);
-  if (m.fail % 3 === 0) m.blockedUntil = Date.now() + 60000;
+  if (m.fail % 3 === 0) m.blockedUntil = Date.now() + 30000;
   metrics.set(name, m);
 }
 
@@ -29,12 +29,47 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ═══ Pollinations (أساسي — لا يحتاج مفتاح) ═══
+async function callPollinations(messages, options = {}) {
+  const wantJson = options.noJsonMode === false;
+  const msgs = wantJson
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
+    : messages;
+
+  const body = {
+    model: 'openai',
+    messages: msgs,
+    max_tokens: options.maxTokens || 2048,
+    temperature: options.temperature !== undefined ? options.temperature : 0.3
+  };
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(POLLINATIONS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error('Pollinations HTTP ' + res.status + ': ' + errText.slice(0, 200));
+    }
+    const data = await res.json();
+    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!text) throw new Error('Pollinations empty response');
+    return String(text);
+  } finally { clearTimeout(t); }
+}
+
+// ═══ Cloudflare (احتياطي) ═══
 async function callCloudflare(messages, options = {}) {
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error('CF credentials missing');
   const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/v1/chat/completions';
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }].concat(messages)
     : messages;
   const body = {
     model: CF_MODEL,
@@ -60,61 +95,32 @@ async function callCloudflare(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-async function callLLM7(messages, options = {}) {
-  const wantJson = options.noJsonMode === false;
-  const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
-    : messages;
-
-  const errors = [];
-  for (const model of LLM7_MODELS) {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 45000);
-    try {
-      const res = await fetch(LLM7_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages: msgs }),
-        signal: ctrl.signal
-      });
-      const rawText = await res.text();
-      if (!res.ok) { errors.push(model + ': HTTP ' + res.status); continue; }
-      const data = JSON.parse(rawText);
-      const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      if (text) return String(text);
-      errors.push(model + ': empty');
-    } catch (e) {
-      errors.push(model + ': ' + e.message.slice(0, 60));
-    } finally { clearTimeout(t); }
-  }
-  throw new Error('LLM7 all failed: ' + errors.join(' | '));
-}
-
-export function selectModel() { return 'cloudflare'; }
+export function selectModel() { return 'pollinations'; }
 
 export function availableModels() {
   return [
-    { name: 'cloudflare', model: CF_MODEL, role: 'primary' },
-    { name: 'llm7', model: LLM7_MODELS[0], role: 'fallback' }
+    { name: 'pollinations', model: 'openai', role: 'primary' },
+    { name: 'cloudflare', model: CF_MODEL, role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const providers = ['cloudflare', 'llm7'];
+  // Pollinations أولاً (لا يحتاج مفتاح)، Cloudflare احتياطي
+  const providers = ['pollinations', 'cloudflare'];
   const errors = [];
 
   for (const name of providers) {
     if (isBlocked(name)) { errors.push(name + ': BLOCKED'); continue; }
     try {
-      const fn = name === 'cloudflare' ? callCloudflare : callLLM7;
+      const fn = name === 'pollinations' ? callPollinations : callCloudflare;
       const result = await fn(messages, options);
       trackOk(name);
       return result;
     } catch (e) {
       trackFail(name, e.message);
-      errors.push(name + ': ' + e.message.slice(0, 100));
-      await sleep(300);
+      errors.push(name + ': ' + e.message.slice(0, 120));
+      await sleep(500);
     }
   }
   throw new Error('All providers failed → ' + errors.join(' || '));
