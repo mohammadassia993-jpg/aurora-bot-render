@@ -31,7 +31,8 @@
   #msg-body:focus { border-color: #a78bfa; outline: none; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .btn-primary:active { background: #4338ca; }
-  .reload { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; }
+  .reload-link { display: block; width: 100%; padding: 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 12px; font-weight: 600; text-align: center; text-decoration: none; }
+  .reload-link:active { background: #1d4ed8; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
@@ -112,33 +113,12 @@
   </div>
 </div>
 
-<button id="refresh-btn" class="reload">🔄 تحديث البيانات</button>
+<a href="?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr" class="reload-link">🔄 تحديث البيانات</a>
 
 <script src="/dashboard.js?v=11"></script>
 
 <script>
-// ═══════════════════════════════════════════════════════════
-// 1) زر التحديث — التقاط قبل dashboard.js
-// ═══════════════════════════════════════════════════════════
-(function () {
-  document.addEventListener('click', function (ev) {
-    var el = ev.target;
-    while (el && el !== document.body) {
-      if (el.id === 'refresh-btn') {
-        ev.preventDefault();
-        ev.stopPropagation();
-        ev.stopImmediatePropagation();
-        window.location.reload();
-        return false;
-      }
-      el = el.parentElement;
-    }
-  }, true); // capture = true
-})();
-
-// ═══════════════════════════════════════════════════════════
-// 2) المحافظ — كود مستقل
-// ═══════════════════════════════════════════════════════════
+// ═══ المحافظ — كود مستقل ═══
 (function () {
   var KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
@@ -200,7 +180,6 @@
       });
   };
 
-  // عند فتح تاب المحافظ → حمّل تلقائياً (capture لكي لا يمنعه dashboard.js)
   document.addEventListener('click', function (ev) {
     var el = ev.target;
     while (el && el !== document.body) {
