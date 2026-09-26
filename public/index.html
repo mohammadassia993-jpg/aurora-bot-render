@@ -6,7 +6,7 @@
 <title>عمالقة الصمت — لوحة التحكم</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
+  body { font-family: -apple-system, Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
   header { text-align: center; margin-bottom: 20px; padding: 12px; }
   header h1 { font-size: 22px; color: #a78bfa; margin-bottom: 6px; }
   header p { color: #94a3b8; font-size: 12px; }
@@ -31,6 +31,7 @@
   .balance-sym { font-size: 14px; color: #94a3b8; display: block; margin-top: 4px; font-weight: 500; }
   .addr-box { background: #0f172a; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; margin-bottom: 8px; color: #a5b4fc; line-height: 1.6; }
   .btn-copy { display: block; width: 100%; padding: 10px; background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
+  #diag { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 6px; margin: 6px 0; border-radius: 4px; white-space: pre-wrap; display: none; }
 </style>
 </head>
 <body>
@@ -39,7 +40,7 @@
   <p>لوحة تحكم الفريق — Silent Giants</p>
 </header>
 
-<div id="error" class="error" style="display:none"></div>
+<div id="diag"></div>
 
 <div class="tabs">
   <div class="tab active" data-tab="main">الرئيسية</div>
@@ -79,7 +80,7 @@
 <div class="panel" id="panel-wallets">
   <div class="card">
     <h2>💼 أرصدة المحافظ</h2>
-    <button id="wallets-refresh" class="btn-primary" type="button">🔄 تحديث الأرصدة</button>
+    <button id="wallets-refresh" class="btn-primary" onclick="loadWalletsNow()">🔄 تحديث الأرصدة</button>
   </div>
   <div id="wallets-output"><div class="card"><div class="empty">اضغط زر التحديث</div></div></div>
 </div>
@@ -94,78 +95,88 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// المحافظ — كود مستقل تماماً
+// نسخة بدائية — inline onclick + دالة عالمية
 // ═══════════════════════════════════════════════════════════
-(function() {
-  var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
-  window.__loadWallets = function() {
-    var out = document.getElementById('wallets-output');
-    if (!out) { return; }
-    out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
+function diag(msg) {
+  var d = document.getElementById('diag');
+  if (!d) return;
+  d.style.display = 'block';
+  d.textContent += msg + '\n';
+}
 
-    var url = '/api/wallets/balances?key=' + encodeURIComponent(TEAM_KEY);
+window.onerror = function(m, src, line) {
+  diag('ERR: ' + m + ' at ' + line);
+};
 
-    fetch(url, { cache: 'no-store' })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var ws = (data && data.wallets) || [];
-        if (!ws.length) {
-          out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
-          return;
-        }
-        var html = '';
-        for (var i = 0; i < ws.length; i++) {
-          var w = ws[i];
-          html += '<div class="card">';
-          html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
-          html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
-          html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
-          if (w.note) html += '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#fbbf24;">' + w.note + '</span></div>';
-          html += '<div class="addr-box">' + w.address + '</div>';
-          html += '</div>';
-        }
-        out.innerHTML = html;
-      })
-      .catch(function(e) {
-        out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
-      });
-  };
+function loadWalletsNow() {
+  diag('1- استُدعيت الدالة');
+  var out = document.getElementById('wallets-output');
+  if (!out) { diag('2- out مفقود'); return; }
+  diag('2- out موجود');
 
-  // ربط الزر — عدة طرق للاحتياط
-  function bind() {
-    var btn = document.getElementById('wallets-refresh');
-    if (btn) {
-      btn.onclick = function(ev) { if (ev) ev.preventDefault(); window.__loadWallets(); };
-    }
-  }
+  out.innerHTML = '<div class="card"><div class="empty">⏳ جاري الجلب...</div></div>';
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bind);
-  } else {
-    bind();
-  }
+  var url = '/api/wallets/balances?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
+  diag('3- fetch: ' + url);
 
-  // إعادة الربط كل ثانية لمدة 10 ثوانٍ (لأن dashboard.js قد يعيد البناء)
-  var tries = 0;
-  var timer = setInterval(function() {
-    bind();
-    tries++;
-    if (tries >= 10) clearInterval(timer);
-  }, 1000);
-
-  // عند فتح تاب المحافظ: حمّل تلقائياً
-  document.addEventListener('click', function(ev) {
-    var el = ev.target;
-    while (el && el !== document.body) {
-      if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
-        setTimeout(function() { bind(); window.__loadWallets(); }, 150);
+  fetch(url, { cache: 'no-store' })
+    .then(function(r) {
+      diag('4- HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data) {
+      diag('5- JSON keys: ' + Object.keys(data || {}).join(','));
+      var ws = (data && data.wallets) || [];
+      diag('6- wallets count: ' + ws.length);
+      if (!ws.length) {
+        out.innerHTML = '<div class="card"><div class="empty">لا بيانات</div></div>';
         return;
       }
-      el = el.parentElement;
+      var html = '';
+      for (var i = 0; i < ws.length; i++) {
+        var w = ws[i];
+        html += '<div class="card">';
+        html += '<h2>' + (w.network === 'TON' ? '💎 TON Network' : '🔵 Base Network') + '</h2>';
+        html += '<div class="balance-big">' + w.balance + '<span class="balance-sym">' + w.symbol + '</span></div>';
+        html += '<div class="stat"><span class="label">' + w.native + '</span><span class="value">' + w.nativeBalance + '</span></div>';
+        if (w.note) html += '<div class="stat"><span class="label">الحالة</span><span class="value" style="color:#fbbf24;">' + w.note + '</span></div>';
+        html += '<div class="addr-box">' + w.address + '</div>';
+        html += '</div>';
+      }
+      out.innerHTML = html;
+      diag('7- تم الرسم');
+    })
+    .catch(function(e) {
+      diag('X- خطأ: ' + e.message);
+      out.innerHTML = '<div class="card"><div class="error">❌ ' + e.message + '</div></div>';
+    });
+}
+
+// ربط إضافي (احتياط)
+document.addEventListener('click', function(ev) {
+  var el = ev.target;
+  while (el && el !== document.body) {
+    if (el.id === 'wallets-refresh') {
+      ev.preventDefault();
+      loadWalletsNow();
+      return;
     }
-  }, true);
-})();
+    el = el.parentElement;
+  }
+}, true);
+
+// عند فتح التاب — حمّل تلقائياً
+document.addEventListener('click', function(ev) {
+  var el = ev.target;
+  while (el && el !== document.body) {
+    if (el.getAttribute && el.getAttribute('data-tab') === 'wallets') {
+      setTimeout(loadWalletsNow, 200);
+      return;
+    }
+    el = el.parentElement;
+  }
+}, true);
 </script>
 </body>
 </html>
