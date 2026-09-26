@@ -48,67 +48,39 @@ function buildAgentPrompt(userMessage, ctx) {
     return `• ${t.name}\n  ${t.description}\n  params: {\n${params}\n  }`;
   }).join('\n\n');
 
-  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت". مهمتك تنفيذ أوامر القائد بدقة وأمان.
+  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت".
 
 ═══════════════ بيانات النظام ═══════════════
 ${JSON.stringify(ctx, null, 2)}
 
-═══════════════ الأدوات المتاحة ═══════════════
+═══════════════ الأدوات ═══════════════
 ${toolsList}
 
-═══════════════ شكل الرد المطلوب ═══════════════
-يجب أن يكون ردّك JSON واحد فقط. لا نص قبله، لا نص بعده، لا markdown، لا \`\`\`.
+═══════════════ شكل الرد ═══════════════
+JSON واحد فقط. لا نص قبله أو بعده.
 
-شكل 1 — تنفيذ أداة:
-{"action":"tool","tool":"اسم_الأداة","params":{...}}
+تنفيذ أداة:
+{"action":"tool","tool":"name","params":{...}}
 
-شكل 2 — إنهاء المهمة:
-{"action":"final","text":"الرد النهائي بالعربية"}
+إنهاء:
+{"action":"final","text":"الرد النهائي"}
 
-═══════════════ أمثلة ═══════════════
+═══════════════ قواعد github_edit_file ═══════════════
+1. search نص عادي — لا regex (لا ^ لا $ لا .* لا \\d)
+2. search يجب أن يطابق الملف حرفياً (انسخ السطر كما هو)
+3. search فريد
+4. replace كامل السطر الجديد
 
-مثال 1 — اقرأ config.js:
-{"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
-
-مثال 2 — أنهِ:
-{"action":"final","text":"قرأت الملف. يحتوي على..."}
-
-مثال 3 — عدّل سطراً:
-{"action":"tool","tool":"github_edit_file","params":{"path":"src/wallets.js","search":"// wallets module v2","replace":"// wallets module v3","message":"chore: update comment"}}
-
-═══════════════ 🚨 قواعد github_edit_file (مهم جداً) ═══════════════
-
-1. **search نص عادي — لا regex**:
-   - ❌ ممنوع: "^// wallets"  أو  "$"  أو  "\\d+"  أو  ".*"
-   - ✅ الصحيح: "// wallets module v2"  (نسخة حرفية من الملف)
-
-2. **search يجب أن يطابق حرفياً** ما في الملف (حتى المسافات والرموز).
-   - قبل التعديل، اقرأ الملف بـ read_file وتأكد من السطر بالضبط.
-   - انسخ السطر كما هو (بدون ^ أو $ أو أي إضافات).
-
-3. **search فريد** — لو السطر يظهر أكثر من مرة، أضف سياقاً (أسطر قبله/بعده) ليكون فريداً.
-
-4. **replace يحتوي على السطر الجديد كاملاً**، لا جزء منه فقط.
-
-═══════════════ 🚨 قواعد التحقق (إلزامية) ═══════════════
-
-5. **قبل أي تعديل**: اقرأ الملف (read_file) لترى السطر الفعلي.
-
-6. **بعد نجاح github_edit_file**:
-   - اقرأ الملف مرة أخرى بـ read_file على نفس المسار.
-   - تحقق أن التعديل طُبِّق بشكل صحيح.
-   - إذا سليم → final مع ملخص.
-   - إذا خطأ → أصلحه.
-
-7. **بعد نجاح write_file أو render_env_set** → توقف فوراً وأعد final.
+═══════════════ قواعد التحقق ═══════════════
+5. قبل التعديل: اقرأ الملف (read_file)
+6. بعد التعديل: التحقق تلقائي — لا تحتاج لقراءة الملف يدوياً. النظام سيقرؤه تلقائياً.
+7. بعد نجاح write_file أو render_env_set → final فوراً
 
 ═══════════════ قواعد عامة ═══════════════
-
-8. JSON واحد فقط — لا نص إضافي.
+8. JSON فقط.
 9. خطوة واحدة في كل رد.
-10. لا تُكرر نفس الأداة بنفس المعاملات.
-11. لا تختلق معلومات.
-12. عند الفشل، جرّب زاوية مختلفة.
+10. لا تكرر نفس الأداة بنفس المعاملات.
+11. عند الفشل، جرّب زاوية مختلفة.
 
 ═══════════════ أمر القائد ═══════════════
 ${userMessage}
@@ -172,7 +144,7 @@ function formatToolResult(toolName, toolResult, originalParams) {
   }
   if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 60).map(v => '• ' + v.key).join('\n'); }
   if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}`;
-  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}\n\n⚠️ الآن اقرأ الملف للتحقق (read_file على ${data.path})`;
+  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}`;
   if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}\n${JSON.stringify(data.data || {}).slice(0, 500)}`;
   if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
   if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
@@ -183,16 +155,42 @@ function formatToolResult(toolName, toolResult, originalParams) {
   return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 800)}`;
 }
 
+async function autoVerify(filePath, toolResults) {
+  // قراءة تلقائية للملف بعد التعديل
+  try {
+    const res = await executeTool('read_file', { file_path: filePath });
+    toolResults.push({ tool: 'read_file', result: res, params: { file_path: filePath, auto: true } });
+    return res;
+  } catch (e) {
+    toolResults.push({ tool: 'read_file', result: { ok: false, error: e.message }, params: { file_path: filePath, auto: true } });
+    return { ok: false, error: e.message };
+  }
+}
+
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
   const toolResults = [];
   let consecutiveFailures = 0;
   const executedOps = new Set();
   let lastCriticalTool = null;
-  let lastEditFile = null;
+  let pendingAutoVerify = null; // المسار الذي يحتاج تحققاً
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
+
+    // 🆕 التحقق التلقائي يحدث قبل استدعاء LLM التالي
+    if (pendingAutoVerify) {
+      const fp = pendingAutoVerify;
+      pendingAutoVerify = null;
+      console.log('[agent] auto-verify: ' + fp);
+      await autoVerify(fp, toolResults);
+      // لا نحتاج استدعاء LLM — سنضيف رسالة للنموذج فقط
+      const last = toolResults[toolResults.length - 1];
+      const preview = last.result?.ok ? String(last.result.result?.content || '').slice(0, 500) : 'فشل';
+      conversation += `\n\n🔎 تحقق تلقائي من ${fp}:\n${preview}\n\nالآن أنهِ المهمة بـ final.`;
+      continue;
+    }
+
     let raw;
     try { raw = await callModel('aurora', conversation, { noJsonMode: false }); }
     catch (e) { console.error('[agent] step ' + step + ' LLM: ' + e.message); continue; }
@@ -202,9 +200,13 @@ async function runAgentLoop(userMessage, ctx) {
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
       console.warn('[agent] step ' + step + ' invalid JSON. Preview: ' + String(raw).slice(0, 200));
-      conversation += `\n\n⚠️ ردك السابق لم يكن JSON صالحاً. أعد بـ JSON فقط بدون نص.\n\nردّك JSON الآن:`;
+      conversation += `\n\n⚠️ ردك السابق لم يكن JSON صالحاً. أعد بـ JSON فقط.\n\nردّك JSON الآن:`;
       consecutiveFailures++;
-      if (consecutiveFailures >= 4) { console.error('[agent] too many JSON failures'); return null; }
+      if (consecutiveFailures >= 4) {
+        console.error('[agent] too many JSON failures');
+        if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
+        return null;
+      }
       continue;
     }
 
@@ -214,7 +216,7 @@ async function runAgentLoop(userMessage, ctx) {
       console.log('[agent] step ' + step + ': tool=' + parsed.tool);
 
       const opKey = parsed.tool + '|' + JSON.stringify(parsed.params || {});
-      if (executedOps.has(opKey)) {
+      if (executedOps.has(opKey) && parsed.tool !== 'github_edit_file') {
         console.warn('[agent] duplicate op → force stop');
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
@@ -225,15 +227,17 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
 
+      // 🆕 بعد github_edit_file ناجح → جدولة تحقق تلقائي
       if (parsed.tool === 'github_edit_file' && toolResult.ok) {
-        lastEditFile = parsed.params?.path || parsed.params?.file_path || null;
+        const fp = parsed.params?.path || parsed.params?.file_path;
+        if (fp) {
+          pendingAutoVerify = fp;
+          conversation += `\n\n✅ تم تعديل ${fp} (${toolResult.result?.replacements || 1} استبدال)\n🔗 ${toolResult.result?.commitUrl || ''}\n\n⚠️ سيتم التحقق تلقائياً في الخطوة التالية.`;
+          continue;
+        }
       }
 
-      if (parsed.tool === 'read_file' && lastEditFile) {
-        const readPath = parsed.params?.file_path || parsed.params?.path;
-        if (readPath === lastEditFile) lastEditFile = null;
-      }
-
+      // أدوات حرجة (write_file / render_env_set)
       if (toolResult.ok && CRITICAL_TOOLS.has(parsed.tool)) {
         if (lastCriticalTool === parsed.tool) {
           return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
@@ -245,19 +249,16 @@ async function runAgentLoop(userMessage, ctx) {
       const txt = JSON.stringify(toolResult).slice(0, 2500);
       const emoji = toolResult.ok ? '✅' : '❌';
       let hint = '';
-      if (parsed.tool === 'github_edit_file' && toolResult.ok && lastEditFile) {
-        hint = `\n\n⚠️ إلزامي: اقرأ الملف الآن بـ read_file على "${lastEditFile}" للتحقق.`;
-      }
       if (parsed.tool === 'github_edit_file' && !toolResult.ok) {
-        hint = `\n\n💡 تذكير: search نص عادي (بدون ^ $ \\d .*). انسخ السطر من الملف حرفياً.`;
+        hint = `\n\n💡 تذكير: search نص عادي حرفي (بدون ^ $ .* \\d). انسخ السطر من الملف.`;
       }
       conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}${hint}\n\nاستمر: أعد JSON.`;
       continue;
     }
 
     if (parsed.action === 'final') {
-      if (lastEditFile) {
-        conversation += `\n\n⚠️ لا يمكن الإنهاء قبل التحقق من ${lastEditFile}. اقرأه بـ read_file.\n\nردّك JSON الآن:`;
+      if (pendingAutoVerify) {
+        conversation += `\n\n⚠️ انتظر — التحقق التلقائي قادم. أعد final في الخطوة التالية.`;
         continue;
       }
       const summary = cleanText(parsed.text || '');
