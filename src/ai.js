@@ -1,9 +1,5 @@
-// ai.js — Pollinations.AI (أساسي مجاني بلا مفتاح) + Cloudflare (احتياطي)
-const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
-const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-
-// Pollinations — لا يحتاج مفتاح، لا تسجيل، لا دفع
+// ai.js — KeylessAI (أساسي مجاني بلا مفتاح) + Pollinations (احتياطي)
+const KEYLESS_URL = 'https://keylessai.thryx.workers.dev/v1/chat/completions';
 const POLLINATIONS_URL = 'https://text.pollinations.ai/openai';
 
 const metrics = new Map();
@@ -29,15 +25,15 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ═══ Pollinations (أساسي — لا يحتاج مفتاح) ═══
-async function callPollinations(messages, options = {}) {
+// ═══ KeylessAI (أساسي — لا يحتاج مفتاح) ═══
+async function callKeyless(messages, options = {}) {
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
     ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
     : messages;
 
   const body = {
-    model: 'openai',
+    model: 'gpt-4o',
     messages: msgs,
     max_tokens: options.maxTokens || 2048,
     temperature: options.temperature !== undefined ? options.temperature : 0.3
@@ -46,7 +42,41 @@ async function callPollinations(messages, options = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
-    const res = await fetch(POLLINATIONS_URL, {
+    const res = await fetch(KEYLESS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error('Keyless HTTP ' + res.status + ': ' + errText.slice(0, 200));
+    }
+    const data = await res.json();
+    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!text) throw new Error('Keyless empty response');
+    return String(text);
+  } finally { clearTimeout(t); }
+}
+
+// ═══ Pollinations (احتياطي) ═══
+async function callPollinations(messages, options = {}) {
+  const wantJson = options.noJsonMode === false;
+  const msgs = wantJson
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
+    : messages;
+
+  const body = {
+    model: 'mistral',
+    messages: msgs,
+    max_tokens: options.maxTokens || 2048,
+    temperature: options.temperature !== undefined ? options.temperature : 0.3
+  };
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(POLLINATIONS_URL + '?referrer=silent-giants', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -63,57 +93,24 @@ async function callPollinations(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-// ═══ Cloudflare (احتياطي) ═══
-async function callCloudflare(messages, options = {}) {
-  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error('CF credentials missing');
-  const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/v1/chat/completions';
-  const wantJson = options.noJsonMode === false;
-  const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }].concat(messages)
-    : messages;
-  const body = {
-    model: CF_MODEL,
-    messages: msgs,
-    max_tokens: options.maxTokens || 2048,
-    temperature: options.temperature !== undefined ? options.temperature : 0.3
-  };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + CF_API_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const rawText = await res.text();
-    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + rawText.slice(0, 200));
-    const data = JSON.parse(rawText);
-    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('empty');
-    return String(text);
-  } finally { clearTimeout(t); }
-}
-
-export function selectModel() { return 'pollinations'; }
+export function selectModel() { return 'keyless'; }
 
 export function availableModels() {
   return [
-    { name: 'pollinations', model: 'openai', role: 'primary' },
-    { name: 'cloudflare', model: CF_MODEL, role: 'fallback' }
+    { name: 'keyless', model: 'gpt-4o', role: 'primary' },
+    { name: 'pollinations', model: 'mistral', role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  // Pollinations أولاً (لا يحتاج مفتاح)، Cloudflare احتياطي
-  const providers = ['pollinations', 'cloudflare'];
+  const providers = ['keyless', 'pollinations'];
   const errors = [];
 
   for (const name of providers) {
     if (isBlocked(name)) { errors.push(name + ': BLOCKED'); continue; }
     try {
-      const fn = name === 'pollinations' ? callPollinations : callCloudflare;
+      const fn = name === 'keyless' ? callKeyless : callPollinations;
       const result = await fn(messages, options);
       trackOk(name);
       return result;
