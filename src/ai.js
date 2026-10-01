@@ -1,4 +1,4 @@
-// ai.js — Cloudflare (أساسي، رصيده عاد) + Pollinations (احتياطي)
+// ai.js — Cloudflare (أساسي) + Pollinations (احتياطي)
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -32,7 +32,7 @@ async function callCloudflare(messages, options = {}) {
   const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/v1/chat/completions';
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown.' }].concat(messages)
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no explanation.' }].concat(messages)
     : messages;
   const body = { model: CF_MODEL, messages: msgs, max_tokens: options.maxTokens || 2048 };
   const ctrl = new AbortController();
