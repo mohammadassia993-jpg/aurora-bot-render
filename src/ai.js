@@ -57,7 +57,7 @@ async function callGitHubModels(messages, options = {}) {
       signal: ctrl.signal
     });
     const rawText = await res.text();
-    if (!res.ok) throw new Error('GH ' + res.status + ': ' + rawText.slice(0, 150));
+    if (!res.ok) throw new Error('GH ' + res.status + ': ' + rawText.slice(0, 200));
     const data = JSON.parse(rawText);
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!text) throw new Error('GH empty');
@@ -81,7 +81,7 @@ async function callPollinations(messages, options = {}) {
       signal: ctrl.signal
     });
     const rawText = await res.text();
-    if (!res.ok) throw new Error('Poll ' + res.status + ': ' + rawText.slice(0, 100));
+    if (!res.ok) throw new Error('Poll ' + res.status + ': ' + rawText.slice(0, 150));
     const data = JSON.parse(rawText);
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!text) throw new Error('Poll empty');
@@ -140,7 +140,9 @@ export async function callModel(agent, prompt, options = {}) {
       return result;
     } catch (e) {
       trackFail(name, e.message);
-      errors.push(name + ':' + e.message.slice(0, 80));
+      // ✅ إعادة تسجيل الأخطاء — لنعرف السبب الحقيقي
+      console.error('[ai] ' + name + ' failed: ' + e.message);
+      errors.push(name + ':' + e.message.slice(0, 120));
       await sleep(300);
     }
   }
