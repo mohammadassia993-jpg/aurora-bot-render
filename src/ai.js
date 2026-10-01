@@ -1,9 +1,7 @@
-// ai.js — GitHub Models (أساسي) + Pollinations + LLM7
+// ai.js — GitHub Models (Azure endpoint الصحيح)
 const GH_TOKEN = process.env.GITHUB_MODELS_TOKEN || '';
-const GH_URL = 'https://models.github.ai/inference/chat/completions';
+const GH_URL = 'https://models.inference.ai.azure.com/chat/completions';
 const GH_MODEL = 'gpt-4o-mini';
-
-const POLLINATIONS_URL = 'https://text.pollinations.ai/v1/chat/completions';
 
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
 const LLM7_MODELS = ['gpt-4o', 'gpt-4.1-nano', 'deepseek-chat'];
@@ -65,30 +63,6 @@ async function callGitHubModels(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-async function callPollinations(messages, options = {}) {
-  const wantJson = options.noJsonMode === false;
-  const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }].concat(messages)
-    : messages;
-  const body = { model: 'openai', messages: msgs, max_tokens: options.maxTokens || 2048, referrer: 'silent-giants' };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(POLLINATIONS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const rawText = await res.text();
-    if (!res.ok) throw new Error('Poll ' + res.status + ': ' + rawText.slice(0, 150));
-    const data = JSON.parse(rawText);
-    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('Poll empty');
-    return String(text);
-  } finally { clearTimeout(t); }
-}
-
 async function callLLM7(messages, options = {}) {
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
@@ -122,25 +96,23 @@ export function selectModel() { return 'github'; }
 export function availableModels() {
   return [
     { name: 'github', model: GH_MODEL, role: 'primary' },
-    { name: 'pollinations', model: 'openai', role: 'fallback1' },
-    { name: 'llm7', model: LLM7_MODELS[0], role: 'fallback2' }
+    { name: 'llm7', model: LLM7_MODELS[0], role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const providers = ['github', 'pollinations', 'llm7'];
+  const providers = ['github', 'llm7'];
   const errors = [];
   for (const name of providers) {
     if (isBlocked(name)) { errors.push(name + ':BLOCKED'); continue; }
     try {
-      const fn = name === 'github' ? callGitHubModels : (name === 'pollinations' ? callPollinations : callLLM7);
+      const fn = name === 'github' ? callGitHubModels : callLLM7;
       const result = await fn(messages, options);
       trackOk(name);
       return result;
     } catch (e) {
       trackFail(name, e.message);
-      // ✅ إعادة تسجيل الأخطاء — لنعرف السبب الحقيقي
       console.error('[ai] ' + name + ' failed: ' + e.message);
       errors.push(name + ':' + e.message.slice(0, 120));
       await sleep(300);
