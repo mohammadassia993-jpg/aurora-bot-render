@@ -1,9 +1,7 @@
-// ai.js — Cloudflare + Pollinations + LLM7 (ثلاثة مستويات)
-const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
-const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-const POLLINATIONS_URL = 'https://text.pollinations.ai/openai';
+// ai.js — Pollinations (endpoint الجديد) + LLM7
+const POLLINATIONS_URL = 'https://text.pollinations.ai/v1/chat/completions';
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
+const LLM7_MODELS = ['gpt-4o', 'gpt-4.1-nano', 'deepseek-chat', 'mistral-small-latest', 'qwen-2.5-72b-instruct'];
 
 const metrics = new Map();
 
@@ -17,7 +15,7 @@ function trackFail(name, err) {
   const m = metrics.get(name) || { ok: 0, fail: 0, lastErr: '', blockedUntil: 0 };
   m.fail++;
   m.lastErr = String(err || '').slice(0, 300);
-  if (m.fail % 2 === 0) m.blockedUntil = Date.now() + 30000;
+  if (m.fail % 2 === 0) m.blockedUntil = Date.now() + 20000;
   metrics.set(name, m);
 }
 
@@ -28,50 +26,30 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function callCloudflare(messages, options = {}) {
-  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error('CF credentials missing');
-  const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/v1/chat/completions';
+async function callPollinations(messages, options = {}) {
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
     ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown.' }].concat(messages)
     : messages;
-  const body = { model: CF_MODEL, messages: msgs, max_tokens: options.maxTokens || 2048 };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + CF_API_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const rawText = await res.text();
-    if (!res.ok) throw new Error('CF ' + res.status + ': ' + rawText.slice(0, 150));
-    const data = JSON.parse(rawText);
-    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('CF empty');
-    return String(text);
-  } finally { clearTimeout(t); }
-}
 
-async function callPollinations(messages, options = {}) {
-  const wantJson = options.noJsonMode === false;
-  const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }].concat(messages)
-    : messages;
-  // ✅ النموذج الجديد: openai (mistral لم يعد مدعوماً)
-  const body = { model: 'openai', messages: msgs, max_tokens: options.maxTokens || 2048 };
+  const body = {
+    model: 'openai',
+    messages: msgs,
+    max_tokens: options.maxTokens || 2048,
+    referrer: 'silent-giants'
+  };
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
-    const res = await fetch(POLLINATIONS_URL + '?referrer=silent-giants', {
+    const res = await fetch(POLLINATIONS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
     const rawText = await res.text();
-    if (!res.ok) throw new Error('Poll ' + res.status + ': ' + rawText.slice(0, 150));
+    if (!res.ok) throw new Error('Poll ' + res.status + ': ' + rawText.slice(0, 100));
     const data = JSON.parse(rawText);
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!text) throw new Error('Poll empty');
@@ -84,53 +62,59 @@ async function callLLM7(messages, options = {}) {
   const msgs = wantJson
     ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }].concat(messages)
     : messages;
-  const body = { model: 'gpt-4o-mini', messages: msgs, max_tokens: options.maxTokens || 2048 };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(LLM7_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const rawText = await res.text();
-    if (!res.ok) throw new Error('LLM7 ' + res.status + ': ' + rawText.slice(0, 150));
-    const data = JSON.parse(rawText);
-    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('LLM7 empty');
-    return String(text);
-  } finally { clearTimeout(t); }
+
+  const errors = [];
+  for (const model of LLM7_MODELS) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 45000);
+    try {
+      const res = await fetch(LLM7_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages: msgs, max_tokens: options.maxTokens || 2048 }),
+        signal: ctrl.signal
+      });
+      const rawText = await res.text();
+      if (!res.ok) { errors.push(model + ':' + res.status); continue; }
+      const data = JSON.parse(rawText);
+      const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if (text) return String(text);
+      errors.push(model + ':empty');
+    } catch (e) {
+      errors.push(model + ':' + e.message.slice(0, 40));
+    } finally { clearTimeout(t); }
+  }
+  throw new Error('LLM7 all failed: ' + errors.join('|'));
 }
 
-export function selectModel() { return 'cloudflare'; }
+export function selectModel() { return 'pollinations'; }
 
 export function availableModels() {
   return [
-    { name: 'cloudflare', model: CF_MODEL, role: 'primary' },
-    { name: 'pollinations', model: 'openai', role: 'fallback1' },
-    { name: 'llm7', model: 'gpt-4o-mini', role: 'fallback2' }
+    { name: 'pollinations', model: 'openai', role: 'primary' },
+    { name: 'llm7', model: LLM7_MODELS[0], role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const providers = ['cloudflare', 'pollinations', 'llm7'];
+  const providers = ['pollinations', 'llm7'];
   const errors = [];
+
   for (const name of providers) {
-    if (isBlocked(name)) { errors.push(name + ': BLOCKED'); continue; }
+    if (isBlocked(name)) { errors.push(name + ':BLOCKED'); continue; }
     try {
-      const fn = name === 'cloudflare' ? callCloudflare : (name === 'pollinations' ? callPollinations : callLLM7);
+      const fn = name === 'pollinations' ? callPollinations : callLLM7;
       const result = await fn(messages, options);
       trackOk(name);
       return result;
     } catch (e) {
       trackFail(name, e.message);
-      errors.push(name + ': ' + e.message.slice(0, 100));
-      await sleep(400);
+      errors.push(name + ':' + e.message.slice(0, 80));
+      await sleep(300);
     }
   }
-  throw new Error('All providers failed → ' + errors.join(' || '));
+  throw new Error('All failed → ' + errors.join(' || '));
 }
 
 export function modelPerformance() {
