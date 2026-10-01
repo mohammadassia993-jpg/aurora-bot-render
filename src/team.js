@@ -19,8 +19,9 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 10;
-const STEP_DELAY_MS = 700;
+// ✅ تقليص: 5 خطوات بدل 10
+const MAX_AGENT_STEPS = 5;
+const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
@@ -28,61 +29,40 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function collectSystemSnapshot() {
   try {
-    const health = db.prepare(`SELECT component, healthy, detail FROM health_checks WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)`).all();
-    const tasksByStatus = db.prepare(`SELECT status, COUNT(*) c FROM tasks GROUP BY status`).all();
-    const recentErrors = db.prepare(`SELECT scope, error_type, last_seen FROM errors WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours') ORDER BY last_seen DESC LIMIT 5`).all();
-    const pendingApprovals = db.prepare(`SELECT COUNT(*) c FROM approvals WHERE state='pending'`).get().c;
+    const health = db.prepare(`SELECT component, healthy FROM health_checks WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)`).all();
     return {
-      time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
-      health: { total: health.length, healthy: health.filter(h => h.healthy === 1).length },
-      tasks: tasksByStatus, errors: recentErrors, approvals: pendingApprovals
+      time: new Date().toISOString().slice(0, 16).replace('T', ' '),
+      healthy: health.filter(h => h.healthy === 1).length,
+      total: health.length
     };
   } catch (e) { return { error: e.message }; }
 }
 
+// ✅ prompt مختصر جداً — من ~4000 tokens إلى ~800
 function buildAgentPrompt(userMessage, ctx) {
-  const toolsList = AVAILABLE_TOOLS.map(t => {
-    const params = Object.entries(t.params || {}).map(([k, v]) => `      "${k}": ${v}`).join(',\n');
-    return `• ${t.name}\n  ${t.description}\n  params: {\n${params}\n  }`;
-  }).join('\n\n');
+  const toolsList = AVAILABLE_TOOLS.map(t => `• ${t.name}: ${t.description}`).join('\n');
 
-  return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت".
+  return `أنت أورورا — منسقة فريق عمالقة الصمت.
 
-═══ حالة النظام ═══
-${JSON.stringify(ctx, null, 2)}
+حالة النظام: ${ctx.healthy}/${ctx.total} سليمة.
 
-═══ الأدوات المتاحة ═══
+الأدوات:
 ${toolsList}
 
-═══ شكل الرد ═══
-JSON واحد فقط. لا نص قبله أو بعده.
+الشكل المطلوب — JSON واحد فقط:
+- تنفيذ: {"action":"tool","tool":"name","params":{...}}
+- إنهاء: {"action":"final","text":"الرد"}
 
-تنفيذ أداة:
-{"action":"tool","tool":"name","params":{...}}
+قواعد:
+1. اقرأ الملف قبل تعديله
+2. search في github_edit_file = نص حرفي (لا regex)
+3. بعد github_edit_file: التحقق تلقائي — لا تكرر
+4. لا تكرر نفس الأداة بنفس المعاملات
 
-إنهاء:
-{"action":"final","text":"الرد النهائي"}
-
-═══ قواعد github_edit_file ═══
-1. search نص عادي حرفي — لا regex
-2. search يجب أن يطابق الملف بالحرف
-3. search فريد (أضف سياقاً إن لزم)
-4. replace كامل السطر الجديد
-
-═══ قواعد التحقق ═══
-5. قبل التعديل: read_file أولاً
-6. بعد github_edit_file: التحقق تلقائي (لا تكرر read_file يدوياً)
-7. بعد write_file / render_env_set: final فوراً
-
-═══ قواعد عامة ═══
-8. JSON فقط
-9. خطوة واحدة في كل رد
-10. لا تكرر نفس الأداة بنفس المعاملات
-
-═══ أمر القائد ═══
+أمر القائد:
 ${userMessage}
 
-ردّك JSON الآن:`;
+JSON:`;
 }
 
 function parseAgentResponse(raw) {
@@ -116,82 +96,39 @@ function cleanText(text) {
   return c.split('\n').filter(l => l.trim()).join('\n').trim();
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 المراجع — يفحص الرد النهائي قبل إرساله للقائد
-// ═══════════════════════════════════════════════════════════
-async function runReviewStep(finalText, originalTask, toolResults) {
-  const toolsSummary = toolResults.map(t => t.tool).join(', ') || 'لا أدوات';
-  const reviewPrompt = `أنت "المراجع" في فريق عمالقة الصمت — مهمتك فحص رد "أورورا" قبل تسليمه للقائد.
-
-═══ المهمة الأصلية ═══
-${originalTask}
-
-═══ الأدوات التي استُخدمت ═══
-${toolsSummary}
-
-═══ الرد المقترح ═══
-${String(finalText).slice(0, 2000)}
-
-═══ مهمتك ═══
-افحص الرد بصرامة:
-1. هل يجيب على المهمة الأصلية فعلاً؟ (لا انحراف)
-2. هل يحتوي على معلومات مُختلقة؟ (لا هلوسة)
-3. هل التنفيذ صحيح تقنياً؟ (لا أخطاء)
-4. هل هناك نقص في التحقق؟ (لم يقرأ ملفاً، لم يختبر، إلخ)
-
-أجب بـ JSON واحد فقط:
-{"verdict":"ok" أو "revise","note":"ملاحظة قصيرة إن كان revise"}
-
-لا نص خارج JSON.`;
-
-  try {
-    const raw = await callModel('reviewer', reviewPrompt, { noJsonMode: false });
-    const parsed = parseAgentResponse(raw);
-    if (!parsed || !parsed.verdict) return { verdict: 'ok' };
-    return {
-      verdict: parsed.verdict === 'revise' ? 'revise' : 'ok',
-      note: String(parsed.note || '').slice(0, 200)
-    };
-  } catch (e) {
-    console.error('[review] failed: ' + e.message);
-    return { verdict: 'ok' }; // لا نُعطّل المهمة لو فشل المراجع
-  }
-}
-
 function formatToolResult(toolName, toolResult, originalParams) {
-  if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 500)}`;
+  if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 300)}`;
   const data = toolResult.result;
   if (toolName === 'grep_files') {
     if (!data?.results?.length) return `🔍 لا نتائج لـ "${originalParams?.pattern}"`;
-    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count} نتيجة):`, ''];
-    for (const r of data.results.slice(0, 20)) { lines.push(`📄 ${r.file}:${r.line}`); lines.push(`   ${String(r.text).slice(0, 150)}`); }
+    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count}):`];
+    for (const r of data.results.slice(0, 10)) lines.push(`📄 ${r.file}:${r.line} → ${String(r.text).slice(0, 120)}`);
     return lines.join('\n');
   }
-  if (toolName === 'read_file') { if (!data?.content) return '📄 فارغ'; return `📄 ${data.path || ''} (${data.total_lines || '?'} سطر):\n\`\`\`\n${String(data.content).slice(0, 2500)}\n\`\`\``; }
+  if (toolName === 'read_file') { if (!data?.content) return '📄 فارغ'; return `📄 ${data.path || ''} (${data.total_lines || '?'}):\n${String(data.content).slice(0, 1500)}`; }
   if (toolName === 'read_many_files') {
     if (!data?.files) return '📄 لا ملفات';
-    const lines = [`📚 ${data.count} ملف:`, ''];
-    for (const f of data.files) { if (f.error) lines.push(`❌ ${f.file}: ${f.error}`); else { lines.push(`📄 ${f.file} (${f.size}B):`); lines.push(`\`\`\`\n${String(f.content).slice(0, 1000)}\n\`\`\``); lines.push(''); } }
+    const lines = [`📚 ${data.count} ملف:`];
+    for (const f of data.files) { if (f.error) lines.push(`❌ ${f.file}: ${f.error}`); else lines.push(`📄 ${f.file} (${f.size}B):\n${String(f.content).slice(0, 600)}`); }
     return lines.join('\n');
   }
-  if (toolName === 'list_files') { if (!data?.items) return '📂 فارغ'; return `📂 ${data.dir} (${data.count}):\n` + data.items.slice(0, 60).map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.path}`).join('\n'); }
+  if (toolName === 'list_files') { if (!data?.items) return '📂 فارغ'; return `📂 ${data.dir} (${data.count}):\n` + data.items.slice(0, 40).map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.path}`).join('\n'); }
   if (toolName === 'web_search') {
     if (!data?.results?.length) return `🌐 لا نتائج لـ "${originalParams?.query}"`;
-    const lines = [`🌐 "${originalParams?.query}":`, ''];
-    for (let i = 0; i < data.results.length; i++) { const r = data.results[i]; lines.push(`${i+1}. ${r.title}`); if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 200)}`); if (r.url) lines.push(`   🔗 ${r.url}`); lines.push(''); }
+    const lines = [`🌐 "${originalParams?.query}":`];
+    for (let i = 0; i < Math.min(data.results.length, 5); i++) { const r = data.results[i]; lines.push(`${i+1}. ${r.title}`); if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 150)}`); if (r.url) lines.push(`   🔗 ${r.url}`); }
     return lines.join('\n');
   }
-  if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 60).map(v => '• ' + v.key).join('\n'); }
+  if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 40).map(v => '• ' + v.key).join('\n'); }
   if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}`;
-  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}`;
+  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements})\n🔗 ${data.commitUrl}`;
   if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}`;
   if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
   if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
-  if (toolName === 'platform_fetch') return `🌐 ${data.status}`;
   if (toolName === 'send_telegram') return `✅ رسالة (id=${data.message_id})`;
   if (toolName === 'write_file') return `💾 ${data.path} (${data.bytes}B)`;
-  if (toolName === 'shell_exec') return `⚙️\n\`\`\`\n${(data.stdout || data.stderr || 'ok').slice(0, 600)}\n\`\`\``;
-  return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 500)}`;
+  if (toolName === 'shell_exec') return `⚙️\n${(data.stdout || data.stderr || 'ok').slice(0, 400)}`;
+  return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 300)}`;
 }
 
 async function autoVerify(filePath, toolResults) {
@@ -205,6 +142,7 @@ async function autoVerify(filePath, toolResults) {
   }
 }
 
+// ✅ حذف مرحلة المراجع — توفير 50% من الاستدعاءات
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
   const toolResults = [];
@@ -222,8 +160,8 @@ async function runAgentLoop(userMessage, ctx) {
       console.log('[agent] auto-verify: ' + fp);
       await autoVerify(fp, toolResults);
       const last = toolResults[toolResults.length - 1];
-      const preview = last.result?.ok ? String(last.result.result?.content || '').slice(0, 500) : 'فشل';
-      conversation += `\n\n🔎 تحقق تلقائي من ${fp}:\n${preview}\n\nالآن أنهِ المهمة بـ final.`;
+      const preview = last.result?.ok ? String(last.result.result?.content || '').slice(0, 400) : 'فشل';
+      conversation += `\n\n🔎 تحقق تلقائي:\n${preview}\n\nأنهِ المهمة بـ final.`;
       continue;
     }
 
@@ -235,9 +173,9 @@ async function runAgentLoop(userMessage, ctx) {
 
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
-      conversation += `\n\n⚠️ ردك السابق لم يكن JSON صالحاً. أعد بـ JSON فقط.\n\nردّك JSON الآن:`;
+      conversation += `\n\n⚠️ أعد JSON فقط:`;
       consecutiveFailures++;
-      if (consecutiveFailures >= 4) {
+      if (consecutiveFailures >= 3) {
         if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
         return null;
       }
@@ -262,7 +200,7 @@ async function runAgentLoop(userMessage, ctx) {
         const fp = parsed.params?.path || parsed.params?.file_path;
         if (fp) {
           pendingAutoVerify = fp;
-          conversation += `\n\n✅ تم تعديل ${fp} (${toolResult.result?.replacements || 1} استبدال)\n⚠️ سيتم التحقق تلقائياً في الخطوة التالية.`;
+          conversation += `\n\n✅ تم تعديل ${fp}. تحقق تلقائي في الخطوة التالية.`;
           continue;
         }
       }
@@ -275,32 +213,19 @@ async function runAgentLoop(userMessage, ctx) {
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
 
-      const txt = JSON.stringify(toolResult).slice(0, 2500);
+      const txt = JSON.stringify(toolResult).slice(0, 1500);
       const emoji = toolResult.ok ? '✅' : '❌';
-      let hint = '';
-      if (parsed.tool === 'github_edit_file' && !toolResult.ok) {
-        hint = `\n\n💡 تذكير: search نص عادي حرفي (بدون ^ $ .* \\d). انسخ السطر من الملف.`;
-      }
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}${hint}\n\nاستمر: أعد JSON.`;
+      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nاستمر بـ JSON:`;
       continue;
     }
 
     if (parsed.action === 'final') {
       if (pendingAutoVerify) {
-        conversation += `\n\n⚠️ انتظر — التحقق التلقائي قادم.`;
+        conversation += `\n\n⚠️ انتظر التحقق التلقائي.`;
         continue;
       }
       const summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
-
-      // 🆕 تشغيل المراجع قبل التسليم
-      console.log('[agent] running review step...');
-      const review = await runReviewStep(summary, userMessage, toolResults);
-      if (review.verdict === 'revise') {
-        console.log('[agent] reviewer rejected: ' + review.note);
-        conversation += `\n\n⚠️ المراجع رفض ردك: "${review.note}"\nأعد النظر وأكمل العمل قبل الإنهاء.\n\nردّك JSON الآن:`;
-        continue;
-      }
 
       if (toolResults.length > 0) {
         const parts = [];
@@ -317,10 +242,7 @@ async function runAgentLoop(userMessage, ctx) {
 }
 
 function buildDiagnosticFallback(ctx) {
-  const lines = [`⚠️ لم أتمكن من معالجة أمرك`];
-  if (ctx.error) lines.push(`خطأ: ${ctx.error}`);
-  lines.push(`حالة النظام: ${ctx.health?.healthy || 0}/${ctx.health?.total || 0} سليمة`);
-  return lines.join('\n');
+  return `⚠️ لم أتمكن من معالجة أمرك\nحالة النظام: ${ctx.healthy || 0}/${ctx.total || 0} سليمة`;
 }
 
 function sanitizeStoredBody(body) {
