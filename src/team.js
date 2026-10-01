@@ -9,11 +9,11 @@ import { notify } from './notifications.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 
 export const AGENTS = [
-  { id: 'aurora', name: 'أورورا', role: 'Supervisor and orchestration', icon: '/icons/aurora.svg', color: '#a78bfa' },
-  { id: 'planner', name: 'المخطط', role: 'Strategy and task breakdown', icon: '/icons/planner.svg', color: '#60a5fa' },
-  { id: 'executor', name: 'المنفذ', role: 'Implementation and delivery', icon: '/icons/executor.svg', color: '#34d399' },
-  { id: 'reviewer', name: 'المراجع', role: 'Quality and compliance', icon: '/icons/reviewer.svg', color: '#fbbf24' },
-  { id: 'scout', name: 'المستخبر', role: 'Research and opportunities', icon: '/icons/scout.svg', color: '#f472b6' }
+  { id: 'aurora', name: 'أورورا', role: 'Supervisor', icon: '/icons/aurora.svg', color: '#a78bfa' },
+  { id: 'planner', name: 'المخطط', role: 'Strategy', icon: '/icons/planner.svg', color: '#60a5fa' },
+  { id: 'executor', name: 'المنفذ', role: 'Implementation', icon: '/icons/executor.svg', color: '#34d399' },
+  { id: 'reviewer', name: 'المراجع', role: 'Quality', icon: '/icons/reviewer.svg', color: '#fbbf24' },
+  { id: 'scout', name: 'المستخبر', role: 'Research', icon: '/icons/scout.svg', color: '#f472b6' }
 ];
 
 export const teamEvents = new EventEmitter();
@@ -22,7 +22,6 @@ teamEvents.setMaxListeners(200);
 const MAX_AGENT_STEPS = 10;
 const STEP_DELAY_MS = 700;
 const TELEGRAM_MAX_LEN = 3800;
-
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -33,11 +32,10 @@ function collectSystemSnapshot() {
     const tasksByStatus = db.prepare(`SELECT status, COUNT(*) c FROM tasks GROUP BY status`).all();
     const recentErrors = db.prepare(`SELECT scope, error_type, last_seen FROM errors WHERE resolved = 0 AND last_seen >= datetime('now', '-24 hours') ORDER BY last_seen DESC LIMIT 5`).all();
     const pendingApprovals = db.prepare(`SELECT COUNT(*) c FROM approvals WHERE state='pending'`).get().c;
-    const products = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published FROM produced_products`).get();
     return {
       time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
-      health: { total: health.length, healthy: health.filter(h => h.healthy === 1).length, failing: health.filter(h => h.healthy !== 1).map(h => ({ name: h.component, reason: h.detail || '' })) },
-      tasks: tasksByStatus, errors: recentErrors, approvals: pendingApprovals, products
+      health: { total: health.length, healthy: health.filter(h => h.healthy === 1).length },
+      tasks: tasksByStatus, errors: recentErrors, approvals: pendingApprovals
     };
   } catch (e) { return { error: e.message }; }
 }
@@ -50,13 +48,13 @@ function buildAgentPrompt(userMessage, ctx) {
 
   return `أنت "أورورا" — المنسّقة العامة لفريق "عمالقة الصمت".
 
-═══════════════ بيانات النظام ═══════════════
+═══ حالة النظام ═══
 ${JSON.stringify(ctx, null, 2)}
 
-═══════════════ الأدوات ═══════════════
+═══ الأدوات المتاحة ═══
 ${toolsList}
 
-═══════════════ شكل الرد ═══════════════
+═══ شكل الرد ═══
 JSON واحد فقط. لا نص قبله أو بعده.
 
 تنفيذ أداة:
@@ -65,24 +63,23 @@ JSON واحد فقط. لا نص قبله أو بعده.
 إنهاء:
 {"action":"final","text":"الرد النهائي"}
 
-═══════════════ قواعد github_edit_file ═══════════════
-1. search نص عادي — لا regex (لا ^ لا $ لا .* لا \\d)
-2. search يجب أن يطابق الملف حرفياً (انسخ السطر كما هو)
-3. search فريد
+═══ قواعد github_edit_file ═══
+1. search نص عادي حرفي — لا regex
+2. search يجب أن يطابق الملف بالحرف
+3. search فريد (أضف سياقاً إن لزم)
 4. replace كامل السطر الجديد
 
-═══════════════ قواعد التحقق ═══════════════
-5. قبل التعديل: اقرأ الملف (read_file)
-6. بعد التعديل: التحقق تلقائي — لا تحتاج لقراءة الملف يدوياً. النظام سيقرؤه تلقائياً.
-7. بعد نجاح write_file أو render_env_set → final فوراً
+═══ قواعد التحقق ═══
+5. قبل التعديل: read_file أولاً
+6. بعد github_edit_file: التحقق تلقائي (لا تكرر read_file يدوياً)
+7. بعد write_file / render_env_set: final فوراً
 
-═══════════════ قواعد عامة ═══════════════
-8. JSON فقط.
-9. خطوة واحدة في كل رد.
-10. لا تكرر نفس الأداة بنفس المعاملات.
-11. عند الفشل، جرّب زاوية مختلفة.
+═══ قواعد عامة ═══
+8. JSON فقط
+9. خطوة واحدة في كل رد
+10. لا تكرر نفس الأداة بنفس المعاملات
 
-═══════════════ أمر القائد ═══════════════
+═══ أمر القائد ═══
 ${userMessage}
 
 ردّك JSON الآن:`;
@@ -119,6 +116,48 @@ function cleanText(text) {
   return c.split('\n').filter(l => l.trim()).join('\n').trim();
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🆕 المراجع — يفحص الرد النهائي قبل إرساله للقائد
+// ═══════════════════════════════════════════════════════════
+async function runReviewStep(finalText, originalTask, toolResults) {
+  const toolsSummary = toolResults.map(t => t.tool).join(', ') || 'لا أدوات';
+  const reviewPrompt = `أنت "المراجع" في فريق عمالقة الصمت — مهمتك فحص رد "أورورا" قبل تسليمه للقائد.
+
+═══ المهمة الأصلية ═══
+${originalTask}
+
+═══ الأدوات التي استُخدمت ═══
+${toolsSummary}
+
+═══ الرد المقترح ═══
+${String(finalText).slice(0, 2000)}
+
+═══ مهمتك ═══
+افحص الرد بصرامة:
+1. هل يجيب على المهمة الأصلية فعلاً؟ (لا انحراف)
+2. هل يحتوي على معلومات مُختلقة؟ (لا هلوسة)
+3. هل التنفيذ صحيح تقنياً؟ (لا أخطاء)
+4. هل هناك نقص في التحقق؟ (لم يقرأ ملفاً، لم يختبر، إلخ)
+
+أجب بـ JSON واحد فقط:
+{"verdict":"ok" أو "revise","note":"ملاحظة قصيرة إن كان revise"}
+
+لا نص خارج JSON.`;
+
+  try {
+    const raw = await callModel('reviewer', reviewPrompt, { noJsonMode: false });
+    const parsed = parseAgentResponse(raw);
+    if (!parsed || !parsed.verdict) return { verdict: 'ok' };
+    return {
+      verdict: parsed.verdict === 'revise' ? 'revise' : 'ok',
+      note: String(parsed.note || '').slice(0, 200)
+    };
+  } catch (e) {
+    console.error('[review] failed: ' + e.message);
+    return { verdict: 'ok' }; // لا نُعطّل المهمة لو فشل المراجع
+  }
+}
+
 function formatToolResult(toolName, toolResult, originalParams) {
   if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 500)}`;
   const data = toolResult.result;
@@ -145,18 +184,17 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 60).map(v => '• ' + v.key).join('\n'); }
   if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}`;
   if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements} استبدال)\n🔗 ${data.commitUrl}`;
-  if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}\n${JSON.stringify(data.data || {}).slice(0, 500)}`;
+  if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}`;
   if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
   if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
-  if (toolName === 'platform_fetch') { const p = typeof data.data === 'string' ? data.data.slice(0, 800) : JSON.stringify(data.data).slice(0, 800); return `🌐 ${data.status}\n\`\`\`\n${p}\n\`\`\``; }
+  if (toolName === 'platform_fetch') return `🌐 ${data.status}`;
   if (toolName === 'send_telegram') return `✅ رسالة (id=${data.message_id})`;
   if (toolName === 'write_file') return `💾 ${data.path} (${data.bytes}B)`;
   if (toolName === 'shell_exec') return `⚙️\n\`\`\`\n${(data.stdout || data.stderr || 'ok').slice(0, 600)}\n\`\`\``;
-  return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 800)}`;
+  return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 500)}`;
 }
 
 async function autoVerify(filePath, toolResults) {
-  // قراءة تلقائية للملف بعد التعديل
   try {
     const res = await executeTool('read_file', { file_path: filePath });
     toolResults.push({ tool: 'read_file', result: res, params: { file_path: filePath, auto: true } });
@@ -173,18 +211,16 @@ async function runAgentLoop(userMessage, ctx) {
   let consecutiveFailures = 0;
   const executedOps = new Set();
   let lastCriticalTool = null;
-  let pendingAutoVerify = null; // المسار الذي يحتاج تحققاً
+  let pendingAutoVerify = null;
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
 
-    // 🆕 التحقق التلقائي يحدث قبل استدعاء LLM التالي
     if (pendingAutoVerify) {
       const fp = pendingAutoVerify;
       pendingAutoVerify = null;
       console.log('[agent] auto-verify: ' + fp);
       await autoVerify(fp, toolResults);
-      // لا نحتاج استدعاء LLM — سنضيف رسالة للنموذج فقط
       const last = toolResults[toolResults.length - 1];
       const preview = last.result?.ok ? String(last.result.result?.content || '').slice(0, 500) : 'فشل';
       conversation += `\n\n🔎 تحقق تلقائي من ${fp}:\n${preview}\n\nالآن أنهِ المهمة بـ final.`;
@@ -199,11 +235,9 @@ async function runAgentLoop(userMessage, ctx) {
 
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
-      console.warn('[agent] step ' + step + ' invalid JSON. Preview: ' + String(raw).slice(0, 200));
       conversation += `\n\n⚠️ ردك السابق لم يكن JSON صالحاً. أعد بـ JSON فقط.\n\nردّك JSON الآن:`;
       consecutiveFailures++;
       if (consecutiveFailures >= 4) {
-        console.error('[agent] too many JSON failures');
         if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
         return null;
       }
@@ -213,11 +247,8 @@ async function runAgentLoop(userMessage, ctx) {
     consecutiveFailures = 0;
 
     if (parsed.action === 'tool' && parsed.tool) {
-      console.log('[agent] step ' + step + ': tool=' + parsed.tool);
-
       const opKey = parsed.tool + '|' + JSON.stringify(parsed.params || {});
       if (executedOps.has(opKey) && parsed.tool !== 'github_edit_file') {
-        console.warn('[agent] duplicate op → force stop');
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
       executedOps.add(opKey);
@@ -227,17 +258,15 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
 
-      // 🆕 بعد github_edit_file ناجح → جدولة تحقق تلقائي
       if (parsed.tool === 'github_edit_file' && toolResult.ok) {
         const fp = parsed.params?.path || parsed.params?.file_path;
         if (fp) {
           pendingAutoVerify = fp;
-          conversation += `\n\n✅ تم تعديل ${fp} (${toolResult.result?.replacements || 1} استبدال)\n🔗 ${toolResult.result?.commitUrl || ''}\n\n⚠️ سيتم التحقق تلقائياً في الخطوة التالية.`;
+          conversation += `\n\n✅ تم تعديل ${fp} (${toolResult.result?.replacements || 1} استبدال)\n⚠️ سيتم التحقق تلقائياً في الخطوة التالية.`;
           continue;
         }
       }
 
-      // أدوات حرجة (write_file / render_env_set)
       if (toolResult.ok && CRITICAL_TOOLS.has(parsed.tool)) {
         if (lastCriticalTool === parsed.tool) {
           return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
@@ -258,11 +287,21 @@ async function runAgentLoop(userMessage, ctx) {
 
     if (parsed.action === 'final') {
       if (pendingAutoVerify) {
-        conversation += `\n\n⚠️ انتظر — التحقق التلقائي قادم. أعد final في الخطوة التالية.`;
+        conversation += `\n\n⚠️ انتظر — التحقق التلقائي قادم.`;
         continue;
       }
       const summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
+
+      // 🆕 تشغيل المراجع قبل التسليم
+      console.log('[agent] running review step...');
+      const review = await runReviewStep(summary, userMessage, toolResults);
+      if (review.verdict === 'revise') {
+        console.log('[agent] reviewer rejected: ' + review.note);
+        conversation += `\n\n⚠️ المراجع رفض ردك: "${review.note}"\nأعد النظر وأكمل العمل قبل الإنهاء.\n\nردّك JSON الآن:`;
+        continue;
+      }
+
       if (toolResults.length > 0) {
         const parts = [];
         if (summary && summary.length > 5) parts.push(summary, '');
