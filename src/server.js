@@ -16,7 +16,7 @@ import { readPublicLink } from './tunnel.js';
 import { audit } from './audit.js';
 import { backupDatabase, recordError } from './db.js';
 import { dashboardData } from './dashboard.js';
-import { securityHeaders, globalRateLimit } from './security.js';
+import { securityHeaders, globalRateLimit, adminRateLimit, validateWebhookSecret, sanitizeObject, buildSecurityReport } from './security.js';
 import { performancePlan } from './performance.js';
 import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from './team.js';
 import { getAllWallets } from './wallets.js';
@@ -35,11 +35,22 @@ async function readBody(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 35 * 1024 * 1024) throw new Error('request too large');
+    if (size > 35 * 1024 * 1024) throw Object.assign(new Error('request too large'), { code: 'REQUEST_TOO_LARGE' });
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString();
   return raw ? JSON.parse(raw) : {};
+}
+
+async function readRawBody(request, limit = 80 * 1024 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) throw Object.assign(new Error('database backup too large'), { code: 'BACKUP_TOO_LARGE' });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 function json(response, status, payload) {
@@ -47,8 +58,33 @@ function json(response, status, payload) {
   response.end(JSON.stringify(payload, null, 2));
 }
 
+function isLoopback(request) {
+  if (request.headers['x-forwarded-for'] || request.headers['cf-connecting-ip'] || request.headers['x-real-ip']) return false;
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress || '');
+}
+
+function authorized(request, url) {
+  const supplied = url.searchParams.get('key') || request.headers['x-team-key'] || '';
+  const expected = Buffer.from(config.teamUiToken || '');
+  const actual = Buffer.from(String(supplied));
+  return actual.length === expected.length && expected.length > 0 && crypto.timingSafeEqual(actual, expected);
+}
+
+async function serveFile(response, absolutePath, downloadName = '', cacheControl = 'private, max-age=300') {
+  const content = await fs.readFile(absolutePath);
+  const ext = path.extname(absolutePath).toLowerCase();
+  response.writeHead(200, {
+    'content-type': mimeTypes[ext] || 'application/octet-stream',
+    'content-length': content.length,
+    'cache-control': cacheControl,
+    ...(downloadName ? { 'content-disposition': `attachment; filename="${encodeURIComponent(downloadName)}"` } : {})
+  });
+  response.end(content);
+}
+
 async function relayRecentTeamReplies() {
   try {
+    const { sendMessageDetailed } = await import('./telegram.js');
     const chatId = config.telegramChatId || '888229115';
     const events = db.prepare(`
       SELECT actor, action, detail, created_at FROM events
@@ -69,71 +105,69 @@ export async function startServer() {
     securityHeaders(request, response);
     if (!globalRateLimit(request, response)) return;
     try {
-      // ═══ static ═══
-      if (url.pathname === '/dashboard.js' && request.method === 'GET') {
-        try {
-          const js = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
-          response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store' });
-          return response.end(js);
-        } catch { response.writeHead(404); return response.end('// 404'); }
-      }
-      if (url.pathname === '/wallets.html' && request.method === 'GET') {
-        try {
-          const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
-          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-          return response.end(html);
-        } catch { response.writeHead(404); return response.end('404'); }
-      }
-      if (['/', '/dashboard', '/app'].includes(url.pathname)) {
-        const html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
-        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        return response.end(html);
-      }
-
-      // ═══ health & debug ═══
+      // ═══ المسارات العامة ═══
       if (url.pathname === '/health') {
+        const latest = db.prepare(`
+          SELECT component, healthy FROM health_checks
+          WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY component)
+          AND created_at >= datetime('now', '-120 seconds')
+        `).all();
+        const health = Object.fromEntries(latest.map(row => [row.component, Boolean(row.healthy)]));
+        const complete = ['gateway', 'internet', 'telegram', 'ai', 'memory', 'disk'].every(name => name in health);
+        if (complete) {
+          const ok = Object.values(health).every(Boolean);
+          return json(response, ok ? 200 : 503, { ok, health, source: 'cached' });
+        }
         const checked = await runWatchdog();
         const ok = Object.values(checked).every(Boolean);
-        return json(response, ok ? 200 : 503, { ok, health: checked });
+        return json(response, ok ? 200 : 503, { ok, health: checked, source: 'live' });
       }
       if (url.pathname === '/keepalive') {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
       }
-      if (url.pathname === '/debug-ai') {
-        const msg = url.searchParams.get('msg') || 'قل مرحبا';
-        try {
-          const { callModel } = await import('./ai.js');
-          const result = await Promise.race([
-            callModel('aurora', msg),
-            new Promise((_, r) => setTimeout(() => r(new Error('TIMEOUT')), 25000))
-          ]);
-          return json(response, 200, {
-            model: 'auto-chain',
-            result: String(result).slice(0, 1000),
-            length: String(result).length
-          });
-        } catch (e) {
-          return json(response, 500, { error: e.message });
-        }
-      }
-      if (url.pathname === '/debug-team') {
-        const msg = url.searchParams.get('msg') || 'اقرأ ملف RULES.md وقل عدد أسطره';
-        try {
-          const { createMessage } = await import('./team.js');
-          const saved = await createMessage({ sender: 'leader', recipient: 'all', thread: 'team', body: msg });
-          return json(response, 200, { ok: true, messageId: saved.id });
-        } catch (e) {
-          return json(response, 500, { error: e.message });
-        }
-      }
 
-      // ═══ wallets ═══
+      // ═══ المحافظ ═══
       if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
-        try { return json(response, 200, await getAllWallets()); }
-        catch (e) { return json(response, 500, { ok: false, error: e.message }); }
+        try {
+          const data = await getAllWallets();
+          return json(response, 200, data);
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
       }
 
-      // ═══ dashboard data ═══
+      // ═══ الملفات الثابتة ═══
+      if (url.pathname === '/wallets.html' && request.method === 'GET') {
+        try {
+          const html = await fs.readFile(path.join(config.root, 'public', 'wallets.html'), 'utf8');
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' });
+          return response.end(html);
+        } catch (err) {
+          response.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+          return response.end('404');
+        }
+      }
+      if (url.pathname === '/dashboard.js' && request.method === 'GET') {
+        try {
+          const jsContent = await fs.readFile(path.join(config.root, 'public', 'dashboard.js'), 'utf8');
+          response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' });
+          return response.end(jsContent);
+        } catch (e) {
+          response.writeHead(404, { 'content-type': 'application/javascript; charset=utf-8' });
+          return response.end('// not found');
+        }
+      }
+      if (['/', '/dashboard', '/app'].includes(url.pathname)) {
+        let html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
+        // ✅ auto-refresh كل 60 ثانية — يحل مشكلة زر التحديث نهائياً
+        if (!html.includes('http-equiv="refresh"')) {
+          html = html.replace('</head>', '<meta http-equiv="refresh" content="60"></head>');
+        }
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return response.end(html);
+      }
+
+      // ═══ Dashboard APIs ═══
       if (url.pathname === '/api/dashboard') {
         const data = await dashboardData();
         data.performance = performancePlan();
@@ -151,8 +185,14 @@ export async function startServer() {
         `).all();
         return json(response, 200, { tasks });
       }
+      if (url.pathname === '/api/team/messages' && request.method === 'GET') {
+        return json(response, 200, { messages: listMessages(url.searchParams.get('limit') || 100) });
+      }
       if (url.pathname === '/api/notifications' && request.method === 'GET') {
-        const rows = db.prepare(`SELECT id,kind,title,body,read,created_at AS createdAt FROM notifications ORDER BY id DESC LIMIT 100`).all();
+        const rows = db.prepare(`
+          SELECT id,kind,title,body,read,created_at AS createdAt
+          FROM notifications ORDER BY id DESC LIMIT 100
+        `).all();
         const unread = db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count;
         return json(response, 200, { notifications: rows, unread });
       }
@@ -161,46 +201,51 @@ export async function startServer() {
         return json(response, 200, { ok: true });
       }
 
-      // ═══ messages GET (المهم للسجل الحي) ═══
-      if (url.pathname === '/api/team/messages' && request.method === 'GET') {
-        return json(response, 200, { messages: listMessages(url.searchParams.get('limit') || 100) });
-      }
-
-      // ═══ messages POST (إرسال رسالة القائد) ═══
-      if (url.pathname === '/api/team/messages' && request.method === 'POST') {
-        const body = await readBody(request);
-        const saved = await createMessage(body);
-        if (saved.sender === 'leader') {
-          const safeBody = String(saved.body || '').replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[c]);
-          const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
-          sendMessageDetailed(`📤 <b>رسالة من القائد</b>\nإلى: ${target}\n\n${safeBody}`).catch(() => {});
-          setTimeout(relayRecentTeamReplies, 25000);
-        }
-        return json(response, 201, { message: saved });
-      }
-
-      // ═══ SSE live ═══
+      // ═══ SSE Live ═══
       if (url.pathname === '/api/live' && request.method === 'GET') {
         response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
         let closed = false;
         const send = (event, data) => { if (!closed && !response.destroyed) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
         send('messages', { messages: listMessages(120) });
-        const onLiveEvent = () => send('messages', { messages: listMessages(120) });
+        send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
+        const onLiveEvent = () => {
+          send('messages', { messages: listMessages(120) });
+          send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
+        };
         teamEvents.on('message', onLiveEvent);
+        teamEvents.on('notification', onLiveEvent);
         const heartbeat = setInterval(() => { if (!closed && !response.destroyed) response.write(': keep-alive\n\n'); }, 25000);
         request.once('close', () => {
           closed = true;
-          teamEvents.off('message', onLiveEvent);
-          clearInterval(heartbeat);
-          response.end();
+          teamEvents.off('message', onLiveEvent); teamEvents.off('notification', onLiveEvent);
+          clearInterval(heartbeat); response.end();
         });
         return;
       }
 
-      // ═══ telegram webhook ═══
+      // ═══ إرسال رسالة للفريق ═══
+      if (url.pathname === '/api/team/messages' && request.method === 'POST') {
+        const body = await readBody(request);
+        const saved = await createMessage(body);
+        if (saved.sender === 'leader') {
+          const safeBody = String(saved.body || '').replace(/[&<>]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[char]);
+          const target = saved.recipient === 'all' ? 'الفريق الكامل' : saved.recipient;
+          sendMessageDetailed(`📤 <b>رسالة من القائد</b>\nإلى: ${target}\n\n${safeBody}`)
+            .then(result => audit('aurora', 'leader_message_relayed', { delivered: result.delivered, messageId: saved.id }))
+            .catch(() => {});
+          setTimeout(relayRecentTeamReplies, 20000);
+        }
+        return json(response, 201, { message: saved, telegramQueued: saved.sender === 'leader' });
+      }
+
+      // ═══ Telegram Webhook ═══
       if (url.pathname === '/telegram/webhook') {
-        if (request.method === 'GET') return json(response, 200, { ok: true });
-        if (request.method !== 'POST') return;
+        if (request.method === 'GET') { return json(response, 200, { ok: true }); }
+        if (request.method !== 'POST') { return; }
+        const secretToken = request.headers['x-telegram-bot-api-secret-token'];
+        if (config.telegramWebhookSecret && secretToken !== config.telegramWebhookSecret) {
+          return json(response, 403, { ok: false, error: 'invalid secret token' });
+        }
         const update = await readBody(request);
         setTimeout(() => {
           handleTelegramUpdate(update).then(() => processTelegramOutbox()).catch(e => recordError('telegram', 'WEBHOOK_BG_ERROR', e.message));
@@ -211,12 +256,14 @@ export async function startServer() {
       // ═══ status ═══
       if (url.pathname === '/status') {
         return json(response, 200, {
-          telegram: { mode: telegramMode(), tokenValidated: Boolean(config.telegramToken) },
+          telegram: { mode: telegramMode(), tokenValidated: Boolean(config.telegramToken), webhookConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_URL) },
           tasksByStatus: db.prepare('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status').all(),
+          openErrors: db.prepare("SELECT scope, error_type, message FROM errors WHERE resolved = 0 ORDER BY id DESC LIMIT 20").all(),
           models: modelPerformance()
         });
       }
 
+      // ═══ أي مسار آخر → 404 ═══
       return json(response, 404, { error: 'not found' });
     } catch (caught) {
       console.error(caught);
