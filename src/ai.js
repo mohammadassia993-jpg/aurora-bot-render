@@ -1,11 +1,7 @@
-// ai.js — api.airforce (أساسي) + Cloudflare + Pollinations
-const AIRFORCE_URL = 'https://api.airforce/v1/chat/completions';
-const AIRFORCE_MODEL = 'llama-3.1-8b';
-
+// ai.js — Cloudflare (أساسي، رصيده عاد) + Pollinations (احتياطي)
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-
 const POLLINATIONS_URL = 'https://text.pollinations.ai/openai';
 
 const metrics = new Map();
@@ -20,7 +16,7 @@ function trackFail(name, err) {
   const m = metrics.get(name) || { ok: 0, fail: 0, lastErr: '', blockedUntil: 0 };
   m.fail++;
   m.lastErr = String(err || '').slice(0, 300);
-  if (m.fail % 2 === 0) m.blockedUntil = Date.now() + 20000;
+  if (m.fail % 2 === 0) m.blockedUntil = Date.now() + 30000;
   metrics.set(name, m);
 }
 
@@ -31,43 +27,14 @@ function isBlocked(name) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function callAirforce(messages, options = {}) {
-  const wantJson = options.noJsonMode === false;
-  const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown.' }].concat(messages)
-    : messages;
-  const body = {
-    model: AIRFORCE_MODEL,
-    messages: msgs,
-    max_tokens: options.maxTokens || 2048,
-    temperature: options.temperature !== undefined ? options.temperature : 0.3
-  };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(AIRFORCE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const rawText = await res.text();
-    if (!res.ok) throw new Error('Airforce HTTP ' + res.status + ': ' + rawText.slice(0, 200));
-    const data = JSON.parse(rawText);
-    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('Airforce empty');
-    return String(text);
-  } finally { clearTimeout(t); }
-}
-
 async function callCloudflare(messages, options = {}) {
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error('CF credentials missing');
   const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID + '/ai/v1/chat/completions';
   const wantJson = options.noJsonMode === false;
   const msgs = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }].concat(messages)
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown.' }].concat(messages)
     : messages;
-  const body = { model: CF_MODEL, messages: msgs, max_tokens: options.maxTokens || 2048, temperature: options.temperature !== undefined ? options.temperature : 0.3 };
+  const body = { model: CF_MODEL, messages: msgs, max_tokens: options.maxTokens || 2048 };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
@@ -78,7 +45,7 @@ async function callCloudflare(messages, options = {}) {
       signal: ctrl.signal
     });
     const rawText = await res.text();
-    if (!res.ok) throw new Error('CF HTTP ' + res.status + ': ' + rawText.slice(0, 150));
+    if (!res.ok) throw new Error('CF ' + res.status + ': ' + rawText.slice(0, 150));
     const data = JSON.parse(rawText);
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!text) throw new Error('CF empty');
@@ -102,7 +69,7 @@ async function callPollinations(messages, options = {}) {
       signal: ctrl.signal
     });
     const rawText = await res.text();
-    if (!res.ok) throw new Error('Poll HTTP ' + res.status + ': ' + rawText.slice(0, 150));
+    if (!res.ok) throw new Error('Poll ' + res.status + ': ' + rawText.slice(0, 150));
     const data = JSON.parse(rawText);
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!text) throw new Error('Poll empty');
@@ -110,24 +77,23 @@ async function callPollinations(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-export function selectModel() { return 'airforce'; }
+export function selectModel() { return 'cloudflare'; }
 
 export function availableModels() {
   return [
-    { name: 'airforce', model: AIRFORCE_MODEL, role: 'primary' },
-    { name: 'cloudflare', model: CF_MODEL, role: 'fallback1' },
-    { name: 'pollinations', model: 'mistral', role: 'fallback2' }
+    { name: 'cloudflare', model: CF_MODEL, role: 'primary' },
+    { name: 'pollinations', model: 'mistral', role: 'fallback' }
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const messages = [{ role: 'user', content: String(prompt || '') }];
-  const providers = ['airforce', 'cloudflare', 'pollinations'];
+  const providers = ['cloudflare', 'pollinations'];
   const errors = [];
   for (const name of providers) {
     if (isBlocked(name)) { errors.push(name + ': BLOCKED'); continue; }
     try {
-      const fn = name === 'airforce' ? callAirforce : (name === 'cloudflare' ? callCloudflare : callPollinations);
+      const fn = name === 'cloudflare' ? callCloudflare : callPollinations;
       const result = await fn(messages, options);
       trackOk(name);
       return result;
