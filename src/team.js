@@ -19,13 +19,31 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-// ✅ تقليص: 5 خطوات بدل 10
 const MAX_AGENT_STEPS = 5;
 const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// 🆕 تطبيع أسماء المعاملات — يحل مشكلة file_path/path/file
+function normalizeParams(tool, params) {
+  if (!params || typeof params !== 'object') return {};
+  const p = { ...params };
+
+  const fileTool = ['read_file', 'write_file', 'read_many_files', 'list_files', 'grep_files'];
+  if (fileTool.includes(tool)) {
+    if (!p.file_path) p.file_path = p.path || p.file || p.filename || p.name;
+    if (!p.file_path && p.dir) p.file_path = p.dir;
+  }
+  if (tool === 'github_edit_file') {
+    if (!p.path) p.path = p.file_path || p.file || p.filename;
+  }
+  if (tool === 'github_api' && !p.endpoint && p.path) p.endpoint = p.path;
+  if (tool === 'web_search' && !p.query && p.q) p.query = p.q;
+
+  return p;
+}
 
 function collectSystemSnapshot() {
   try {
@@ -38,7 +56,6 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
-// ✅ prompt مختصر جداً — من ~4000 tokens إلى ~800
 function buildAgentPrompt(userMessage, ctx) {
   const toolsList = AVAILABLE_TOOLS.map(t => `• ${t.name}: ${t.description}`).join('\n');
 
@@ -52,6 +69,13 @@ ${toolsList}
 الشكل المطلوب — JSON واحد فقط:
 - تنفيذ: {"action":"tool","tool":"name","params":{...}}
 - إنهاء: {"action":"final","text":"الرد"}
+
+⚠️ أسماء المعاملات الصحيحة (التزم بها حرفياً):
+- read_file / write_file: {"file_path": "المسار"}
+- list_files: {"dir": "المجلد", "max_depth": 2}
+- grep_files: {"pattern": "النص", "file_ext": ".js"}
+- github_edit_file: {"path": "المسار", "search": "النص", "replace": "الجديد", "message": "الوصف"}
+- web_search: {"query": "البحث"}
 
 قواعد:
 1. اقرأ الملف قبل تعديله
@@ -142,7 +166,6 @@ async function autoVerify(filePath, toolResults) {
   }
 }
 
-// ✅ حذف مرحلة المراجع — توفير 50% من الاستدعاءات
 async function runAgentLoop(userMessage, ctx) {
   let conversation = buildAgentPrompt(userMessage, ctx);
   const toolResults = [];
@@ -185,22 +208,25 @@ async function runAgentLoop(userMessage, ctx) {
     consecutiveFailures = 0;
 
     if (parsed.action === 'tool' && parsed.tool) {
-      const opKey = parsed.tool + '|' + JSON.stringify(parsed.params || {});
+      // 🆕 تطبيع المعاملات قبل الفحص
+      const normalizedParams = normalizeParams(parsed.tool, parsed.params);
+
+      const opKey = parsed.tool + '|' + JSON.stringify(normalizedParams);
       if (executedOps.has(opKey) && parsed.tool !== 'github_edit_file') {
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
       executedOps.add(opKey);
 
       let toolResult;
-      try { toolResult = await executeTool(parsed.tool, parsed.params || {}); }
+      try { toolResult = await executeTool(parsed.tool, normalizedParams); }
       catch (e) { toolResult = { ok: false, error: e.message }; }
-      toolResults.push({ tool: parsed.tool, result: toolResult, params: parsed.params || {} });
+      toolResults.push({ tool: parsed.tool, result: toolResult, params: normalizedParams });
 
       if (parsed.tool === 'github_edit_file' && toolResult.ok) {
-        const fp = parsed.params?.path || parsed.params?.file_path;
+        const fp = normalizedParams?.path || normalizedParams?.file_path;
         if (fp) {
           pendingAutoVerify = fp;
-          conversation += `\n\n✅ تم تعديل ${fp}. تحقق تلقائي في الخطوة التالية.`;
+          conversation += `\n\n✅ تم تعديل ${fp}. تحقق تلقائي.`;
           continue;
         }
       }
@@ -221,7 +247,7 @@ async function runAgentLoop(userMessage, ctx) {
 
     if (parsed.action === 'final') {
       if (pendingAutoVerify) {
-        conversation += `\n\n⚠️ انتظر التحقق التلقائي.`;
+        conversation += `\n\n⚠️ انتظر التحقق.`;
         continue;
       }
       const summary = cleanText(parsed.text || '');
