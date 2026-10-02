@@ -1,5 +1,6 @@
 // rag.js — Retrieval-Augmented Generation
 // فهرس بسيط لكل ملفات المشروع — يستخدم SQLite FTS5
+// متوافق مع node:sqlite (المدمج في Node 22) — لا يستخدم db.transaction()
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.js';
@@ -21,7 +22,7 @@ export function initRagIndex() {
 }
 
 export function indexProject() {
-  try { db.prepare('DELETE FROM rag_index').run(); } catch {}
+  try { db.exec('DELETE FROM rag_index'); } catch (e) { console.warn('[rag] clear failed: ' + e.message); }
 
   const files = [];
   function walk(dir, depth = 0) {
@@ -47,22 +48,21 @@ export function indexProject() {
   walk(config.root);
 
   const insert = db.prepare('INSERT INTO rag_index(file_path, content) VALUES (?, ?)');
-  const tx = db.transaction((items) => {
-    for (const f of items) {
-      try {
-        const rel = path.relative(config.root, f.path);
-        const content = fs.readFileSync(f.path, 'utf8');
-        insert.run(rel, content);
-      } catch (e) {
-        console.warn('[rag] skip ' + f.path + ': ' + e.message);
-      }
+  let inserted = 0;
+  for (const f of files) {
+    try {
+      const rel = path.relative(config.root, f.path);
+      const content = fs.readFileSync(f.path, 'utf8');
+      insert.run(rel, content);
+      inserted++;
+    } catch (e) {
+      console.warn('[rag] skip ' + f.path + ': ' + e.message);
     }
-  });
+  }
 
-  tx(files);
-  indexedCount = files.length;
-  console.log(`[rag] indexed ${files.length} files`);
-  return files.length;
+  indexedCount = inserted;
+  console.log(`[rag] indexed ${inserted}/${files.length} files`);
+  return inserted;
 }
 
 export function searchRag(query, limit = 3) {
