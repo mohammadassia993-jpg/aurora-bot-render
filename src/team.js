@@ -26,22 +26,17 @@ const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// 🆕 تطبيع أسماء المعاملات — يحل مشكلة file_path/path/file
 function normalizeParams(tool, params) {
   if (!params || typeof params !== 'object') return {};
   const p = { ...params };
-
-  const fileTool = ['read_file', 'write_file', 'read_many_files', 'list_files', 'grep_files'];
-  if (fileTool.includes(tool)) {
-    if (!p.file_path) p.file_path = p.path || p.file || p.filename || p.name;
-    if (!p.file_path && p.dir) p.file_path = p.dir;
+  const fileTools = ['read_file', 'write_file', 'read_many_files', 'list_files', 'grep_files'];
+  if (fileTools.includes(tool)) {
+    if (!p.file_path) p.file_path = p.path || p.file || p.filename || p.name || p.dir;
   }
   if (tool === 'github_edit_file') {
     if (!p.path) p.path = p.file_path || p.file || p.filename;
   }
-  if (tool === 'github_api' && !p.endpoint && p.path) p.endpoint = p.path;
   if (tool === 'web_search' && !p.query && p.q) p.query = p.q;
-
   return p;
 }
 
@@ -56,37 +51,83 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🎯 PROMPT المُحسَّن — الإصدار 2
+// ═══════════════════════════════════════════════════════════
 function buildAgentPrompt(userMessage, ctx) {
-  const toolsList = AVAILABLE_TOOLS.map(t => `• ${t.name}: ${t.description}`).join('\n');
+  const toolsList = AVAILABLE_TOOLS.map(t => {
+    const params = Object.entries(t.params || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
+    return `• ${t.name}(${params || 'لا معاملات'})`;
+  }).join('\n');
 
-  return `أنت أورورا — منسقة فريق عمالقة الصمت.
+  return `أنت أورورا — منسقة فريق عمالقة الصمت. ردّك JSON واحد فقط، بدون أي نص قبله أو بعده.
 
-حالة النظام: ${ctx.healthy}/${ctx.total} سليمة.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 حالة النظام الآن: ${ctx.healthy}/${ctx.total} مكونات سليمة
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-الأدوات:
+📚 الأدوات المتاحة (استخدم هذه الأسماء بالضبط):
 ${toolsList}
 
-الشكل المطلوب — JSON واحد فقط:
-- تنفيذ: {"action":"tool","tool":"name","params":{...}}
-- إنهاء: {"action":"final","text":"الرد"}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 شكل الرد المطلوب (JSON فقط، لا شيء غيره):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️ أسماء المعاملات الصحيحة (التزم بها حرفياً):
-- read_file / write_file: {"file_path": "المسار"}
-- list_files: {"dir": "المجلد", "max_depth": 2}
-- grep_files: {"pattern": "النص", "file_ext": ".js"}
-- github_edit_file: {"path": "المسار", "search": "النص", "replace": "الجديد", "message": "الوصف"}
-- web_search: {"query": "البحث"}
+للتنفيذ:
+{"action":"tool","tool":"<اسم الأداة>","params":{<المعاملات>}}
 
-قواعد:
-1. اقرأ الملف قبل تعديله
-2. search في github_edit_file = نص حرفي (لا regex)
-3. بعد github_edit_file: التحقق تلقائي — لا تكرر
-4. لا تكرر نفس الأداة بنفس المعاملات
+للإنهاء:
+{"action":"final","text":"<الرد النهائي>"}
 
-أمر القائد:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ أمثلة دقيقة (انسخ النمط بالضبط):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+طلب: "اقرأ config.js"
+ردك: {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
+
+طلب: "أخبرني بعدد أسطر server.js"
+ردك: {"action":"tool","tool":"read_file","params":{"file_path":"server.js"}}
+
+طلب: "ابحث عن كلمة wallet في ملفات js"
+ردك: {"action":"tool","tool":"grep_files","params":{"pattern":"wallet","file_ext":".js"}}
+
+طلب: "عدّل config.js: استبدل 3000 بـ 8788"
+ردك: {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore: change port"}}
+
+بعد أن تستلم نتيجة read_file، أنهِ:
+{"action":"final","text":"الملف يحتوي على 150 سطراً ويبدأ بـ..."}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📏 القواعد الصارمة (10):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. JSON فقط — لا markdown، لا شرح، لا نص حول JSON.
+
+2. خطوة واحدة فقط في كل رد — أداة واحدة، أو final.
+
+3. إذا رغبت في قراءة ملف: read_file مع "file_path" (وليس path).
+
+4. لا تخترع ملفات أو مسارات — استخدم أسماء موجودة فعلاً.
+
+5. عند تعديل ملف: search = نص حرفي موجود في الملف، replace = النص الجديد.
+
+6. عند نجاح أداة حرجة (write_file, render_env_set) → final فوراً.
+
+7. عند نجاح github_edit_file → التحقق التلقائي يأتي بعده، لا تكرر التعديل.
+
+8. لا تكرر نفس الأداة بنفس المعاملات — إن فشلت، جرّب زاوية مختلفة.
+
+9. لا تكتب أبداً "إليك الرد" أو "بناءً على طلبك" — ابدأ مباشرة بـ JSON.
+
+10. إذا لم تفهم الطلب → final مع طلب توضيح، لا تخمين.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💬 رسالة القائد:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${userMessage}
 
-JSON:`;
+🎯 ردّك JSON الآن (فقط JSON، لا شيء آخر):`;
 }
 
 function parseAgentResponse(raw) {
@@ -208,7 +249,6 @@ async function runAgentLoop(userMessage, ctx) {
     consecutiveFailures = 0;
 
     if (parsed.action === 'tool' && parsed.tool) {
-      // 🆕 تطبيع المعاملات قبل الفحص
       const normalizedParams = normalizeParams(parsed.tool, parsed.params);
 
       const opKey = parsed.tool + '|' + JSON.stringify(normalizedParams);
