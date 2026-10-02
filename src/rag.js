@@ -1,6 +1,5 @@
 // rag.js — Retrieval-Augmented Generation
-// فهرس بسيط لكل ملفات المشروع — يستخدم SQLite FTS5
-// متوافق مع node:sqlite (المدمج في Node 22) — لا يستخدم db.transaction()
+// مع فلترة ذكية حسب نوع السؤال (تقني → .js فقط)
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.js';
@@ -9,6 +8,17 @@ import { config } from './config.js';
 const INDEXABLE_EXT = ['.js', '.mjs', '.cjs', '.json', '.md', '.txt', '.html', '.css', '.yaml', '.yml'];
 const SKIP_DIRS = new Set(['node_modules', '.git', 'data', 'logs', 'dist', '.cache', 'uploads', 'backups', 'deliverables', '.next']);
 const MAX_FILE_SIZE = 100 * 1024;
+
+// 🆕 كلمات مفتاحية تشير لسؤال تقني — البحث في .js فقط
+const TECH_KEYWORDS = [
+  'ملف', 'كود', 'دالة', 'function', 'variable', 'متغير', 'server', 'سيرفر',
+  'api', 'endpoint', 'route', 'مسار', 'import', 'export', 'class', 'استيراد',
+  'port', 'منفذ', 'config', 'إعداد', 'error', 'خطأ', 'bug', 'const', 'let',
+  'async', 'await', 'return', 'قيمة', 'القيمة'
+];
+
+// 🆕 كلمات تشير لسؤال توثيقي — البحث في .md فقط
+const DOC_KEYWORDS = ['شرح', 'documentation', 'توثيق', 'دليل', 'readme', 'دستور', 'rules', 'قواعد', 'سياسة'];
 
 let indexedCount = 0;
 
@@ -65,6 +75,21 @@ export function indexProject() {
   return inserted;
 }
 
+// 🆕 تحديد نوع السؤال
+function detectQueryType(query) {
+  const lower = String(query).toLowerCase();
+  if (DOC_KEYWORDS.some(k => lower.includes(k))) return 'doc';
+  if (TECH_KEYWORDS.some(k => lower.includes(k))) return 'tech';
+  return 'general';
+}
+
+// 🆕 بناء قيد الملفات حسب النوع
+function buildExtFilter(type) {
+  if (type === 'tech') return "AND (file_path LIKE '%.js' OR file_path LIKE '%.mjs' OR file_path LIKE '%.cjs')";
+  if (type === 'doc') return "AND file_path LIKE '%.md'";
+  return '';
+}
+
 export function searchRag(query, limit = 3) {
   if (!query || query.length < 3) return [];
   try {
@@ -73,16 +98,36 @@ export function searchRag(query, limit = 3) {
     const words = clean.split(/\s+/).filter(w => w.length > 2).slice(0, 8);
     if (!words.length) return [];
 
+    const queryType = detectQueryType(query);
+    const extFilter = buildExtFilter(queryType);
+
     const fts = words.map(w => '"' + w + '"').join(' OR ');
-    const rows = db.prepare(`
-      SELECT file_path,
-             snippet(rag_index, 1, '[', ']', ' … ', 15) AS snippet,
-             rank
-      FROM rag_index
-      WHERE rag_index MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `).all(fts, limit);
+
+    let rows;
+    try {
+      rows = db.prepare(`
+        SELECT file_path,
+               snippet(rag_index, 1, '[', ']', ' … ', 15) AS snippet,
+               rank
+        FROM rag_index
+        WHERE rag_index MATCH ? ${extFilter}
+        ORDER BY rank
+        LIMIT ?
+      `).all(fts, limit);
+    } catch (e) {
+      // في حال فشل الفلتر، جرّب بدون فلتر
+      rows = db.prepare(`
+        SELECT file_path,
+               snippet(rag_index, 1, '[', ']', ' … ', 15) AS snippet,
+               rank
+        FROM rag_index
+        WHERE rag_index MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(fts, limit);
+    }
+
+    console.log(`[rag] query type: ${queryType}, results: ${rows.length}`);
     return rows;
   } catch (e) {
     console.error('[rag] search failed:', e.message);
