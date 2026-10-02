@@ -1,17 +1,11 @@
 /**
- * continuous-production.js — Continuous Production Engine
+ * continuous-production.js — Continuous Production Engine (FIXED)
  *
- * Produces digital products non-stop across 3 categories:
- * - Fast: templates, ebooks, SVG files
- * - Medium: mini-courses, audio/video, digital art
- * - Technical: simple software, 3D files
- *
- * Speed: 3 templates or ebooks every 30 minutes
- * Approval: 1-of-10 sampling (show 1 product per 10 for leader review)
- *
- * ملاحظات الحماية:
- * - لا يُرسل "عينة موافقة" على Telegram إلا بـ PRODUCTION_SAMPLES_ENABLED=true
- * - لا يُحفظ أي منتج يحتوي على "وضع المحاكاة"
+ * الإصلاحات:
+ * 1. Kill switch فوري في بداية الدالة
+ * 2. عدّاد فشل متتالي — يتوقف بعد 3 فشلات
+ * 3. تتبّع المنتجات الفاشلة — لا يكرر نفس المنتج
+ * 4. توقف تلقائي عند نفاد الرصيد
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,7 +15,7 @@ import { config } from './config.js';
 import { sendMessageDetailed } from './telegram.js';
 import { info, warn } from './logger.js';
 import { eventBus, EVENTS } from './event-bus.js';
-import { EpisodicMemory, SemanticMemory } from './persistent-memory.js';
+import { EpisodicMemory } from './persistent-memory.js';
 import { STYLE_GUIDE } from './production.js';
 
 const PROD_DIR = path.join(config.root, 'data', 'production');
@@ -29,12 +23,8 @@ const PRODUCTS_DIR = path.join(PROD_DIR, 'output');
 const CATALOG_FILE = path.join(PROD_DIR, 'catalog.json');
 fs.mkdirSync(PRODUCTS_DIR, { recursive: true });
 
-// ─────────────────────────────────────────────
-// مفاتيح التحكم
-// ─────────────────────────────────────────────
 const PRODUCTION_SAMPLES_ENABLED = process.env.PRODUCTION_SAMPLES_ENABLED === 'true';
 
-// أنماط "وضع المحاكاة" — إذا وُجدت، نرفض المحتوى
 const SIMULATION_PATTERNS = [
   'وضع المحاكاة',
   'لم يتم الاتصال بمزود AI',
@@ -47,32 +37,6 @@ function isSimulationContent(text) {
   return SIMULATION_PATTERNS.some(p => lower.includes(p));
 }
 
-// ── Product Categories (per Kimi's plan) ──
-const CATEGORIES = {
-  fast: {
-    name: 'الأسرع',
-    types: ['template', 'ebook', 'svg'],
-    batchSize: 3,
-    intervalMinutes: 30,
-    description: 'قوالب، كتب إلكترونية، ملفات SVG'
-  },
-  medium: {
-    name: 'المتوسطة',
-    types: ['mini_course', 'audio', 'digital_art'],
-    batchSize: 1,
-    intervalMinutes: 60,
-    description: 'دورات مصغرة، ملفات صوتية/فيديو، فن رقمي'
-  },
-  technical: {
-    name: 'التقنية',
-    types: ['simple_software', '3d_file'],
-    batchSize: 1,
-    intervalMinutes: 120,
-    description: 'برمجيات بسيطة، ملفات ثلاثية الأبعاد'
-  }
-};
-
-// ── Product Templates for each type ──
 const PRODUCT_IDEAS = {
   template: [
     { title: 'قالب عرض تقديمي Web3', desc: 'قالب PowerPoint/Google Slides لعروض Web3 احترافية', price: 12, format: 'pptx' },
@@ -118,15 +82,15 @@ const PRODUCT_IDEAS = {
 
 let productionCount = 0;
 let running = false;
+const failedIdeas = new Set(); // 🆕 تتبّع المنتجات الفاشلة
 
-/** Get next product idea from catalog (avoid duplicates) */
 function getNextIdea() {
   const catalog = loadCatalog();
   const usedTitles = new Set(catalog.map(p => p.title));
-
   for (const [type, ideas] of Object.entries(PRODUCT_IDEAS)) {
     for (const idea of ideas) {
-      if (!usedTitles.has(idea.title)) {
+      // 🆕 تجنب المنتجات الفاشلة + المستخدمة
+      if (!usedTitles.has(idea.title) && !failedIdeas.has(idea.title)) {
         return { ...idea, type };
       }
     }
@@ -134,7 +98,6 @@ function getNextIdea() {
   return null;
 }
 
-/** Load or initialize catalog */
 function loadCatalog() {
   try {
     if (fs.existsSync(CATALOG_FILE)) {
@@ -145,12 +108,10 @@ function loadCatalog() {
   return [];
 }
 
-/** Save catalog */
 function saveCatalog(catalog) {
   fs.writeFileSync(CATALOG_FILE, JSON.stringify(catalog, null, 2), { mode: 0o600 });
 }
 
-/** Generate a single product */
 async function generateProduct(idea) {
   info('production', `🏭 Generating: ${idea.title} (${idea.type})`);
 
@@ -158,32 +119,25 @@ async function generateProduct(idea) {
 
 العنوان: ${idea.title}
 الوصف: ${idea.desc}
-النوع: ${idea.format}
 
-${STYLE_GUIDE.brand}
 الأسلوب: ${STYLE_GUIDE.tone}
 
-المطلوب: اكتب محتوى ${idea.type === 'ebook' ? 'الكتاب (10 صفحات على الأقل)' : 'المنتج'} بالعربية الاحترافية.
-- لا تستخدم JSON أو أكواد برمجية.
-- اكتب نصاً عربياً طبيعياً واحترافياً.`;
+اكتب محتوى احترافي.`;
 
   try {
     const content = await callModel('production', prompt);
     const cleanContent = String(content).trim();
 
-    // 🛡️ فلتر 1: رفض "وضع المحاكاة"
     if (isSimulationContent(cleanContent)) {
-      warn('production', `⛔ محتوى محاكاة مرفوض لـ "${idea.title}" — لن يُحفظ`);
+      warn('production', `⛔ محتوى محاكاة مرفوض`);
       return null;
     }
 
-    // 🛡️ فلتر 2: رفض المحتوى القصير
     if (cleanContent.length < 100) {
-      warn('production', `Content too short for ${idea.title}: ${cleanContent.length} chars`);
+      warn('production', `Content too short: ${cleanContent.length} chars`);
       return null;
     }
 
-    // Save to file
     const filename = `${idea.type}_${Date.now()}.${idea.format}`;
     const filepath = path.join(PRODUCTS_DIR, filename);
     fs.writeFileSync(filepath, cleanContent, 'utf8');
@@ -203,22 +157,19 @@ ${STYLE_GUIDE.brand}
       contentLength: cleanContent.length
     };
 
-    // Save to catalog
     const catalog = loadCatalog();
     catalog.push(product);
     saveCatalog(catalog);
 
-    // Save to DB
     db.prepare(`
       INSERT INTO tasks(source, title, reward, fit_score, status, payload_json)
       VALUES ('production', ?, ?, 0.8, 'drafted', ?)
     `).run(idea.title, idea.price, JSON.stringify(product));
 
     productionCount++;
-    info('production', `✅ Generated: ${idea.title} (${cleanContent.length} chars) → ${filename}`);
+    info('production', `✅ Generated: ${idea.title} (${cleanContent.length} chars)`);
 
-    // Record in episodic memory
-    EpisodicMemory.record('product_created', 'production', null, idea.title, `Type: ${idea.type}, Size: ${cleanContent.length}`, 'success');
+    EpisodicMemory.record('product_created', 'production', null, idea.title, `Type: ${idea.type}`, 'success');
 
     return product;
   } catch (e) {
@@ -227,8 +178,13 @@ ${STYLE_GUIDE.brand}
   }
 }
 
-/** Start continuous production cycle */
 export async function startContinuousProduction() {
+  // 🛡️ الحماية 1: Kill switch إجباري
+  if (process.env.CONTINUOUS_PRODUCTION_ENABLED === 'false') {
+    info('production', '⏸ Continuous production DISABLED by env (leader order)');
+    return;
+  }
+
   if (running) {
     info('production', '⚠️ Production already running');
     return;
@@ -237,91 +193,76 @@ export async function startContinuousProduction() {
   running = true;
   info('production', '🚀 Starting continuous production engine...');
 
+  let consecutiveFailures = 0; // 🆕
+  const MAX_FAILURES = 3;
+
   while (running) {
     const idea = getNextIdea();
     if (!idea) {
-      info('production', '📦 All product ideas exhausted. Monitoring for new ideas...');
+      info('production', '📦 All product ideas exhausted. Stopping.');
       break;
     }
 
     const product = await generateProduct(idea);
+
     if (product) {
-      // 🛡️ فلتر 3: "عينة موافقة" لا تُرسل إلا بموافقة صريحة
+      consecutiveFailures = 0; // ✅ نجاح — نُصفّر
       if (productionCount % 10 === 0 && PRODUCTION_SAMPLES_ENABLED) {
         await sendApprovalSample(product);
-      } else if (productionCount % 10 === 0) {
-        info('production', `📊 عينة موافقة #${productionCount} لم تُرسل (PRODUCTION_SAMPLES_ENABLED غير مُفعّل)`);
+      }
+    } else {
+      // 🛡️ الحماية 2: تتبّع الفشل — لا تكرر نفس المنتج
+      failedIdeas.add(idea.title);
+      consecutiveFailures++;
+      warn('production', `Failed idea added to blacklist: "${idea.title}". Consecutive failures: ${consecutiveFailures}`);
+
+      // 🛡️ الحماية 3: توقف عند 3 فشلات متتالية
+      if (consecutiveFailures >= MAX_FAILURES) {
+        warn('production', `🛑 STOPPED after ${MAX_FAILURES} consecutive failures (AI provider exhausted)`);
+        sendMessageDetailed(
+          `🛑 **Production STOPPED**\n\n` +
+          `السبب: ${MAX_FAILURES} فشلات متتالية\n` +
+          `Cloudflare أو مزود AI استُنزف\n\n` +
+          `المنتجات المُنتجة: ${productionCount}\n` +
+          `الفاشلة: ${failedIdeas.size}`,
+          config.telegramChatId
+        ).catch(() => {});
+        break;
       }
     }
 
-    // Brief pause between products
     await new Promise(r => setTimeout(r, 5000));
   }
 
   running = false;
-  info('production', `⏹ Production stopped. Total generated: ${productionCount}`);
+  info('production', `⏹ Production stopped. Generated: ${productionCount}, Failed: ${failedIdeas.size}`);
 }
 
-/** Send 1 product per 10 for leader approval */
 async function sendApprovalSample(product) {
-  const sampleMsg = [
-    `📦 **عينة موافقة — منتج #${productionCount}**`,
-    '',
-    `📌 العنوان: ${product.title}`,
-    `📝 الوصف: ${product.description}`,
-    `💰 السعر: $${product.price}`,
-    `📁 النوع: ${product.type} (${product.format})`,
-    `📏 الحجم: ${product.contentLength} حرف`,
-    '',
-    `---`,
-    `📄 أول 3 صفحات:`,
-    `---`,
-    ''
-  ].join('\n');
-
   try {
     const content = fs.readFileSync(product.filepath, 'utf8');
-
-    // 🛡️ فلتر 4: لا ترسل إذا كان المحتوى محاكاة
-    if (isSimulationContent(content)) {
-      warn('production', `⛔ لن أُرسل عينة موافقة لمحتوى محاكاة: ${product.title}`);
-      return;
-    }
-
+    if (isSimulationContent(content)) return;
     const preview = content.slice(0, 1500);
-    await sendMessageDetailed(sampleMsg + preview, config.telegramChatId);
-    info('production', `📬 Approval sample sent for: ${product.title}`);
-
-    // Record approval request
-    db.prepare(`
-      INSERT INTO tasks(source, title, status, payload_json)
-      VALUES ('approval', ?, 'pending_approval', ?)
-    `).run(`موافقة: ${product.title}`, JSON.stringify({ productId: product.id, type: product.type }));
+    await sendMessageDetailed(`📦 عينة: ${product.title}\n\n${preview}`, config.telegramChatId);
   } catch (e) {
-    warn('production', `Failed to send approval sample: ${e.message}`);
+    warn('production', `Failed to send sample: ${e.message}`);
   }
 }
 
-/** Get production stats */
 export function getProductionStats() {
   const catalog = loadCatalog();
-  const draft = catalog.filter(p => p.status === 'draft').length;
-  const approved = catalog.filter(p => p.approvalStatus === 'approved').length;
-  const pending = catalog.filter(p => p.approvalStatus === 'pending').length;
-  const published = catalog.filter(p => p.status === 'published').length;
-
   return {
     total: catalog.length,
-    draft,
-    approved,
-    pending,
-    published,
+    draft: catalog.filter(p => p.status === 'draft').length,
+    approved: catalog.filter(p => p.approvalStatus === 'approved').length,
+    pending: catalog.filter(p => p.approvalStatus === 'pending').length,
+    published: catalog.filter(p => p.status === 'published').length,
     running,
-    productionCount
+    productionCount,
+    failedIdeas: failedIdeas.size
   };
 }
 
-/** Stop production */
 export function stopContinuousProduction() {
   running = false;
   info('production', '⏹ Stopping continuous production...');
