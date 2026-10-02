@@ -177,6 +177,29 @@ export async function startServer() {
       return json(response, 500, { error: e.message });
     }
   }
+if (url.pathname === '/api/live' && request.method === 'GET') {
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    let closed = false;
+    const send = (event, data) => { if (!closed && !response.destroyed) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    send('messages', { messages: listMessages(120) });
+    send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
+    const onLiveEvent = () => {
+      send('messages', { messages: listMessages(120) });
+      send('notifications', { unread: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count });
+    };
+    teamEvents.on('message', onLiveEvent);
+    teamEvents.on('notification', onLiveEvent);
+    const heartbeat = setInterval(() => { if (!closed && !response.destroyed) response.write(': keep-alive\n\n'); }, 25000);
+    request.once('close', () => {
+      closed = true;
+      teamEvents.off('message', onLiveEvent);
+      teamEvents.off('notification', onLiveEvent);
+      clearInterval(heartbeat);
+      response.end();
+    });
+    return;
+  }
+
 if (url.pathname === '/api/dashboard') {
         const data = await dashboardData();
         data.performance = performancePlan();
