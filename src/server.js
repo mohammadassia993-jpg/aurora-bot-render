@@ -168,7 +168,16 @@ export async function startServer() {
       }
 
       // ═══ Dashboard APIs ═══
-      if (url.pathname === '/api/dashboard') {
+      if (url.pathname === '/api/notifications' && request.method === 'GET') {
+    try {
+      const rows = db.prepare(`SELECT id,kind,title,body,read,created_at AS createdAt FROM notifications ORDER BY id DESC LIMIT 100`).all();
+      const unread = db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE read=0').get().count;
+      return json(response, 200, { notifications: rows, unread });
+    } catch (e) {
+      return json(response, 500, { error: e.message });
+    }
+  }
+if (url.pathname === '/api/dashboard') {
         const data = await dashboardData();
         data.performance = performancePlan();
         return json(response, 200, data);
