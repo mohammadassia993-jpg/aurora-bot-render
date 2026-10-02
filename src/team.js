@@ -7,6 +7,7 @@ import { callModel } from './ai.js';
 import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
+import { buildRagContext } from './rag.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', role: 'Supervisor', icon: '/icons/aurora.svg', color: '#a78bfa' },
@@ -51,10 +52,10 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎯 PROMPT المُحسَّن — الإصدار 2
-// ═══════════════════════════════════════════════════════════
 function buildAgentPrompt(userMessage, ctx) {
+  // 🆕 RAG: استرجاع سياق ذو صلة من المشروع
+  const ragContext = buildRagContext(userMessage, 3);
+
   const toolsList = AVAILABLE_TOOLS.map(t => {
     const params = Object.entries(t.params || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
     return `• ${t.name}(${params || 'لا معاملات'})`;
@@ -122,6 +123,7 @@ ${toolsList}
 
 10. إذا لم تفهم الطلب → final مع طلب توضيح، لا تخمين.
 
+${ragContext ? '\n' + ragContext + '\n' : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💬 رسالة القائد:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
