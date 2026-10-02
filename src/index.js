@@ -25,18 +25,12 @@ import { publishToAllPlatforms } from './multi-publisher.js';
 import { scanPrizes } from './prize-scanner.js';
 import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
+// 🆕 RAG: فهرسة المشروع للبحث الذكي
+import { initRagIndex, indexProject } from './rag.js';
 
-// ─────────────────────────────────────────────
-// 🛡️ تحميل الحماة مبكراً لضمان جاهزيتهم من أول لحظة
-// ─────────────────────────────────────────────
 import './bot-guard.js';
 import './self-healing-guard.js';
 
-// ─────────────────────────────────────────────
-// مفتاح التحكم في التقارير اليومية
-// الافتراضي: true (يعمل كما هو)
-// للإيقاف: أضف DAILY_REPORTS_ENABLED=false في Render Environment
-// ─────────────────────────────────────────────
 const DAILY_REPORTS_ENABLED = process.env.DAILY_REPORTS_ENABLED !== 'false';
 
 process.on('unhandledRejection', reason => error('process', 'unhandled rejection', { reason: String(reason) }));
@@ -49,7 +43,15 @@ const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
 info('platform', `⚙️ DAILY_REPORTS_ENABLED=${DAILY_REPORTS_ENABLED} (التقارير اليومية ${DAILY_REPORTS_ENABLED ? 'مفعّلة' : 'معطّلة'})`);
 
-// Watchdog: كل 30 ثانية (داخلي، لا يُرسل)
+// 🆕 RAG: تهيئة الفهرس وبناء المشروع
+try {
+  initRagIndex();
+  const count = indexProject();
+  info('rag', `✅ RAG index built: ${count} files`);
+} catch (e) {
+  error('rag', `RAG init failed: ${e.message}`);
+}
+
 setInterval(async () => {
   try {
     await runWatchdog();
@@ -58,7 +60,6 @@ setInterval(async () => {
   }
 }, 30_000);
 
-// فحص البريد: كل ساعة (داخلي)
 setInterval(async () => {
   try {
     await checkEmail();
@@ -89,13 +90,9 @@ if (config.autoRunConnectors) {
   runConnectors().catch(caught => error('connectors', caught.message));
 }
 
-// ─────────────────────────────────────────────
-// التقارير اليومية — تتحكم بها DAILY_REPORTS_ENABLED
-// ─────────────────────────────────────────────
 if (DAILY_REPORTS_ENABLED) {
   info('reports', '📤 التقارير اليومية مُفعَّلة');
 
-  // التقرير اليومي (Daily Digest + رسالة Telegram)
   cronInterval(async () => {
     if (new Date().getHours() !== config.dailyReportHour) return;
     try {
@@ -111,7 +108,6 @@ if (DAILY_REPORTS_ENABLED) {
     }
   }, 10 * 60_000);
 
-  // التقرير الأمني اليومي
   setInterval(async () => {
     try {
       const { buildSecurityReport, auditWalletSecurity } = await import('./security.js');
@@ -122,7 +118,6 @@ if (DAILY_REPORTS_ENABLED) {
     } catch (e) { error('daily_security', e.message); }
   }, 24 * 60 * 60 * 1000);
 
-  // اكتشاف منصات جديدة يومي
   setInterval(async () => {
     try {
       const { callModel } = await import('./ai.js');
@@ -135,7 +130,6 @@ if (DAILY_REPORTS_ENABLED) {
     } catch (e) { error('platform_discovery', e.message); }
   }, 24 * 60 * 60 * 1000);
 
-  // البحث اليومي
   if (process.env.DAILY_RESEARCH_ENABLED !== 'false') {
     setInterval(async () => {
       try {
@@ -150,7 +144,6 @@ if (DAILY_REPORTS_ENABLED) {
       .catch(caught => error('daily_research', caught.message));
   }
 
-  // البحث الأسبوعي
   if (process.env.WEEKLY_RESEARCH_ENABLED !== 'false') {
     setInterval(async () => {
       try {
@@ -164,9 +157,6 @@ if (DAILY_REPORTS_ENABLED) {
   info('reports', '⏸ التقارير اليومية معطّلة (DAILY_REPORTS_ENABLED=false)');
 }
 
-// ─────────────────────────────────────────────
-// الأنظمة الداخلية (تبقى تعمل)
-// ─────────────────────────────────────────────
 if (process.env.AURORA_AUTOMATION !== 'false') {
   startWalletMonitors();
   startTunnelWatcher();
@@ -179,7 +169,6 @@ if (process.env.AURORA_AUTOMATION !== 'false') {
   info('platform', '⏸ FULL_STOP: all automated loops disabled (AURORA_AUTOMATION=false)');
 }
 
-// ── Kimi Plan: Autonomous Agent System ──
 info('platform', '🚀 Starting autonomous agent system (Kimi Plan)...');
 startScheduler();
 eventBus.on(EVENTS.TASK_SUCCESS, (payload) => {
@@ -187,14 +176,12 @@ eventBus.on(EVENTS.TASK_SUCCESS, (payload) => {
 });
 info('platform', '✅ Scheduler + Initiator + Reporter + EventBus active');
 
-// ── Continuous Production (بعد دقيقتين) ──
 setTimeout(async () => {
   try {
     if (process.env.CONTINUOUS_PRODUCTION_ENABLED !== 'false') { await startContinuousProduction(); } else { info('production', 'Continuous production DISABLED by leader instruction'); }
   } catch (e) { error('production', `Continuous production error: ${e.message}`); }
 }, 2 * 60 * 1000);
 
-// ── Initial scan (بعد 5 دقائق) ──
 setTimeout(async () => {
   try {
     await scanPrizes();
@@ -202,7 +189,6 @@ setTimeout(async () => {
   } catch (e) { error('scanner', `Initial scan error: ${e.message}`); }
 }, 5 * 60 * 1000);
 
-// Heartbeat (داخلي)
 if (process.env.AURORA_AUTOMATION !== 'false') {
   setInterval(async () => {
     try {
@@ -217,7 +203,6 @@ if (process.env.AURORA_AUTOMATION !== 'false') {
   info('platform', '⏸ FULL_STOP: heartbeat disabled (AURORA_AUTOMATION=false)');
 }
 
-// SQLite maintenance (كل 7 أيام)
 setInterval(async () => {
   try {
     const { db } = await import('./db.js');
@@ -231,13 +216,11 @@ setInterval(async () => {
   }
 }, 7 * 24 * 60 * 60_000).unref();
 
-// Render keepalive
 setInterval(() => {
   const url = process.env.RENDER_EXTERNAL_URL || 'https://silent-giants-render-backup.onrender.com';
   fetch(`${url}/health`).catch(() => {});
 }, 10 * 60 * 1000);
 
-// Mutual keepalive
 const peerUrl = process.env.PEER_KEEPALIVE_URL;
 if (peerUrl) {
   info('platform', `mutual keepalive active -> ${peerUrl}`);
