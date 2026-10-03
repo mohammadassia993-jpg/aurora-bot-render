@@ -100,6 +100,130 @@ async function relayRecentTeamReplies() {
   } catch (e) { /* silent */ }
 }
 
+function buildAiUsageHtml(byProvider, recent) {
+  const providerNames = { zai: 'Z.ai (GLM)', llm7: 'LLM7', huggingface: 'Hugging Face' };
+  const limits = { zai: 1000, llm7: 500, huggingface: 50 };
+
+  let cardsHtml = '';
+  const allProviders = ['zai', 'llm7', 'huggingface'];
+  for (const p of allProviders) {
+    const row = byProvider.find(x => x.provider === p) || { total: 0, ok: 0, fail: 0 };
+    const limit = limits[p] || '?';
+    const percent = limits[p] ? Math.round((row.total / limits[p]) * 100) : 0;
+    const barColor = percent >= 80 ? '#f87171' : percent >= 50 ? '#fbbf24' : '#34d399';
+    cardsHtml += `
+      <div class="provider-card">
+        <div class="provider-header">
+          <span class="provider-name">${providerNames[p] || p}</span>
+          <span class="provider-percent" style="color:${barColor}">${percent}%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${percent}%;background:${barColor}"></div></div>
+        <div class="provider-stats">
+          <div><strong>${row.total}</strong> / ${limit}</div>
+          <div class="ok">✅ ${row.ok}</div>
+          <div class="fail">❌ ${row.fail}</div>
+        </div>
+      </div>`;
+  }
+
+  let recentHtml = '';
+  if (recent.length === 0) {
+    recentHtml = '<div class="empty">لا يوجد نشاط بعد</div>';
+  } else {
+    for (const r of recent) {
+      const statusIcon = r.success ? '✅' : '❌';
+      const statusClass = r.success ? 'ok' : 'fail';
+      const time = String(r.created_at || '').slice(11, 19);
+      const errShort = r.error_message ? String(r.error_message).slice(0, 60) : '';
+      recentHtml += `
+        <div class="log-row ${statusClass}">
+          <div class="log-time">${time}</div>
+          <div class="log-provider">${r.provider}</div>
+          <div class="log-model">${String(r.model || '').slice(0, 30)}</div>
+          <div class="log-status">${statusIcon}</div>
+          ${errShort ? `<div class="log-error">${errShort}</div>` : ''}
+        </div>`;
+    }
+  }
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>استهلاك AI</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #0f172a; color: #e5e7eb; margin: 0; padding: 16px;
+    max-width: 720px; margin: 0 auto; line-height: 1.6;
+  }
+  h1 { color: #a78bfa; font-size: 1.6em; margin: 8px 0 20px; text-align: center; }
+  h2 { color: #a78bfa; font-size: 1.15em; margin: 0 0 14px; }
+  .section {
+    background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .provider-card {
+    background: #0f172a; border-radius: 10px; padding: 14px; margin-bottom: 10px;
+    border: 1px solid #334155;
+  }
+  .provider-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; font-size: 1.05em;
+  }
+  .provider-name { color: #e5e7eb; font-weight: 600; }
+  .provider-percent { font-weight: 700; font-size: 1.1em; }
+  .progress-bar {
+    background: #1e293b; height: 10px; border-radius: 5px; overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .progress-fill { height: 100%; transition: width 0.4s; border-radius: 5px; }
+  .provider-stats {
+    display: flex; justify-content: space-between; font-size: 0.9em; color: #94a3b8;
+  }
+  .provider-stats strong { color: #e5e7eb; font-size: 1.1em; }
+  .ok { color: #34d399; }
+  .fail { color: #f87171; }
+  .log-row {
+    display: grid;
+    grid-template-columns: 70px 80px 1fr 30px;
+    gap: 8px; padding: 10px 8px; font-size: 0.85em;
+    border-bottom: 1px solid #334155; align-items: center;
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-row.fail { background: rgba(248,113,113,0.06); }
+  .log-time { color: #94a3b8; font-family: monospace; font-size: 0.9em; }
+  .log-provider { color: #a78bfa; font-weight: 600; }
+  .log-model { color: #cbd5e1; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; }
+  .log-status { text-align: center; font-size: 1.1em; }
+  .log-error {
+    grid-column: 1 / -1; color: #f87171; font-size: 0.8em;
+    margin-top: 4px; padding: 4px 8px; background: rgba(248,113,113,0.1);
+    border-radius: 4px; direction: ltr; text-align: left;
+  }
+  .empty { text-align: center; color: #64748b; padding: 20px; font-style: italic; }
+  .footer { text-align: center; color: #64748b; font-size: 0.85em; margin: 20px 0; }
+  .footer a { color: #a78bfa; text-decoration: none; }
+</style>
+</head>
+<body>
+  <h1>📊 استهلاك مزودي AI</h1>
+  <div class="section">
+    <h2>آخر 24 ساعة</h2>
+    ${cardsHtml}
+  </div>
+  <div class="section">
+    <h2>آخر 20 طلب</h2>
+    ${recentHtml}
+  </div>
+  <div class="footer">تحديث تلقائي كل 30 ثانية · <a href="/">← الرئيسية</a></div>
+</body>
+</html>`;
+}
+
 export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -150,7 +274,6 @@ export async function startServer() {
       }
       if (url.pathname === '/ai-usage' && request.method === 'GET') {
         try {
-          const report = formatAiUsage();
           const byProvider = db.prepare(`
             SELECT provider, COUNT(*) as total,
               SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as ok,
@@ -163,16 +286,7 @@ export async function startServer() {
             SELECT provider, model, success, error_message, created_at
             FROM ai_usage ORDER BY id DESC LIMIT 20
           `).all();
-          let html = `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>استهلاك AI</title><meta http-equiv="refresh" content="30"><style>body{font-family:system-ui;background:#0f172a;color:#e5e7eb;padding:20px;max-width:900px;margin:auto}h1{color:#a78bfa}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:10px;text-align:right;border-bottom:1px solid #334155}th{background:#1e293b;color:#a78bfa}.ok{color:#34d399}.fail{color:#f87171}.card{background:#1e293b;padding:20px;border-radius:12px;margin:15px 0}.muted{color:#94a3b8;font-size:0.9em}</style></head><body><h1>📊 استهلاك مزودي AI</h1><div class="card"><h3>آخر 24 ساعة</h3><table><tr><th>المزود</th><th>إجمالي</th><th>نجاح</th><th>فشل</th></tr>`;
-          for (const p of byProvider) {
-            html += `<tr><td>${p.provider}</td><td>${p.total}</td><td class="ok">${p.ok}</td><td class="fail">${p.fail}</td></tr>`;
-          }
-          html += `</table></div><div class="card"><h3>آخر 20 طلب</h3><table><tr><th>الوقت</th><th>المزود</th><th>النموذج</th><th>الحالة</th><th>خطأ</th></tr>`;
-          for (const r of recent) {
-            const status = r.success ? '<span class="ok">✅</span>' : '<span class="fail">❌</span>';
-            html += `<tr><td class="muted">${r.created_at}</td><td>${r.provider}</td><td class="muted">${r.model}</td><td>${status}</td><td class="muted">${(r.error_message||'').slice(0,80)}</td></tr>`;
-          }
-          html += `</table></div></body></html>`;
+          const html = buildAiUsageHtml(byProvider, recent);
           response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
           return response.end(html);
         } catch (e) {
