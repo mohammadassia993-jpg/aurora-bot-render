@@ -7,7 +7,7 @@ const ZAI_MODEL = 'glm-4.5-flash';
 
 const LLM7_KEY = process.env.LLM7_API_KEY || '';
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'deepseek-v4-flash';
+const LLM7_MODEL = 'DeepSeek-V4-Flash';
 
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
