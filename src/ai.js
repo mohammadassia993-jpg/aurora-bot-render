@@ -1,8 +1,4 @@
-// ai.js — Cloudflare + Z.ai + LLM7 + HF
-const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
-const CF_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-
+// ai.js — Z.ai primary + LLM7 + HF
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 const ZAI_MODEL = 'glm-4.5-flash';
@@ -18,27 +14,6 @@ const HF_MODELS = ['meta-llama/Llama-3.3-70B-Instruct'];
 const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
-
-async function callCF(messages, options = {}) {
-  if (!CF_ACCOUNT || !CF_TOKEN) throw new Error('CF env missing');
-  const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT + '/ai/run/' + CF_MODEL;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + CF_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, max_tokens: options.maxTokens || 800, temperature: 0.2 }),
-      signal: ctrl.signal
-    });
-    const raw = await res.text();
-    if (!res.ok) throw new Error('CF ' + res.status + ': ' + raw.slice(0, 200));
-    const data = JSON.parse(raw);
-    const text = data && data.result && data.result.response;
-    if (!text) throw new Error('CF empty');
-    return String(text);
-  } finally { clearTimeout(t); }
-}
 
 async function callZAI(messages, options = {}) {
   if (!ZAI_KEY) throw new Error('ZAI_API_KEY missing');
@@ -100,28 +75,22 @@ async function callHF(model, messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-export function selectModel() { return 'cloudflare'; }
+export function selectModel() { return 'zai'; }
 
 export function availableModels() {
   return [
-    { name: 'cloudflare', model: CF_MODEL, role: 'primary' },
-    { name: 'zai', model: ZAI_MODEL, role: 'secondary' },
-    { name: 'llm7', model: LLM7_MODEL, role: 'tertiary' },
-    ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'quaternary' }))
+    { name: 'zai', model: ZAI_MODEL, role: 'primary' },
+    { name: 'llm7', model: LLM7_MODEL, role: 'secondary' },
+    ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'tertiary' }))
   ];
 }
 
 export async function callModel(agent, prompt, options = {}) {
   const wantJson = options.noJsonMode === false;
   const messages = wantJson
-    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only.' }, { role: 'user', content: String(prompt || '') }]
+    ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no text outside braces.' }, { role: 'user', content: String(prompt || '') }]
     : [{ role: 'user', content: String(prompt || '') }];
   const errors = [];
-
-  if (CF_ACCOUNT && CF_TOKEN) {
-    try { const r = await callCF(messages, options); trackOk('cf'); console.log('[ai] success cloudflare'); return r; }
-    catch (e) { trackFail('cf', e.message); errors.push('CF:' + e.message.slice(0,80)); console.error('[ai] CF failed:', e.message); }
-  }
 
   if (ZAI_KEY) {
     try { const r = await callZAI(messages, options); trackOk('zai'); console.log('[ai] success zai'); return r; }
