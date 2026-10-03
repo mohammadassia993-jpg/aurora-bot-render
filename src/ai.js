@@ -7,7 +7,7 @@ const ZAI_MODEL = 'glm-4.5-flash';
 
 const LLM7_KEY = process.env.LLM7_API_KEY || '';
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'DeepSeek-V4-Flash';
+const LLM7_MODEL = 'DeepSeek-V4-Flash-1';
 
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
@@ -95,13 +95,22 @@ export async function callModel(agent, prompt, options = {}) {
   const errors = [];
 
   if (ZAI_KEY) {
-    try {
-      const r = await callZAI(messages, options);
-      trackOk('zai'); recordUsage('zai', ZAI_MODEL, true);
-      console.log('[ai] success zai'); return r;
-    } catch (e) {
-      trackFail('zai', e.message); recordUsage('zai', ZAI_MODEL, false, e.message);
-      errors.push('ZAI:' + e.message.slice(0,80)); console.error('[ai] ZAI failed:', e.message);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const r = await callZAI(messages, options);
+        trackOk('zai'); recordUsage('zai', ZAI_MODEL, true);
+        console.log('[ai] success zai');
+        return r;
+      } catch (e) {
+        if (attempt === 1 && String(e.message).includes('empty')) {
+          await new Promise(res => setTimeout(res, 800));
+          continue;
+        }
+        trackFail('zai', e.message); recordUsage('zai', ZAI_MODEL, false, e.message);
+        errors.push('ZAI:' + e.message.slice(0,80));
+        console.error('[ai] ZAI failed:', e.message);
+        break;
+      }
     }
   }
 
