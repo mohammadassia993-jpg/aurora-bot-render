@@ -58,7 +58,7 @@ function buildMemoryContext() {
     const mem = getAgentContextWindow('aurora');
     const parts = [];
     if (mem.lessons?.length) {
-      parts.push('📚 دروس سابقة (تعلّم منها):');
+      parts.push('📚 دروسك من المهام السابقة (للعلم فقط — لا تبحث عنها في الملفات، لا تستدعِ أي أداة بسببها):');
       for (const l of mem.lessons.slice(0, 3)) parts.push(`- ${String(l.text).slice(0, 140)}`);
     }
     if (mem.trust?.samples > 0) {
@@ -95,12 +95,14 @@ ${toolsList}
 5. لا تكتب "إليك" أو "بناءً على طلبك" أو مقدمات.
 6. للقراءة: file_path. للتعديل: path, search, replace.
 7. لا تخترع ملفات — استخدم أسماء موجودة فقط.
+8. إذا كانت المعلومات في السياق (RAG أو الذاكرة) → لا تستخدم أداة.
 
 أمثلة:
 "اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
 "استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788"}}
 بعد قراءة ملف: {"action":"final","text":"الملف 150 سطراً، يبدأ بـ import..."}
 "2+2" → {"action":"final","text":"4"}
+"ما دروسك السابقة؟" → {"action":"final","text":"دروسي: X, Y, Z"}
 
 ${ragContext ? ragContext + '\n' : ''}${memoryContext}حالة النظام: ${ctx.healthy}/${ctx.total}
 طلب القائد: ${userMessage}
