@@ -3,37 +3,175 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>المحافظ الرقمية — عمالقة الصمت</title>
+<title>المحافظ الرقمية</title>
 <style>
-body{font-family:sans-serif;background:#0a1020;color:#e8ecf5;padding:16px;line-height:1.7}
-h1{color:#a78bfa;font-size:20px;text-align:center;margin-bottom:20px}
-.w{background:#1e293b;border-radius:16px;padding:20px;margin-bottom:16px;border:1px solid #334155}
-.t{color:#a78bfa;font-size:16px;font-weight:bold;margin-bottom:12px}
-.a{background:#0f172a;border-radius:8px;padding:12px;word-break:break-all;font-family:monospace;color:#e0e7ff;direction:ltr;text-align:left;font-size:13px;margin-bottom:12px}
-.b{background:#4338ca;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px}
-.b:hover{background:#4f46e5}
-.x{background:#422006;color:#fcd34d;padding:16px;border-radius:12px;margin-bottom:20px;font-size:13px;text-align:center}
-.n{background:#0f172a;padding:16px;border-radius:12px;text-align:center;font-size:12px;color:#64748b;margin-top:24px}
-a{color:#a78bfa;text-decoration:none;display:block;margin-bottom:16px;text-align:center}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; padding: 16px; min-height: 100vh; }
+  h1 { color: #a78bfa; font-size: 20px; text-align: center; margin-bottom: 6px; }
+  .subtitle { color: #94a3b8; font-size: 12px; text-align: center; margin-bottom: 20px; }
+  .wallets-grid { display: grid; grid-template-columns: 1fr; gap: 14px; max-width: 720px; margin: 0 auto; }
+  @media (min-width: 600px) { .wallets-grid { grid-template-columns: 1fr 1fr; } }
+  .wallet-card { background: #1e293b; border-radius: 16px; padding: 18px; border: 2px solid #334155; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .wallet-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .wallet-name { font-size: 17px; font-weight: 700; color: #e0e7ff; }
+  .wallet-network { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+  .wallet-icon { font-size: 32px; }
+  .balance-box { background: #0f172a; border-radius: 12px; padding: 18px; margin-bottom: 14px; text-align: center; border: 1px solid #334155; }
+  .balance-label { color: #94a3b8; font-size: 11px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .balance-amount { color: #34d399; font-size: 32px; font-weight: 800; font-family: monospace; word-break: break-all; line-height: 1.1; }
+  .balance-currency { color: #a78bfa; font-size: 13px; margin-top: 6px; font-weight: 600; }
+  .address-box { background: #0f172a; border-radius: 10px; padding: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #334155; }
+  .address-text { flex: 1; font-family: monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; direction: ltr; text-align: left; }
+  .copy-btn { background: #312e81; color: #e0e7ff; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; transition: background 0.2s; }
+  .copy-btn:active { background: #4338ca; }
+  .copy-btn.copied { background: #065f46; color: #a7f3d0; }
+  .warn { text-align: center; color: #fbbf24; font-size: 12px; margin: 16px auto; padding: 10px; background: rgba(251,191,36,0.1); border-radius: 10px; max-width: 720px; }
+  .refresh-bar { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 20px; color: #94a3b8; font-size: 12px; flex-wrap: wrap; }
+  .refresh-btn { background: #1e293b; border: 1px solid #334155; color: #a78bfa; padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .refresh-btn:active { background: #334155; }
+  .empty { color: #64748b; font-style: italic; }
 </style>
 </head>
 <body>
-<a href="/dashboard?key=8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr">← رجوع للوحة التحكم</a>
-<h1>💼 المحافظ الرقمية</h1>
-<div class="x">⚠️ استقبال فقط — لا سحب تلقائي</div>
-<div class="w">
-<div class="t">💎 USDT (TON Network)</div>
-<div class="a" id="usdt">UQCmuxmPwCwBxYchu6rXNP90Va0MqPlRD3kzGaTbEHb70Z1f</div>
-<button class="b" onclick="cp('usdt')">📋 نسخ العنوان</button>
-</div>
-<div class="w">
-<div class="t">🔵 USDC (Base Network)</div>
-<div class="a" id="usdc">0x9d27c8bc594dcead76d2bb6d2390d4904a7a0855</div>
-<button class="b" onclick="cp('usdc')">📋 نسخ العنوان</button>
-</div>
-<div class="n">تأكد من الشبكة الصحيحة قبل الإرسال</div>
+  <h1>💼 المحافظ الرقمية</h1>
+  <p class="subtitle">استقبال فقط — لا سحب تلقائي</p>
+  <div class="wallets-grid">
+    <div class="wallet-card">
+      <div class="wallet-header">
+        <div>
+          <div class="wallet-name">USDT</div>
+          <div class="wallet-network">TON Network</div>
+        </div>
+        <div class="wallet-icon">💎</div>
+      </div>
+      <div class="balance-box">
+        <div class="balance-label">الرصيد الحالي</div>
+        <div class="balance-amount" id="balance-ton">—</div>
+        <div class="balance-currency">USDT</div>
+      </div>
+      <div class="address-box">
+        <div class="address-text" id="addr-ton">جاري التحميل...</div>
+        <button class="copy-btn" data-target="addr-ton">📋 نسخ</button>
+      </div>
+    </div>
+    <div class="wallet-card">
+      <div class="wallet-header">
+        <div>
+          <div class="wallet-name">USDC</div>
+          <div class="wallet-network">Base Network</div>
+        </div>
+        <div class="wallet-icon">🔵</div>
+      </div>
+      <div class="balance-box">
+        <div class="balance-label">الرصيد الحالي</div>
+        <div class="balance-amount" id="balance-base">—</div>
+        <div class="balance-currency">USDC</div>
+      </div>
+      <div class="address-box">
+        <div class="address-text" id="addr-base">جاري التحميل...</div>
+        <button class="copy-btn" data-target="addr-base">📋 نسخ</button>
+      </div>
+    </div>
+  </div>
+  <div class="warn">⚠️ تأكد من الشبكة الصحيحة قبل الإرسال</div>
+  <div class="refresh-bar">
+    <button class="refresh-btn" id="refresh-btn">🔄 تحديث الأرصدة</button>
+    <span id="last-update">—</span>
+  </div>
+
 <script>
-function cp(id){var t=document.getElementById(id).textContent;navigator.clipboard.writeText(t).then(function(){alert('تم النسخ')})}
+(function() {
+  var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
+  var HEADERS = { 'x-team-key': TEAM_KEY };
+
+  function copyText(text, btn) {
+    var showDone = function() {
+      btn.textContent = '✅ تم';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = '📋 نسخ'; btn.classList.remove('copied'); }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(showDone).catch(function() { doFallback(text, showDone); });
+    } else {
+      doFallback(text, showDone);
+    }
+  }
+  function doFallback(text, cb) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); cb(); } catch(e) { alert('تعذر النسخ'); }
+    document.body.removeChild(ta);
+  }
+
+  window._copyWallet = function(btnId, targetId) {
+    var btn = document.getElementById(btnId);
+    var target = document.getElementById(targetId);
+    if (!btn || !target) return;
+    var text = target.textContent.trim();
+    if (!text || text.indexOf('جاري') === 0 || text === '—') return;
+    copyText(text, btn);
+  };
+
+  document.addEventListener('click', function(ev) {
+    var btn = ev.target.closest('.copy-btn');
+    if (!btn) return;
+    var t = document.getElementById(btn.getAttribute('data-target'));
+    if (!t) return;
+    var text = t.textContent.trim();
+    if (!text || text.indexOf('جاري') === 0) return;
+    copyText(text, btn);
+  });
+
+  function setBalance(id, amount) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (amount === null || amount === undefined || amount === '' || isNaN(amount)) {
+      el.textContent = '—';
+    } else {
+      el.textContent = Number(amount).toFixed(4);
+    }
+  }
+
+  function loadWallets() {
+    var lastEl = document.getElementById('last-update');
+    if (lastEl) lastEl.textContent = '⏳ جاري التحديث...';
+    fetch('/api/wallets/balances', { cache: 'no-store', headers: HEADERS })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var ton = null, base = null, list = [];
+        if (Array.isArray(data)) list = data;
+        else if (data && Array.isArray(data.wallets)) list = data.wallets;
+        else if (data && (data.ton || data.base)) { ton = data.ton; base = data.base; }
+        list.forEach(function(w) {
+          var net = String(w.network || w.chain || w.name || '').toLowerCase();
+          if (net.indexOf('ton') >= 0) ton = w;
+          if (net.indexOf('base') >= 0) base = w;
+        });
+        if (ton) {
+          var ta = document.getElementById('addr-ton');
+          if (ta && (ton.address || ton.addr)) ta.textContent = ton.address || ton.addr;
+          var bal = ton.balance !== undefined ? ton.balance : (ton.amount !== undefined ? ton.amount : ton.usdt);
+          setBalance('balance-ton', bal);
+        }
+        if (base) {
+          var ba = document.getElementById('addr-base');
+          if (ba && (base.address || base.addr)) ba.textContent = base.address || base.addr;
+          var bal2 = base.balance !== undefined ? base.balance : (base.amount !== undefined ? base.amount : base.usdc);
+          setBalance('balance-base', bal2);
+        }
+        if (lastEl) lastEl.textContent = 'آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG');
+      })
+      .catch(function(e) {
+        if (lastEl) lastEl.textContent = '❌ فشل: ' + e.message;
+      });
+  }
+
+  var rb = document.getElementById('refresh-btn');
+  if (rb) rb.addEventListener('click', loadWallets);
+  setInterval(loadWallets, 30000);
+  loadWallets();
+})();
 </script>
 </body>
 </html>
