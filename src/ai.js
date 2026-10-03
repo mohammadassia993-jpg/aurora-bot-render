@@ -1,4 +1,6 @@
-// ai.js — Z.ai primary + LLM7 + HF
+// ai.js — Z.ai primary + LLM7 + HF, with cost tracking
+import { recordUsage } from './cost-governor.js';
+
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 const ZAI_MODEL = 'glm-4.5-flash';
@@ -93,18 +95,36 @@ export async function callModel(agent, prompt, options = {}) {
   const errors = [];
 
   if (ZAI_KEY) {
-    try { const r = await callZAI(messages, options); trackOk('zai'); console.log('[ai] success zai'); return r; }
-    catch (e) { trackFail('zai', e.message); errors.push('ZAI:' + e.message.slice(0,80)); console.error('[ai] ZAI failed:', e.message); }
+    try {
+      const r = await callZAI(messages, options);
+      trackOk('zai'); recordUsage('zai', ZAI_MODEL, true);
+      console.log('[ai] success zai'); return r;
+    } catch (e) {
+      trackFail('zai', e.message); recordUsage('zai', ZAI_MODEL, false, e.message);
+      errors.push('ZAI:' + e.message.slice(0,80)); console.error('[ai] ZAI failed:', e.message);
+    }
   }
 
   if (LLM7_KEY) {
-    try { const r = await callLLM7(messages, options); trackOk('llm7'); console.log('[ai] success llm7'); return r; }
-    catch (e) { trackFail('llm7', e.message); errors.push('LLM7:' + e.message.slice(0,80)); console.error('[ai] LLM7 failed:', e.message); }
+    try {
+      const r = await callLLM7(messages, options);
+      trackOk('llm7'); recordUsage('llm7', LLM7_MODEL, true);
+      console.log('[ai] success llm7'); return r;
+    } catch (e) {
+      trackFail('llm7', e.message); recordUsage('llm7', LLM7_MODEL, false, e.message);
+      errors.push('LLM7:' + e.message.slice(0,80)); console.error('[ai] LLM7 failed:', e.message);
+    }
   }
 
   for (const model of HF_MODELS) {
-    try { const r = await callHF(model, messages, options); trackOk('hf:' + model); console.log('[ai] success HF'); return r; }
-    catch (e) { trackFail('hf:' + model, e.message); errors.push('HF:' + e.message.slice(0,80)); }
+    try {
+      const r = await callHF(model, messages, options);
+      trackOk('hf:' + model); recordUsage('huggingface', model, true);
+      console.log('[ai] success HF'); return r;
+    } catch (e) {
+      trackFail('hf:' + model, e.message); recordUsage('huggingface', model, false, e.message);
+      errors.push('HF:' + e.message.slice(0,80));
+    }
   }
 
   throw new Error('All AI providers failed → ' + errors.join(' | '));
