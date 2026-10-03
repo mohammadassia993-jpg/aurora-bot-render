@@ -20,6 +20,7 @@ import { securityHeaders, globalRateLimit, adminRateLimit, validateWebhookSecret
 import { performancePlan } from './performance.js';
 import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from './team.js';
 import { getAllWallets } from './wallets.js';
+import { formatReport as formatAiUsage } from './cost-governor.js';
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -124,6 +125,60 @@ export async function startServer() {
       }
       if (url.pathname === '/keepalive') {
         return json(response, 200, { ok: true, at: new Date().toISOString() });
+      }
+
+      // ═══ AI Usage ═══
+      if (url.pathname === '/api/ai-usage' && request.method === 'GET') {
+        try {
+          const report = formatAiUsage();
+          const recent = db.prepare(`
+            SELECT provider, model, success, error_message, created_at
+            FROM ai_usage ORDER BY id DESC LIMIT 20
+          `).all();
+          const byProvider = db.prepare(`
+            SELECT provider, COUNT(*) as total,
+              SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as ok,
+              SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) as fail
+            FROM ai_usage
+            WHERE created_at >= datetime('now', '-24 hours')
+            GROUP BY provider
+          `).all();
+          return json(response, 200, { report, byProvider, recent });
+        } catch (e) {
+          return json(response, 500, { error: e.message });
+        }
+      }
+      if (url.pathname === '/ai-usage' && request.method === 'GET') {
+        try {
+          const report = formatAiUsage();
+          const byProvider = db.prepare(`
+            SELECT provider, COUNT(*) as total,
+              SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as ok,
+              SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) as fail
+            FROM ai_usage
+            WHERE created_at >= datetime('now', '-24 hours')
+            GROUP BY provider
+          `).all();
+          const recent = db.prepare(`
+            SELECT provider, model, success, error_message, created_at
+            FROM ai_usage ORDER BY id DESC LIMIT 20
+          `).all();
+          let html = `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>استهلاك AI</title><meta http-equiv="refresh" content="30"><style>body{font-family:system-ui;background:#0f172a;color:#e5e7eb;padding:20px;max-width:900px;margin:auto}h1{color:#a78bfa}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:10px;text-align:right;border-bottom:1px solid #334155}th{background:#1e293b;color:#a78bfa}.ok{color:#34d399}.fail{color:#f87171}.card{background:#1e293b;padding:20px;border-radius:12px;margin:15px 0}.muted{color:#94a3b8;font-size:0.9em}</style></head><body><h1>📊 استهلاك مزودي AI</h1><div class="card"><h3>آخر 24 ساعة</h3><table><tr><th>المزود</th><th>إجمالي</th><th>نجاح</th><th>فشل</th></tr>`;
+          for (const p of byProvider) {
+            html += `<tr><td>${p.provider}</td><td>${p.total}</td><td class="ok">${p.ok}</td><td class="fail">${p.fail}</td></tr>`;
+          }
+          html += `</table></div><div class="card"><h3>آخر 20 طلب</h3><table><tr><th>الوقت</th><th>المزود</th><th>النموذج</th><th>الحالة</th><th>خطأ</th></tr>`;
+          for (const r of recent) {
+            const status = r.success ? '<span class="ok">✅</span>' : '<span class="fail">❌</span>';
+            html += `<tr><td class="muted">${r.created_at}</td><td>${r.provider}</td><td class="muted">${r.model}</td><td>${status}</td><td class="muted">${(r.error_message||'').slice(0,80)}</td></tr>`;
+          }
+          html += `</table></div></body></html>`;
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+          return response.end(html);
+        } catch (e) {
+          response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+          return response.end('خطأ: ' + e.message);
+        }
       }
 
       // ═══ المحافظ ═══
