@@ -8,6 +8,7 @@ import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 import { buildRagContext } from './rag.js';
+import { getAgentContextWindow, recordLesson } from './memory.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', role: 'Supervisor', icon: '/icons/aurora.svg', color: '#a78bfa' },
@@ -52,8 +53,26 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
+function buildMemoryContext() {
+  try {
+    const mem = getAgentContextWindow('aurora');
+    const parts = [];
+    if (mem.lessons?.length) {
+      parts.push('📚 دروس سابقة (تعلّم منها):');
+      for (const l of mem.lessons.slice(0, 3)) parts.push(`- ${String(l.text).slice(0, 140)}`);
+    }
+    if (mem.trust?.samples > 0) {
+      parts.push(`🛡️ درجة الثقة: ${mem.trust.average}/100`);
+    }
+    return parts.length ? '\n' + parts.join('\n') + '\n' : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function buildAgentPrompt(userMessage, ctx) {
   const ragContext = buildRagContext(userMessage, 3);
+  const memoryContext = buildMemoryContext();
   const toolsList = AVAILABLE_TOOLS.map(t => {
     const params = Object.entries(t.params || {}).map(([k, v]) => `${k}`).join(', ');
     return `- ${t.name}(${params})`;
@@ -83,7 +102,7 @@ ${toolsList}
 بعد قراءة ملف: {"action":"final","text":"الملف 150 سطراً، يبدأ بـ import..."}
 "2+2" → {"action":"final","text":"4"}
 
-${ragContext ? ragContext + '\n' : ''}حالة النظام: ${ctx.healthy}/${ctx.total}
+${ragContext ? ragContext + '\n' : ''}${memoryContext}حالة النظام: ${ctx.healthy}/${ctx.total}
 طلب القائد: ${userMessage}
 
 ردّك JSON فقط:`;
@@ -199,6 +218,7 @@ async function runAgentLoop(userMessage, ctx) {
       conversation += `\n\n⚠️ أعد JSON فقط:`;
       consecutiveFailures++;
       if (consecutiveFailures >= 3) {
+        try { recordLesson('aurora', null, 'error', 'json_parse_fail', `فشل تحليل JSON لطلب: ${userMessage.slice(0,80)}`, 1.1); } catch {}
         if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
         return null;
       }
@@ -221,10 +241,15 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: normalizedParams });
 
+      if (!toolResult.ok) {
+        try { recordLesson('aurora', null, 'error', `${parsed.tool}_fail`, `${parsed.tool} فشل: ${String(toolResult.error).slice(0,100)}`, 1.1); } catch {}
+      }
+
       if (parsed.tool === 'github_edit_file' && toolResult.ok) {
         const fp = normalizedParams?.path || normalizedParams?.file_path;
         if (fp) {
           pendingAutoVerify = fp;
+          try { recordLesson('aurora', null, 'success_pattern', 'github_edit_ok', `تعديل ناجح لـ ${fp}`, 1.0); } catch {}
           conversation += `\n\n✅ تم تعديل ${fp}. تحقق تلقائي.`;
           continue;
         }
@@ -324,7 +349,12 @@ async function generateAgentReplies(message) {
   console.log('[team] === agent ===');
   const ctx = collectSystemSnapshot();
   let reply = await runAgentLoop(message.body, ctx);
-  if (!reply) reply = buildDiagnosticFallback(ctx);
+  if (!reply) {
+    reply = buildDiagnosticFallback(ctx);
+    try { recordLesson('aurora', null, 'error', 'agent_loop_fail', `فشل معالجة طلب: ${message.body.slice(0,80)}`, 1.2); } catch {}
+  } else {
+    try { recordLesson('aurora', null, 'success_pattern', 'reply_ok:' + message.body.slice(0,30), `نجح الرد على: ${message.body.slice(0,100)}`, 0.8); } catch {}
+  }
   insertAgentMessage('aurora', reply);
   await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
   await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
