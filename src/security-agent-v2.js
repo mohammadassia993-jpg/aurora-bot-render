@@ -39,3 +39,14 @@ export async function auditEnvVars() {
   }
   return { ok: issues.length === 0, issues: issues };
 }
+
+export async function auditDependencies() {
+  const result = await runCmd('npm', ['audit', '--json']);
+  let data = null;
+  try { data = JSON.parse(result.stdout); } catch (e) {}
+  if (!data) return { ok: true, skipped: true, reason: 'npm audit output unparseable' };
+  const v = (data.metadata ? data.metadata.vulnerabilities : null) || {};
+  let total = 0;
+  for (const k in v) total += Number(v[k] || 0);
+  return { ok: total === 0, total: total, critical: v.critical || 0, high: v.high || 0, moderate: v.moderate || 0, low: v.low || 0 };
+}
