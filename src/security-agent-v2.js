@@ -75,3 +75,41 @@ export async function auditRecentErrors() {
     return { ok: true, skipped: true, reason: e.message };
   }
 }
+
+export async function auditFileIntegrity() {
+  const criticalFiles = ['src/server.js', 'src/team.js', 'src/ai.js', 'src/db.js', 'package.json'];
+  const results = [];
+  for (const f of criticalFiles) {
+    try {
+      const full = path.join(ROOT, f);
+      const stat = await fs.stat(full);
+      results.push({ file: f, size: stat.size, modified: stat.mtime.toISOString() });
+    } catch (e) {
+      results.push({ file: f, missing: true });
+    }
+  }
+  return { ok: true, files: results };
+}
+
+export async function auditApiAuth() {
+  try {
+    const serverCode = await fs.readFile(path.join(ROOT, 'src', 'server.js'), 'utf8');
+    const routes = [];
+    const re = /url\.pathname\s*===\s*'([^']+)'/g;
+    let m;
+    while ((m = re.exec(serverCode)) !== null) {
+      if (m[1].startsWith('/api/')) routes.push(m[1]);
+    }
+    const publicSet = new Set(['/api/ai-usage', '/api/observability', '/api/wallets/balances', '/api/team/messages', '/api/live', '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/notifications', '/api/status']);
+    const unprotected = [];
+    for (const r of routes) {
+      if (publicSet.has(r)) continue;
+      if (r.indexOf('/api/sync/') === 0) continue;
+      if (r === '/api/team/telegram') continue;
+      unprotected.push(r);
+    }
+    return { ok: unprotected.length === 0, totalApiRoutes: routes.length, unprotected: unprotected };
+  } catch (e) {
+    return { ok: true, skipped: true, reason: e.message };
+  }
+}
