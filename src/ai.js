@@ -7,7 +7,7 @@ const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 
 const LLM7_KEY = process.env.LLM7_API_KEY || '';
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'DeepSeek-V4-Flash-1';
+const LLM7_MODEL = 'deepseek-ai/DeepSeek-V3';
 
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
@@ -45,7 +45,7 @@ async function callZAI(messages, options = {}) {
 
 async function callZAIWithFallback(messages, options) {
   const primary = options.model || 'glm-4.5-flash';
-  const fallbacks = [primary, 'glm-4.5', 'glm-4.5-flash'].filter((v,i,a) => a.indexOf(v) === i);
+  const fallbacks = [primary, 'glm-4.5-flash'].filter((v,i,a) => a.indexOf(v) === i);
   let lastErr = null;
   for (const model of fallbacks) {
     try {
@@ -104,8 +104,7 @@ export function selectModel() { return 'zai-router'; }
 
 export function availableModels() {
   return [
-    { name: 'zai', model: 'glm-4.5-flash', role: 'primary-fast' },
-    { name: 'zai', model: 'glm-4.5',       role: 'primary-strong' },
+    { name: 'zai', model: 'glm-4.5-flash', role: 'primary' },
     { name: 'llm7', model: LLM7_MODEL,     role: 'fallback' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'tertiary' }))
   ];
