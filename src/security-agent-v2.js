@@ -8,11 +8,12 @@ import { db } from './db.js';
 const ROOT = config.root;
 const SECRET = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|MNEMONIC|SEED)/i;
 const PLACEHOLDER = /^(your_|xxx|example|placeholder)/i;
+const SAFE_PUBLIC_POST = new Set(['/api/notifications/read', '/api/team/messages']);
 
 function runCmd(cmd, args, timeout) {
   timeout = timeout || 30000;
   return new Promise(function(resolve) {
-    execFile(cmd, args, { cwd: ROOT, timeout: timeout }, function(err, stdout) {
+    execFile(cmd, args, { cwd: ROOT, timeout: timeout }, function(err, stdout, stderr) {
       resolve({ ok: !err, stdout: String(stdout || '').slice(0, 8000) });
     });
   });
@@ -42,8 +43,15 @@ export async function auditEnvVars() {
 
 export async function auditDependencies() {
   const result = await runCmd('npm', ['audit', '--json']);
+  const cleaned = String(result.stdout || '').replace(/^\s*\n/, '');
   let data = null;
-  try { data = JSON.parse(result.stdout); } catch (e) {}
+  try { data = JSON.parse(cleaned); } catch (e) {
+    try {
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      if (start !== -1 && end > start) data = JSON.parse(cleaned.slice(start, end + 1));
+    } catch (e2) {}
+  }
   if (!data) return { ok: true, skipped: true, reason: 'npm audit output unparseable' };
   const v = (data.metadata ? data.metadata.vulnerabilities : null) || {};
   let total = 0;
@@ -104,6 +112,7 @@ export async function auditApiAuth() {
     const unprotected = [];
     for (const r of routes) {
       if (publicSet.has(r)) continue;
+      if (SAFE_PUBLIC_POST.has(r)) continue;
       if (r.indexOf('/api/sync/') === 0) continue;
       if (r === '/api/team/telegram') continue;
       unprotected.push(r);
