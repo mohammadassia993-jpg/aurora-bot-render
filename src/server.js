@@ -16,7 +16,6 @@ import { readPublicLink } from './tunnel.js';
 import { audit } from './audit.js';
 import { backupDatabase, recordError } from './db.js';
 import { dashboardData } from './dashboard.js';
-import { securityHeaders, globalRateLimit } from './security.js';
 import { performancePlan } from './performance.js';
 import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from './team.js';
 import { getAllWallets } from './wallets.js';
@@ -127,8 +126,6 @@ function buildObservabilityHtml(report) {
 export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
-    securityHeaders(request, response);
-    if (!globalRateLimit(request, response)) return;
     try {
       if (url.pathname === '/health') {
         const latest = db.prepare(`
