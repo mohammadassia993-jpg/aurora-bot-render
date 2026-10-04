@@ -29,15 +29,19 @@ export async function auditDependencies() {
   return { ok: total === 0, total, critical: vulns.critical || 0, high: vulns.high || 0, moderate: vulns.moderate || 0, low: vulns.low || 0 };
 }
 
+const SECRET_KEY_PATTERN = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|MNEMONIC|SEED)/i;
 export async function auditEnvVars() {
   const issues = [];
   try {
     const example = await fs.readFile(path.join(ROOT, '.env.example'), 'utf8');
     for (const line of example.split('\n')) {
       const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.+)$/);
-      if (m && m[2].length > 20 && !/^[<>a-z.]+$/i.test(m[2]) && !m[2].includes('your_') && !m[2].includes('xxx') && !m[2].includes('example')) {
-        issues.push({ file: '.env.example', key: m[1], issue: 'value looks real, not placeholder' });
-      }
+      if (!m || !m[2] || m[2].length < 8) continue;
+      const key = m[1];
+      const value = m[2].trim();
+      if (!SECRET_KEY_PATTERN.test(key)) continue;
+      const isPlaceholder = /^(your_|xxx|example|placeholder|<|>|\$)/i.test(value) || value.length < 15;
+      if (!isPlaceholder) issues.push({ file: '.env.example', key, issue: 'value looks real' });
     }
   } catch {}
   try {
