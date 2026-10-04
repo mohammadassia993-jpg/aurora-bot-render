@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 18 أداة + فحص صيغة قبل الحفظ
+// tool-executor.js (ESM) — 21 أداة + فحص صيغة قبل الحفظ
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -66,6 +66,9 @@ function logToolFailure(toolName, params, error) {
   } catch {}
 }
 
+// ═══════════════════════════════════════════════════════════
+// GitHub helpers
+// ═══════════════════════════════════════════════════════════
 async function githubApi({ endpoint, method = 'GET', body = null }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   const url = endpoint.startsWith('http') ? endpoint
@@ -108,6 +111,9 @@ async function validateJsSyntax(content, filePath) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// github_edit_file
+// ═══════════════════════════════════════════════════════════
 async function githubEditFile({ path: filePath, search, replace, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !search || replace === undefined || !message) throw new Error('path, search, replace, message required');
@@ -144,7 +150,7 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   const updated = original.split(search).join(replace);
   const validation = await validateJsSyntax(updated, filePath);
   if (!validation.valid) {
-    throw new Error('SYNTAX ERROR — تم رفض التعديل ولم يُحفظ على GitHub.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
+    throw new Error('SYNTAX ERROR — تم رفض التعديل.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   }
   const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
   const putRes = await withTimeout(fetch(apiUrl, {
@@ -157,6 +163,9 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   return { edited: true, path: filePath, replacements: count, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
+// ═══════════════════════════════════════════════════════════
+// github_append_file
+// ═══════════════════════════════════════════════════════════
 async function githubAppendFile({ path: filePath, content, message, newline = true }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !content || !message) throw new Error('path, content, message required');
@@ -183,6 +192,67 @@ async function githubAppendFile({ path: filePath, content, message, newline = tr
   return { appended: true, path: filePath, bytesAdded: Buffer.byteLength(separator + content), linesBefore: originalLines, linesAfter: newLines, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🆕 github_create_file
+// ═══════════════════════════════════════════════════════════
+async function githubCreateFile({ path: filePath, content, message }) {
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  if (!filePath || content === undefined || !message) throw new Error('path, content, message required');
+  const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
+  // Check if file already exists
+  const headRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_head');
+  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath + ' — استخدم github_edit_file أو github_append_file');
+  const validation = await validateJsSyntax(content, filePath);
+  if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض الإنشاء.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
+  const newBase64 = Buffer.from(content, 'utf8').toString('base64');
+  const putRes = await withTimeout(fetch(apiUrl, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, content: newBase64, branch: 'main' })
+  }), TOOL_TIMEOUT_MS, 'github_put');
+  const putData = await putRes.json();
+  if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
+  return { created: true, path: filePath, bytes: Buffer.byteLength(content), lines: content.split('\n').length, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🆕 github_delete_file
+// ═══════════════════════════════════════════════════════════
+async function githubDeleteFile({ path: filePath, message }) {
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  if (!filePath || !message) throw new Error('path, message required');
+  const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
+  const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
+  if (!getRes.ok) throw new Error('GET ' + getRes.status);
+  const fileData = await getRes.json();
+  if (!fileData.sha) throw new Error('no sha');
+  const delRes = await withTimeout(fetch(apiUrl, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, sha: fileData.sha, branch: 'main' })
+  }), TOOL_TIMEOUT_MS, 'github_delete');
+  const delData = await delRes.json();
+  if (!delRes.ok) throw new Error('DELETE ' + delRes.status + ': ' + JSON.stringify(delData).slice(0, 300));
+  return { deleted: true, path: filePath, commitSha: delData.commit?.sha || '', commitUrl: delData.commit?.html_url || '' };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🆕 github_list_repo
+// ═══════════════════════════════════════════════════════════
+async function githubListRepo({ path: subPath = '', branch = 'main' }) {
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  const endpoint = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + subPath + '?ref=' + branch;
+  const res = await withTimeout(fetch(endpoint, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_list');
+  if (!res.ok) throw new Error('GitHub ' + res.status);
+  const data = await res.json();
+  if (!Array.isArray(data)) return { path: subPath, type: 'file' };
+  const items = data.map(item => ({ name: item.name, path: item.path, type: item.type, size: item.size }));
+  return { path: subPath || '/', count: items.length, items };
+}
+
+// ═══════════════════════════════════════════════════════════
+// security_audit
+// ═══════════════════════════════════════════════════════════
 async function securityAudit({}) {
   const mod = await import('./security-agent.js');
   const result = await mod.generateSecurityReport();
@@ -411,8 +481,12 @@ async function platformFetch({ url, method = 'GET', session = null, body = null,
 const TOOL_MAP = {
   web_search: webSearch, grep_files: grepFiles, read_many_files: readManyFiles,
   list_files: listFiles, read_file: readFile, write_file: writeFile,
-  github_api: githubApi, github_edit_file: githubEditFile,
+  github_api: githubApi,
+  github_edit_file: githubEditFile,
   github_append_file: githubAppendFile,
+  github_create_file: githubCreateFile,
+  github_delete_file: githubDeleteFile,
+  github_list_repo: githubListRepo,
   security_audit: securityAudit,
   send_telegram: sendTelegram, shell_exec: shellExec, http_fetch: httpFetch,
   render_env_get: renderEnvGet, render_env_set: renderEnvSet,
@@ -422,14 +496,17 @@ const TOOL_MAP = {
 export const AVAILABLE_TOOLS = [
   { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
   { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
-  { name: 'security_audit', description: 'فحص أمني دفاعي شامل للمنظومة (dependencies، env، ثغرات، مسارات بلا حماية).', params: {} },
+  { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub. يفحص الصيغة قبل الحفظ.', params: { path: 'string', content: 'string', message: 'string' } },
+  { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
+  { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string', branch: 'string' } },
+  { name: 'security_audit', description: 'فحص أمني دفاعي شامل للمنظومة.', params: {} },
   { name: 'web_search', description: 'البحث في الإنترنت.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
   { name: 'read_many_files', description: 'قراءة 5 ملفات.', params: { files: 'string[]' } },
-  { name: 'list_files', description: 'سرد مجلد.', params: { dir: 'string', max_depth: 'number' } },
-  { name: 'read_file', description: 'قراءة ملف.', params: { file_path: 'string', start_line: 'number', end_line: 'number' } },
-  { name: 'write_file', description: 'كتابة ملف.', params: { file_path: 'string', content: 'string' } },
-  { name: 'github_api', description: 'استدعاء GitHub API.', params: { endpoint: 'string', method: 'string', body: 'object' } },
+  { name: 'list_files', description: 'سرد مجلد محلي.', params: { dir: 'string', max_depth: 'number' } },
+  { name: 'read_file', description: 'قراءة ملف محلي.', params: { file_path: 'string', start_line: 'number', end_line: 'number' } },
+  { name: 'write_file', description: 'كتابة ملف محلي.', params: { file_path: 'string', content: 'string' } },
+  { name: 'github_api', description: 'استدعاء GitHub API مباشرة.', params: { endpoint: 'string', method: 'string', body: 'object' } },
   { name: 'send_telegram', description: 'إرسال Telegram.', params: { chat_id: 'string', text: 'string' } },
   { name: 'shell_exec', description: 'تنفيذ shell.', params: { command: 'string', args: 'string[]' } },
   { name: 'http_fetch', description: 'طلب HTTP.', params: { url: 'string', method: 'string', headers: 'object', body: 'object' } },
@@ -454,4 +531,4 @@ export async function executeTool(toolName, params = {}) {
     logToolFailure(toolName, params, err);
     return { ok: false, tool: toolName, error: err.message || String(err) };
   }
-    }
+}
