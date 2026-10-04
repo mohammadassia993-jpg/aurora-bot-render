@@ -32,7 +32,6 @@
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
-  #wallets-content, #ai-usage-content { min-height: 60vh; }
 </style>
 </head>
 <body>
@@ -50,6 +49,7 @@
   <div class="tab" data-tab="notifications">الإشعارات</div>
   <div class="tab" data-tab="wallets">💰 المحافظ</div>
   <div class="tab" data-tab="ai-usage">🤖 استهلاك AI</div>
+  <div class="tab" data-tab="observability">📊 المراقبة</div>
 </div>
 
 <div class="panel active" id="panel-main">
@@ -112,65 +112,13 @@
   </div>
 </div>
 
-<script src="/dashboard.js?v=23"></script>
-<script>
-  // Lazy load content for wallets & ai-usage panels (avoids iframe restrictions)
-  async function loadPanelContent(tabName) {
-    if (tabName === 'wallets') {
-      const el = document.getElementById('wallets-content');
-      if (el.dataset.loaded === '1') return;
-      el.innerHTML = '⏳ جاري التحميل...';
-      try {
-        const res = await fetch('/wallets.html', { cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const html = await res.text();
-        // Extract body content from fetched HTML
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const bodyContent = doc.body ? doc.body.innerHTML : html;
-        el.innerHTML = bodyContent;
-        el.dataset.loaded = '1';
-        // Re-execute inline scripts
-        el.querySelectorAll('script').forEach(oldScript => {
-          const newScript = document.createElement('script');
-          Array.from(oldScript.attributes).forEach(a => newScript.setAttribute(a.name, a.value));
-          newScript.textContent = oldScript.textContent;
-          oldScript.parentNode.replaceChild(newScript, oldScript);
-        });
-      } catch (e) {
-        el.innerHTML = '<div class="error">فشل التحميل: ' + e.message + '</div>';
-      }
-    }
-    if (tabName === 'ai-usage') {
-      const el = document.getElementById('ai-usage-content');
-      el.innerHTML = '⏳ جاري التحميل...';
-      try {
-        const res = await fetch('/ai-usage', { cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const html = await res.text();
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const bodyContent = doc.body ? doc.body.innerHTML : html;
-        el.innerHTML = bodyContent;
-      } catch (e) {
-        el.innerHTML = '<div class="error">فشل التحميل: ' + e.message + '</div>';
-      }
-    }
-  }
+<div class="panel" id="panel-observability">
+  <div class="card">
+    <h2>📊 المراقبة</h2>
+    <div id="observability-content">جاري التحميل...</div>
+  </div>
+</div>
 
-  document.addEventListener('click', (ev) => {
-    const tab = ev.target.closest('.tab');
-    if (!tab) return;
-    const name = tab.dataset.tab;
-    // Wait for dashboard.js to switch, then load content
-    setTimeout(() => loadPanelContent(name), 50);
-  });
-
-  // Auto-refresh ai-usage if visible
-  setInterval(() => {
-    const panel = document.getElementById('panel-ai-usage');
-    if (panel && panel.classList.contains('active')) {
-      loadPanelContent('ai-usage');
-    }
-  }, 30000);
-</script>
+<script src="/dashboard.js?v=24"></script>
 </body>
 </html>
