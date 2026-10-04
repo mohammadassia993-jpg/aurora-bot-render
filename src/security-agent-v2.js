@@ -113,3 +113,51 @@ export async function auditApiAuth() {
     return { ok: true, skipped: true, reason: e.message };
   }
 }
+
+export async function generateSecurityReport() {
+  const [deps, env, errors, auth, files] = await Promise.all([
+    auditDependencies(),
+    auditEnvVars(),
+    auditRecentErrors(),
+    auditApiAuth(),
+    auditFileIntegrity()
+  ]);
+  const issues = [];
+  if (!deps.ok && !deps.skipped) issues.push('Dependencies: ' + deps.total + ' vulnerabilities (C:' + deps.critical + ' H:' + deps.high + ' M:' + deps.moderate + ' L:' + deps.low + ')');
+  if (!env.ok) for (const i of env.issues) issues.push('Env: ' + i.file + ' — ' + i.issue);
+  if (!errors.ok) for (const h of errors.hits) issues.push('Attack pattern: ' + h.pattern + ' in ' + h.scope);
+  if (!auth.ok) for (const r of auth.unprotected) issues.push('Unprotected route: ' + r);
+  const status = issues.length === 0 ? 'SAFE' : (issues.length + ' note(s)');
+  const lines = [];
+  lines.push('Security Audit Report');
+  lines.push('=====================');
+  lines.push('Status: ' + status);
+  lines.push('');
+  lines.push('Dependencies:');
+  lines.push(deps.skipped ? '  (skipped: ' + deps.reason + ')' : ('  ' + (deps.total === 0 ? 'OK - no vulnerabilities' : (deps.total + ' (C:' + deps.critical + ' H:' + deps.high + ' M:' + deps.moderate + ' L:' + deps.low + ')'))));
+  lines.push('');
+  lines.push('Env Vars:');
+  lines.push(env.ok ? '  OK' : ('  ' + env.issues.length + ' issue(s)'));
+  lines.push('');
+  lines.push('API Auth:');
+  lines.push(auth.skipped ? ('  (skipped: ' + auth.reason + ')') : ('  ' + (auth.unprotected.length === 0 ? 'OK - all routes protected' : (auth.unprotected.length + ' unprotected'))));
+  lines.push('');
+  lines.push('Errors (24h):');
+  lines.push(errors.skipped ? '  (skipped)' : ('  scanned ' + errors.scanned + ' — ' + errors.hits.length + ' suspicious'));
+  lines.push('');
+  lines.push('File Integrity:');
+  for (const f of files.files) {
+    lines.push('  ' + (f.missing ? 'MISSING' : 'OK') + ' ' + f.file + (f.size ? (' (' + f.size + 'B)') : ''));
+  }
+  if (issues.length) {
+    lines.push('');
+    lines.push('=====================');
+    lines.push('Issues:');
+    for (const i of issues) lines.push('  ' + i);
+  }
+  return {
+    report: lines.join('\n'),
+    summary: { deps: deps.ok, env: env.ok, errors: errors.ok, auth: auth.ok, issues: issues.length },
+    details: { deps: deps, env: env, errors: errors, auth: auth, files: files }
+  };
+}
