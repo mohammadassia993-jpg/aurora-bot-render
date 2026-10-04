@@ -31,6 +31,14 @@ const mimeTypes = {
   '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'
 };
 
+const PUBLIC_GET_PATHS = new Set([
+  '/', '/dashboard', '/app',
+  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages',
+  '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability',
+  '/api/wallets/balances', '/api/status',
+  '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive'
+]);
+
 async function readBody(request) {
   const chunks = [];
   let size = 0;
@@ -65,10 +73,12 @@ function isLoopback(request) {
 }
 
 function authorized(request, url) {
-  const supplied = url.searchParams.get('key') || request.headers['x-team-key'] || '';
-  const expected = Buffer.from(config.teamUiToken);
-  const actual = Buffer.from(String(supplied));
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  try {
+    const supplied = url.searchParams.get('key') || request.headers['x-team-key'] || '';
+    const expected = Buffer.from(config.teamUiToken || '');
+    const actual = Buffer.from(String(supplied));
+    return actual.length === expected.length && expected.length > 0 && crypto.timingSafeEqual(actual, expected);
+  } catch { return false; }
 }
 
 function databaseSyncAuthorized(request) {
@@ -127,6 +137,7 @@ export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     try {
+      // ── Public health & status ──
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
@@ -157,6 +168,7 @@ export async function startServer() {
         });
       }
 
+      // ── AI usage ──
       if (url.pathname === '/api/ai-usage' && request.method === 'GET') {
         try {
           const report = formatAiUsage();
@@ -176,6 +188,7 @@ export async function startServer() {
         } catch (e) { response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }); return response.end('خطأ: ' + e.message); }
       }
 
+      // ── Observability ──
       if (url.pathname === '/observability' && request.method === 'GET') {
         try {
           const report = getFullReport();
@@ -190,6 +203,7 @@ export async function startServer() {
         catch (e) { return json(response, 500, { error: e.message }); }
       }
 
+      // ── Wallets ──
       if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
         try { return json(response, 200, await getAllWallets()); }
         catch (e) { return json(response, 500, { ok: false, error: e.message }); }
@@ -211,6 +225,7 @@ export async function startServer() {
         } catch (e) { response.writeHead(404, { 'content-type': 'application/javascript; charset=utf-8' }); return response.end('// not found'); }
       }
 
+      // ── Telegram webhook ──
       if (url.pathname === '/telegram/webhook' && request.method === 'POST') {
         const secret = request.headers['x-telegram-bot-api-secret-token'] || '';
         if (config.telegramWebhookSecret && secret !== config.telegramWebhookSecret) return json(response, 401, { ok: false });
@@ -221,6 +236,7 @@ export async function startServer() {
         return json(response, 200, { ok: true, outbox });
       }
 
+      // ── Database sync ──
       if (url.pathname === '/api/sync/database' && request.method === 'GET') {
         if (config.platformRole !== 'primary' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) return json(response, 403, { ok: false, error: 'disabled or unauthorized' });
         const backupPath = backupDatabase();
@@ -277,6 +293,7 @@ export async function startServer() {
         return json(response, 202, { ok: true, accepted: true, sha256: actualHash, restoreOnRestart: true });
       }
 
+      // ── Telegram relay ──
       if (url.pathname === '/api/team/telegram' && request.method === 'POST') {
         if (!config.databaseSyncToken || !databaseSyncAuthorized(request)) return json(response, 403, { ok: false, error: 'unauthorized' });
         const input = await readBody(request);
@@ -293,18 +310,18 @@ export async function startServer() {
         return json(response, 201, { ok: true, id: Number(result.lastInsertRowid) });
       }
 
-      const publicShell = ['/', '/dashboard', '/app'].includes(url.pathname);
+      // ── AUTH CHECK (only for non-public, non-GET-public routes) ──
+      const isPublicGet = request.method === 'GET' && (
+        PUBLIC_GET_PATHS.has(url.pathname) ||
+        url.pathname.startsWith('/icons/') ||
+        url.pathname.startsWith('/uploads/')
+      );
       const localReport = url.pathname === '/report' && isLoopback(request);
-      const publicReadOnlyPath =
-        config.publicReadOnly &&
-        request.method === 'GET' &&
-        (publicShell ||
-          url.pathname.startsWith('/icons/') ||
-          url.pathname.startsWith('/uploads/') ||
-          ['/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability'].includes(url.pathname) ||
-          ['/ai-usage', '/observability', '/wallets.html', '/dashboard.js'].includes(url.pathname));
-      if (!publicShell && !localReport && !publicReadOnlyPath && !authorized(request, url)) return json(response, 401, { error: 'team key required' });
+      if (!isPublicGet && !localReport && !authorized(request, url)) {
+        return json(response, 401, { error: 'team key required' });
+      }
 
+      // ── Below: protected routes ──
       if (url.pathname === '/tasks') {
         return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
       }
@@ -449,6 +466,7 @@ export async function startServer() {
         return json(response, 200, { state: 'submitted' });
       }
 
+      // ── Homepage (public) ──
       if (['/', '/dashboard', '/app'].includes(url.pathname)) {
         let html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
         const etag = `"${crypto.createHash('sha256').update(html).digest('hex')}"`;
