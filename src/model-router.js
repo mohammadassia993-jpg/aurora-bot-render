@@ -2,14 +2,14 @@
 
 export const MODEL_TIERS = {
   simple:  { model: 'glm-4.5-flash', maxTokens: 800,  temperature: 0.2,  label: '⚡ سريع' },
-  medium:  { model: 'glm-4.5-air',   maxTokens: 1500, temperature: 0.2,  label: '⚖️ متوازن' },
+  medium:  { model: 'glm-4.5',       maxTokens: 1500, temperature: 0.2,  label: '⚖️ متوازن' },
   complex: { model: 'glm-4.5',       maxTokens: 2500, temperature: 0.15, label: '🔥 قوي' }
 };
 
 const COMPLEX_KEYWORDS = [
   'إعادة هيكلة', 'أعد كتابة', 'أعد بناء', 'refactor', 'rewrite', 'restructure',
   'ملف كامل', 'whole file', 'entire file', 'multiple files', 'عدة ملفات',
-  '20 سطر', '20 lines', 'شامل', 'comprehensive'
+  'شامل', 'comprehensive'
 ];
 
 const MEDIUM_KEYWORDS = [
