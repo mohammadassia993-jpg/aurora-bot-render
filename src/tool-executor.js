@@ -66,9 +66,6 @@ function logToolFailure(toolName, params, error) {
   } catch {}
 }
 
-// ═══════════════════════════════════════════════════════════
-// GitHub helpers
-// ═══════════════════════════════════════════════════════════
 async function githubApi({ endpoint, method = 'GET', body = null }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   const url = endpoint.startsWith('http') ? endpoint
@@ -111,9 +108,6 @@ async function validateJsSyntax(content, filePath) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_edit_file
-// ═══════════════════════════════════════════════════════════
 async function githubEditFile({ path: filePath, search, replace, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !search || replace === undefined || !message) throw new Error('path, search, replace, message required');
@@ -163,9 +157,6 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   return { edited: true, path: filePath, replacements: count, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_append_file
-// ═══════════════════════════════════════════════════════════
 async function githubAppendFile({ path: filePath, content, message, newline = true }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !content || !message) throw new Error('path, content, message required');
@@ -192,16 +183,12 @@ async function githubAppendFile({ path: filePath, content, message, newline = tr
   return { appended: true, path: filePath, bytesAdded: Buffer.byteLength(separator + content), linesBefore: originalLines, linesAfter: newLines, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 github_create_file
-// ═══════════════════════════════════════════════════════════
 async function githubCreateFile({ path: filePath, content, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || content === undefined || !message) throw new Error('path, content, message required');
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
-  // Check if file already exists
   const headRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_head');
-  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath + ' — استخدم github_edit_file أو github_append_file');
+  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath);
   const validation = await validateJsSyntax(content, filePath);
   if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض الإنشاء.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   const newBase64 = Buffer.from(content, 'utf8').toString('base64');
@@ -215,9 +202,6 @@ async function githubCreateFile({ path: filePath, content, message }) {
   return { created: true, path: filePath, bytes: Buffer.byteLength(content), lines: content.split('\n').length, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 github_delete_file
-// ═══════════════════════════════════════════════════════════
 async function githubDeleteFile({ path: filePath, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !message) throw new Error('path, message required');
@@ -236,9 +220,6 @@ async function githubDeleteFile({ path: filePath, message }) {
   return { deleted: true, path: filePath, commitSha: delData.commit?.sha || '', commitUrl: delData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 github_list_repo
-// ═══════════════════════════════════════════════════════════
 async function githubListRepo({ path: subPath = '', branch = 'main' }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   const endpoint = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + subPath + '?ref=' + branch;
@@ -250,11 +231,8 @@ async function githubListRepo({ path: subPath = '', branch = 'main' }) {
   return { path: subPath || '/', count: items.length, items };
 }
 
-// ═══════════════════════════════════════════════════════════
-// security_audit
-// ═══════════════════════════════════════════════════════════
 async function securityAudit({}) {
-  const mod = await import('./security-agent.js');
+  const mod = await import('./security-agent-v2.js');
   const result = await mod.generateSecurityReport();
   return result;
 }
@@ -496,7 +474,7 @@ const TOOL_MAP = {
 export const AVAILABLE_TOOLS = [
   { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
   { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
-  { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub. يفحص الصيغة قبل الحفظ.', params: { path: 'string', content: 'string', message: 'string' } },
+  { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
   { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string', branch: 'string' } },
   { name: 'security_audit', description: 'فحص أمني دفاعي شامل للمنظومة.', params: {} },
