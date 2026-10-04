@@ -50,3 +50,28 @@ export async function auditDependencies() {
   for (const k in v) total += Number(v[k] || 0);
   return { ok: total === 0, total: total, critical: v.critical || 0, high: v.high || 0, moderate: v.moderate || 0, low: v.low || 0 };
 }
+
+export async function auditRecentErrors() {
+  const patterns = [
+    { name: 'SQL injection', regex: /(union\s+select|';--)/i },
+    { name: 'Path traversal', regex: /(\.\.\/|%2e%2e)/i },
+    { name: 'XSS attempt', regex: /(<script|javascript:)/i },
+    { name: 'Command injection', regex: /(;\s*rm\s|&&\s*curl)/i }
+  ];
+  try {
+    const rows = db.prepare("SELECT scope, error_type, message FROM errors WHERE created_at >= datetime('now', '-24 hours') LIMIT 500").all();
+    const hits = [];
+    for (const row of rows) {
+      const text = String(row.message || '') + ' ' + String(row.scope || '');
+      for (const p of patterns) {
+        if (p.regex.test(text)) {
+          hits.push({ pattern: p.name, scope: row.scope, snippet: String(row.message).slice(0, 150) });
+          break;
+        }
+      }
+    }
+    return { ok: hits.length === 0, scanned: rows.length, hits: hits.slice(0, 20) };
+  } catch (e) {
+    return { ok: true, skipped: true, reason: e.message };
+  }
+}
