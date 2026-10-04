@@ -45,18 +45,16 @@ async function callZAI(messages, options = {}) {
 
 async function callZAIWithFallback(messages, options) {
   const primary = options.model || 'glm-4.5-flash';
-  const fallbacks = [primary, 'glm-4.5-air', 'glm-4.5-flash'].filter((v,i,a) => a.indexOf(v) === i);
+  const fallbacks = [primary, 'glm-4.5', 'glm-4.5-flash'].filter((v,i,a) => a.indexOf(v) === i);
   let lastErr = null;
   for (const model of fallbacks) {
     try {
       const r = await callZAI(messages, { ...options, model });
+      console.log('[ai] ZAI success with ' + model);
       return { text: r, model };
     } catch (e) {
       lastErr = e;
-      const msg = String(e.message || '').toLowerCase();
-      const isModelIssue = msg.includes('model_not_found') || msg.includes('invalid model') || msg.includes('404') || msg.includes('not found');
-      if (!isModelIssue) throw e;
-      console.warn('[ai] ZAI model unavailable: ' + model + ' → trying fallback');
+      console.warn('[ai] ZAI ' + model + ' failed: ' + String(e.message).slice(0,150));
     }
   }
   throw lastErr || new Error('ZAI all models failed');
@@ -107,7 +105,6 @@ export function selectModel() { return 'zai-router'; }
 export function availableModels() {
   return [
     { name: 'zai', model: 'glm-4.5-flash', role: 'primary-fast' },
-    { name: 'zai', model: 'glm-4.5-air',   role: 'primary-balanced' },
     { name: 'zai', model: 'glm-4.5',       role: 'primary-strong' },
     { name: 'llm7', model: LLM7_MODEL,     role: 'fallback' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'tertiary' }))
@@ -136,7 +133,6 @@ export async function callModel(agent, prompt, options = {}) {
 
   const errors = [];
 
-  // Z.ai (primary — with internal fallback)
   try {
     const result = await callZAIWithFallback(messages, callOpts);
     trackOk('zai:' + result.model);
@@ -145,11 +141,10 @@ export async function callModel(agent, prompt, options = {}) {
   } catch (e) {
     trackFail('zai:' + tier.model, e.message);
     recordUsage('zai', tier.model, false, e.message);
-    errors.push('ZAI:' + e.message.slice(0,80));
+    errors.push('ZAI:' + String(e.message).slice(0,80));
     console.error('[ai] ZAI failed:', e.message);
   }
 
-  // LLM7 (secondary)
   if (LLM7_KEY) {
     try {
       const r = await callLLM7(messages, callOpts);
@@ -157,11 +152,10 @@ export async function callModel(agent, prompt, options = {}) {
       return r;
     } catch (e) {
       trackFail('llm7', e.message); recordUsage('llm7', LLM7_MODEL, false, e.message);
-      errors.push('LLM7:' + e.message.slice(0,80));
+      errors.push('LLM7:' + String(e.message).slice(0,80));
     }
   }
 
-  // HF (tertiary)
   for (const model of HF_MODELS) {
     try {
       const r = await callHF(model, messages, callOpts);
@@ -169,7 +163,7 @@ export async function callModel(agent, prompt, options = {}) {
       return r;
     } catch (e) {
       trackFail('hf:' + model, e.message); recordUsage('huggingface', model, false, e.message);
-      errors.push('HF:' + e.message.slice(0,80));
+      errors.push('HF:' + String(e.message).slice(0,80));
     }
   }
 
