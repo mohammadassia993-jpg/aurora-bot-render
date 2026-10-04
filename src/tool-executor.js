@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 16 أداة + فحص صيغة قبل الحفظ
+// tool-executor.js (ESM) — 17 أداة + فحص صيغة قبل الحفظ
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -82,7 +82,7 @@ async function githubApi({ endpoint, method = 'GET', body = null }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🆕 فحص صيغة JavaScript
+// فحص صيغة JavaScript
 // ═══════════════════════════════════════════════════════════
 function checkSyntaxOfFile(filePath) {
   return new Promise((resolve) => {
@@ -94,24 +94,20 @@ function checkSyntaxOfFile(filePath) {
 }
 
 async function validateJsSyntax(content, filePath) {
-  // فحص فقط ملفات .js / .mjs / .cjs
   if (!/\.(m?js|cjs)$/i.test(filePath)) return { valid: true, skipped: true };
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sg-validate-'));
   try {
-    // جرّب كـ ESM
     const esmFile = path.join(tmpDir, 'check.mjs');
     await fs.writeFile(esmFile, content, 'utf8');
     const esmResult = await checkSyntaxOfFile(esmFile);
     if (esmResult.valid) return { valid: true, mode: 'esm' };
 
-    // جرّب كـ CJS
     const cjsFile = path.join(tmpDir, 'check.cjs');
     await fs.writeFile(cjsFile, content, 'utf8');
     const cjsResult = await checkSyntaxOfFile(cjsFile);
     if (cjsResult.valid) return { valid: true, mode: 'cjs' };
 
-    // فشل في الحالتين
     return { valid: false, error: esmResult.error };
   } finally {
     try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch {}
@@ -166,7 +162,6 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   const count = (original.match(new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
   const updated = original.split(search).join(replace);
 
-  // 🆕 فحص الصيغة قبل الحفظ
   const validation = await validateJsSyntax(updated, filePath);
   if (!validation.valid) {
     throw new Error(
@@ -194,6 +189,62 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
     edited: true,
     path: filePath,
     replacements: count,
+    syntaxChecked: !validation.skipped,
+    syntaxMode: validation.mode || 'skipped',
+    commitSha: putData.commit?.sha || '',
+    commitUrl: putData.commit?.html_url || ''
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🆕 github_append_file — إضافة محتوى في نهاية ملف على GitHub
+// ═══════════════════════════════════════════════════════════
+async function githubAppendFile({ path: filePath, content, message, newline = true }) {
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  if (!filePath || !content || !message) {
+    throw new Error('path, content, message required');
+  }
+
+  const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
+
+  const getRes = await withTimeout(fetch(apiUrl, {
+    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' }
+  }), TOOL_TIMEOUT_MS, 'github_get');
+  if (!getRes.ok) throw new Error('GET ' + getRes.status);
+  const fileData = await getRes.json();
+  if (!fileData.content || !fileData.sha) throw new Error('no content/sha');
+
+  const original = Buffer.from(fileData.content, 'base64').toString('utf8');
+  const separator = newline ? (original.endsWith('\n') ? '' : '\n') : '';
+  const updated = original + separator + content;
+  const originalLines = original.split('\n').length;
+  const newLines = updated.split('\n').length;
+
+  const validation = await validateJsSyntax(updated, filePath);
+  if (!validation.valid) {
+    throw new Error(
+      'SYNTAX ERROR — تم رفض الإضافة ولم تُحفظ على GitHub.\n' +
+      'الملف: ' + filePath + '\n' +
+      'السبب:\n' + validation.error
+    );
+  }
+
+  const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
+
+  const putRes = await withTimeout(fetch(apiUrl, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, content: newBase64, sha: fileData.sha, branch: 'main' })
+  }), TOOL_TIMEOUT_MS, 'github_put');
+  const putData = await putRes.json();
+  if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
+
+  return {
+    appended: true,
+    path: filePath,
+    bytesAdded: Buffer.byteLength(separator + content),
+    linesBefore: originalLines,
+    linesAfter: newLines,
     syntaxChecked: !validation.skipped,
     syntaxMode: validation.mode || 'skipped',
     commitSha: putData.commit?.sha || '',
@@ -424,13 +475,15 @@ const TOOL_MAP = {
   web_search: webSearch, grep_files: grepFiles, read_many_files: readManyFiles,
   list_files: listFiles, read_file: readFile, write_file: writeFile,
   github_api: githubApi, github_edit_file: githubEditFile,
+  github_append_file: githubAppendFile,
   send_telegram: sendTelegram, shell_exec: shellExec, http_fetch: httpFetch,
   render_env_get: renderEnvGet, render_env_set: renderEnvSet,
   save_session: saveSession, load_session: loadSession, platform_fetch: platformFetch,
 };
 
 export const AVAILABLE_TOOLS = [
-  { name: 'github_edit_file', description: 'تعديل ملف على GitHub. يفحص صيغة JavaScript قبل الحفظ. عند وجود خطأ نحوي، يرفض التعديل.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
+  { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace. يفحص صيغة JavaScript قبل الحفظ.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
+  { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub (بدون الحاجة لـ search). يفحص الصيغة قبل الحفظ.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
   { name: 'web_search', description: 'البحث في الإنترنت.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
   { name: 'read_many_files', description: 'قراءة 5 ملفات.', params: { files: 'string[]' } },
