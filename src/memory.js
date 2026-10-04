@@ -3,6 +3,7 @@
  *
  * Stores and retrieves: lessons learned, task context, trust scores, audit trail
  * Provides context window: last 3 lessons + last 5 successful tasks + trust record
+ * +1: FTS search in lessons for relevant past experiences
  */
 import { db } from './db.js';
 import { audit } from './audit.js';
@@ -46,6 +47,55 @@ export function getRecentLessons(agent, limit = 3) {
     WHERE (agent = ? OR agent = 'global')
     ORDER BY created_at DESC LIMIT ?
   `).all(agent, limit);
+}
+
+// ── Relevant Lessons Search (Memory +1) ──
+const STOP_WORDS = new Set(['في', 'من', 'على', 'إلى', 'عن', 'مع', 'هو', 'هي', 'هذا', 'هذه', 'التي', 'الذي', 'أن', 'إن', 'لا', 'ما', 'هل', 'ثم', 'قد', 'كل', 'بعد', 'قبل', 'بين', 'عند', 'the', 'a', 'an', 'is', 'are', 'to', 'of', 'and', 'or', 'in', 'for', 'with', 'on']);
+
+function tokenize(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\w\s\u0600-\u06FF]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOP_WORDS.has(w))
+    .slice(0, 12);
+}
+
+export function searchLessons(query, agent = 'aurora', limit = 5) {
+  const tokens = tokenize(query);
+  if (!tokens.length) return [];
+  try {
+    const rows = db.prepare(`
+      SELECT id, agent, lesson_key, lesson_type, lesson_text, weight, times_applied, created_at
+      FROM memory_lessons
+      WHERE (agent = ? OR agent = 'global')
+      ORDER BY weight DESC, times_applied DESC, created_at DESC
+      LIMIT 100
+    `).all(agent);
+    const scored = [];
+    for (const r of rows) {
+      const text = String(r.lesson_text || '').toLowerCase();
+      let score = 0;
+      for (const tok of tokens) if (text.includes(tok)) score += 1;
+      if (score > 0) scored.push({ ...r, score: score + Number(r.weight || 0) * 0.1 });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
+  } catch (e) {
+    warn('memory', `searchLessons failed: ${e.message}`);
+    return [];
+  }
+}
+
+export function formatRelevantLessons(query, agent = 'aurora', limit = 3) {
+  const rows = searchLessons(query, agent, limit);
+  if (!rows.length) return '';
+  const lines = ['🧠 دروس ذات صلة بالطلب (من ذاكرتك):'];
+  for (const r of rows) {
+    const tag = r.lesson_type === 'error' || r.lesson_type === 'error_resolution' ? '⚠️' : '✅';
+    lines.push(`${tag} ${String(r.lesson_text).slice(0, 180)}`);
+  }
+  return lines.join('\n');
 }
 
 // ── Task Context ──
@@ -116,7 +166,7 @@ export function getAuditTrail(agent = null, limit = 20) {
   `).all(limit);
 }
 
-// ── Context Window (combined retrieval for any agent) ──
+// ── Context Window ──
 export function getAgentContextWindow(agent) {
   const lessons = getRecentLessons(agent, 3);
   const recentTasks = getRecentSuccessfulTasks(agent, 5);
@@ -167,14 +217,13 @@ function formatContextSummary(agent, lessons, tasks, trust) {
   return lines.join('\n');
 }
 
-// ── Learn from Error (auto-record) ──
+// ── Auto-record from errors/success ──
 export function learnFromError(agent, taskId, errorType, errorMessage, fixAction = '') {
   const lessonKey = `error:${errorType}`;
   recordLesson(agent, taskId, 'error_resolution', lessonKey, `${errorMessage}${fixAction ? ' → Solution: ' + fixAction : ''}`, 1.2);
   recordAuditEntry(agent, 'error_learned', `task:${taskId}`, `Error: ${errorType} — ${errorMessage.slice(0, 200)}`);
 }
 
-// ── Learn from Success (auto-record) ──
 export function learnFromSuccess(agent, taskId, taskTitle, score) {
   const lessonKey = `success:${taskTitle.slice(0, 50).replace(/\s+/g, '_')}`;
   recordLesson(agent, taskId, 'success_pattern', lessonKey, `Successfully completed: ${taskTitle} (score: ${score})`, 1.0);
