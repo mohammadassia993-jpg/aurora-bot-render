@@ -188,7 +188,7 @@ async function githubCreateFile({ path: filePath, content, message }) {
   if (!filePath || content === undefined || !message) throw new Error('path, content, message required');
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
   const headRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_head');
-  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath);
+  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath + ' — استخدم github_edit_file أو github_append_file');
   const validation = await validateJsSyntax(content, filePath);
   if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض الإنشاء.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   const newBase64 = Buffer.from(content, 'utf8').toString('base64');
@@ -474,7 +474,7 @@ const TOOL_MAP = {
 export const AVAILABLE_TOOLS = [
   { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
   { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
-  { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
+  { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub. يفحص الصيغة قبل الحفظ.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
   { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string', branch: 'string' } },
   { name: 'security_audit', description: 'فحص أمني دفاعي شامل للمنظومة.', params: {} },
