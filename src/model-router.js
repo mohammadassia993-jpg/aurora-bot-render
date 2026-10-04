@@ -1,9 +1,9 @@
-// model-router.js — Dynamic model selection by task complexity
+// model-router.js — temporary: all tiers use glm-4.5-flash until verified strong model available
 
 export const MODEL_TIERS = {
   simple:  { model: 'glm-4.5-flash', maxTokens: 800,  temperature: 0.2,  label: '⚡ سريع' },
-  medium:  { model: 'glm-4.5',       maxTokens: 1500, temperature: 0.2,  label: '⚖️ متوازن' },
-  complex: { model: 'glm-4.5',       maxTokens: 2500, temperature: 0.15, label: '🔥 قوي' }
+  medium:  { model: 'glm-4.5-flash', maxTokens: 1500, temperature: 0.2,  label: '⚖️ متوازن' },
+  complex: { model: 'glm-4.5-flash', maxTokens: 2500, temperature: 0.15, label: '🔥 قوي' }
 };
 
 const COMPLEX_KEYWORDS = [
