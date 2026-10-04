@@ -14,7 +14,7 @@ function runCmd(cmd, args, timeout) {
   timeout = timeout || 30000;
   return new Promise(function(resolve) {
     execFile(cmd, args, { cwd: ROOT, timeout: timeout }, function(err, stdout, stderr) {
-      resolve({ ok: !err, stdout: String(stdout || '').slice(0, 8000) });
+      resolve({ ok: !err, stdout: String(stdout || '').slice(0, 100000), stderr: String(stderr || '').slice(0, 5000) });
     });
   });
 }
@@ -42,17 +42,29 @@ export async function auditEnvVars() {
 }
 
 export async function auditDependencies() {
-  const result = await runCmd('npm', ['audit', '--json']);
-  const cleaned = String(result.stdout || '').replace(/^\s*\n/, '');
+  // check package.json exists
+  try { await fs.access(path.join(ROOT, 'package.json')); }
+  catch (e) { return { ok: true, skipped: true, reason: 'package.json not found' }; }
+
+  // run npm audit: --loglevel=error suppresses warnings; --audit-level=none ensures exit code 0
+  const result = await runCmd('npm', ['audit', '--json', '--loglevel=error', '--audit-level=none']);
+
+  // collect from stdout; if empty, try stderr
+  let raw = String(result.stdout || '').trim();
+  if (!raw) raw = String(result.stderr || '').trim();
+  if (!raw) return { ok: true, skipped: true, reason: 'npm audit produced no output' };
+
+  // parse json
   let data = null;
-  try { data = JSON.parse(cleaned); } catch (e) {
-    try {
-      const start = cleaned.indexOf('{');
-      const end = cleaned.lastIndexOf('}');
-      if (start !== -1 && end > start) data = JSON.parse(cleaned.slice(start, end + 1));
-    } catch (e2) {}
+  try { data = JSON.parse(raw); } catch (e) {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try { data = JSON.parse(raw.slice(start, end + 1)); } catch (e2) {}
+    }
   }
-  if (!data) return { ok: true, skipped: true, reason: 'npm audit output unparseable' };
+  if (!data) return { ok: true, skipped: true, reason: 'npm audit JSON parse failed' };
+
   const v = (data.metadata ? data.metadata.vulnerabilities : null) || {};
   let total = 0;
   for (const k in v) total += Number(v[k] || 0);
