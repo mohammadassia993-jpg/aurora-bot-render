@@ -27,6 +27,8 @@ import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
 // 🆕 RAG: فهرسة المشروع للبحث الذكي
 import { initRagIndex, indexProject } from './rag.js';
+// 🆕 Security Guardian: حارس أمني دائم
+import { startSecurityGuardian } from './security-researcher.js';
 
 import './bot-guard.js';
 import './self-healing-guard.js';
@@ -50,6 +52,14 @@ try {
   info('rag', `✅ RAG index built: ${count} files`);
 } catch (e) {
   error('rag', `RAG init failed: ${e.message}`);
+}
+
+// 🆕 Security Guardian: تشغيل الحارس الأمني
+try {
+  startSecurityGuardian();
+  info('security-guardian', '✅ Security Guardian started');
+} catch (e) {
+  error('security-guardian', `failed to start: ${e.message}`);
 }
 
 setInterval(async () => {
