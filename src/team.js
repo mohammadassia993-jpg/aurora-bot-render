@@ -87,7 +87,7 @@ ${toolsList}
 - أداة: {"action":"tool","tool":"<name>","params":{...}}
 - إجابة: {"action":"final","text":"..."}
 
-قواعد (7):
+قواعد (8):
 1. JSON فقط. لا markdown، لا شرح.
 2. خطوة واحدة فقط في كل رد.
 3. بعد أي أداة → أنهِ بـ final بملخص قصير (أقل من 80 كلمة).
@@ -210,7 +210,7 @@ async function runAgentLoop(userMessage, ctx) {
     }
 
     let raw;
-    try { raw = await callModel('aurora', conversation, { noJsonMode: false }); }
+    try { raw = await callModel('aurora', conversation, { noJsonMode: false, step, failures: consecutiveFailures }); }
     catch (e) { console.error('[agent] step ' + step + ' LLM: ' + e.message); continue; }
 
     if (!raw || String(raw).trim().length < 5) { consecutiveFailures++; continue; }
