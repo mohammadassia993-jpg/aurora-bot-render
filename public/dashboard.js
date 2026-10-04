@@ -16,15 +16,13 @@
   function copyText(text, btn) {
     var done = function() {
       var old = btn.textContent;
-      btn.textContent = '✅ تم';
-      btn.classList.add('copied');
+      btn.textContent = '✅ تم'; btn.classList.add('copied');
       setTimeout(function() { btn.textContent = old; btn.classList.remove('copied'); }, 2000);
     };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(function() { fallback(text, btn, done); });
-    } else { fallback(text, btn, done); }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(function() { fallback(text, done); });
+    else fallback(text, done);
   }
-  function fallback(text, btn, done) {
+  function fallback(text, done) {
     var ta = document.createElement('textarea');
     ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select();
@@ -91,9 +89,7 @@
         }
         if (lastEl) lastEl.textContent = 'آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG');
       })
-      .catch(function(e) {
-        if (lastEl) lastEl.textContent = '❌ ' + e.message;
-      });
+      .catch(function(e) { if (lastEl) lastEl.textContent = '❌ ' + e.message; });
   }
 
   function loadTabContent(name) {
@@ -109,8 +105,18 @@
         })
         .catch(function(e) { el.innerHTML = '<div class="error">فشل: ' + e.message + '</div>'; });
     }
-    if (name === 'wallets') {
-      renderWalletsPanel();
+    if (name === 'wallets') renderWalletsPanel();
+    if (name === 'observability') {
+      var el2 = document.getElementById('observability-content');
+      if (!el2) return;
+      el2.innerHTML = '<div class="empty">⏳ جاري التحميل...</div>';
+      fetch('/observability', { cache: 'no-store', headers: headers })
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          el2.innerHTML = doc.body ? doc.body.innerHTML : html;
+        })
+        .catch(function(e) { el2.innerHTML = '<div class="error">فشل: ' + e.message + '</div>'; });
     }
   }
 
@@ -130,7 +136,6 @@
     }
   }
 
-  // Copy buttons everywhere (event delegation)
   document.addEventListener('click', function(ev) {
     var btn = ev.target.closest('.copy-btn');
     if (!btn) return;
