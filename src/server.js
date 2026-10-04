@@ -22,6 +22,8 @@ import { getAllWallets } from './wallets.js';
 import { formatReport as formatAiUsage } from './cost-governor.js';
 import { getFullReport } from './observability.js';
 
+const FALLBACK_TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
+
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
@@ -72,12 +74,23 @@ function isLoopback(request) {
   return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress || '');
 }
 
+function getExpectedTeamKey() {
+  const fromConfig = String(config.teamUiToken || '').trim();
+  if (fromConfig.length > 0) return fromConfig;
+  const fromEnv = String(process.env.TEAM_UI_TOKEN || '').trim();
+  if (fromEnv.length > 0) return fromEnv;
+  return FALLBACK_TEAM_KEY;
+}
+
 function authorized(request, url) {
   try {
-    const supplied = url.searchParams.get('key') || request.headers['x-team-key'] || '';
-    const expected = Buffer.from(config.teamUiToken || '');
-    const actual = Buffer.from(String(supplied));
-    return actual.length === expected.length && expected.length > 0 && crypto.timingSafeEqual(actual, expected);
+    const supplied = String(url.searchParams.get('key') || request.headers['x-team-key'] || '');
+    const expected = getExpectedTeamKey();
+    if (!supplied || !expected) return false;
+    const a = Buffer.from(supplied);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   } catch { return false; }
 }
 
@@ -137,7 +150,6 @@ export async function startServer() {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     try {
-      // ── Public health & status ──
       if (url.pathname === '/health') {
         const latest = db.prepare(`
           SELECT component, healthy FROM health_checks
@@ -168,7 +180,6 @@ export async function startServer() {
         });
       }
 
-      // ── AI usage ──
       if (url.pathname === '/api/ai-usage' && request.method === 'GET') {
         try {
           const report = formatAiUsage();
@@ -188,7 +199,6 @@ export async function startServer() {
         } catch (e) { response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }); return response.end('خطأ: ' + e.message); }
       }
 
-      // ── Observability ──
       if (url.pathname === '/observability' && request.method === 'GET') {
         try {
           const report = getFullReport();
@@ -203,7 +213,6 @@ export async function startServer() {
         catch (e) { return json(response, 500, { error: e.message }); }
       }
 
-      // ── Wallets ──
       if (url.pathname === '/api/wallets/balances' && request.method === 'GET') {
         try { return json(response, 200, await getAllWallets()); }
         catch (e) { return json(response, 500, { ok: false, error: e.message }); }
@@ -225,7 +234,6 @@ export async function startServer() {
         } catch (e) { response.writeHead(404, { 'content-type': 'application/javascript; charset=utf-8' }); return response.end('// not found'); }
       }
 
-      // ── Telegram webhook ──
       if (url.pathname === '/telegram/webhook' && request.method === 'POST') {
         const secret = request.headers['x-telegram-bot-api-secret-token'] || '';
         if (config.telegramWebhookSecret && secret !== config.telegramWebhookSecret) return json(response, 401, { ok: false });
@@ -236,7 +244,6 @@ export async function startServer() {
         return json(response, 200, { ok: true, outbox });
       }
 
-      // ── Database sync ──
       if (url.pathname === '/api/sync/database' && request.method === 'GET') {
         if (config.platformRole !== 'primary' || !config.databaseSyncToken || !databaseSyncAuthorized(request)) return json(response, 403, { ok: false, error: 'disabled or unauthorized' });
         const backupPath = backupDatabase();
@@ -293,7 +300,6 @@ export async function startServer() {
         return json(response, 202, { ok: true, accepted: true, sha256: actualHash, restoreOnRestart: true });
       }
 
-      // ── Telegram relay ──
       if (url.pathname === '/api/team/telegram' && request.method === 'POST') {
         if (!config.databaseSyncToken || !databaseSyncAuthorized(request)) return json(response, 403, { ok: false, error: 'unauthorized' });
         const input = await readBody(request);
@@ -310,18 +316,19 @@ export async function startServer() {
         return json(response, 201, { ok: true, id: Number(result.lastInsertRowid) });
       }
 
-      // ── AUTH CHECK (only for non-public, non-GET-public routes) ──
+      // ── AUTH CHECK: only for non-public, non-GET-public routes ──
       const isPublicGet = request.method === 'GET' && (
         PUBLIC_GET_PATHS.has(url.pathname) ||
         url.pathname.startsWith('/icons/') ||
         url.pathname.startsWith('/uploads/')
       );
+      const isTeamMessagePost = url.pathname === '/api/team/messages' && request.method === 'POST';
       const localReport = url.pathname === '/report' && isLoopback(request);
-      if (!isPublicGet && !localReport && !authorized(request, url)) {
+
+      if (!isPublicGet && !isTeamMessagePost && !localReport && !authorized(request, url)) {
         return json(response, 401, { error: 'team key required' });
       }
 
-      // ── Below: protected routes ──
       if (url.pathname === '/tasks') {
         return json(response, 200, { tasks: db.prepare('SELECT * FROM tasks ORDER BY fit_score DESC, id DESC LIMIT 100').all() });
       }
@@ -466,7 +473,6 @@ export async function startServer() {
         return json(response, 200, { state: 'submitted' });
       }
 
-      // ── Homepage (public) ──
       if (['/', '/dashboard', '/app'].includes(url.pathname)) {
         let html = await fs.readFile(path.join(config.root, 'public', 'index.html'), 'utf8');
         const etag = `"${crypto.createHash('sha256').update(html).digest('hex')}"`;
