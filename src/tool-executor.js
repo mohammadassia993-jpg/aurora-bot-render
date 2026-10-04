@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 17 أداة + فحص صيغة قبل الحفظ
+// tool-executor.js (ESM) — 18 أداة + فحص صيغة قبل الحفظ
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -81,9 +81,6 @@ async function githubApi({ endpoint, method = 'GET', body = null }) {
   return { status: res.status, data };
 }
 
-// ═══════════════════════════════════════════════════════════
-// فحص صيغة JavaScript
-// ═══════════════════════════════════════════════════════════
 function checkSyntaxOfFile(filePath) {
   return new Promise((resolve) => {
     execFile('node', ['--check', filePath], { timeout: 5000 }, (err, stdout, stderr) => {
@@ -95,48 +92,33 @@ function checkSyntaxOfFile(filePath) {
 
 async function validateJsSyntax(content, filePath) {
   if (!/\.(m?js|cjs)$/i.test(filePath)) return { valid: true, skipped: true };
-
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sg-validate-'));
   try {
     const esmFile = path.join(tmpDir, 'check.mjs');
     await fs.writeFile(esmFile, content, 'utf8');
     const esmResult = await checkSyntaxOfFile(esmFile);
     if (esmResult.valid) return { valid: true, mode: 'esm' };
-
     const cjsFile = path.join(tmpDir, 'check.cjs');
     await fs.writeFile(cjsFile, content, 'utf8');
     const cjsResult = await checkSyntaxOfFile(cjsFile);
     if (cjsResult.valid) return { valid: true, mode: 'cjs' };
-
     return { valid: false, error: esmResult.error };
   } finally {
     try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch {}
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_edit_file — مع فحص صيغة قبل الحفظ
-// ═══════════════════════════════════════════════════════════
 async function githubEditFile({ path: filePath, search, replace, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
-  if (!filePath || !search || replace === undefined || !message) {
-    throw new Error('path, search, replace, message required');
-  }
-
+  if (!filePath || !search || replace === undefined || !message) throw new Error('path, search, replace, message required');
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
-
-  const getRes = await withTimeout(fetch(apiUrl, {
-    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' }
-  }), TOOL_TIMEOUT_MS, 'github_get');
+  const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
   if (!getRes.ok) throw new Error('GET ' + getRes.status);
   const fileData = await getRes.json();
   if (!fileData.content || !fileData.sha) throw new Error('no content/sha');
-
   const original = Buffer.from(fileData.content, 'base64').toString('utf8');
   const originalLines = original.split('\n');
-
   if (!original.includes(search)) {
-    const searchLen = search.length;
     const firstChars = String(search).slice(0, 60);
     const lastChars = String(search).slice(-30);
     const needle = firstChars.slice(0, 30).toLowerCase();
@@ -149,7 +131,7 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
     }
     const diagnosticMsg = [
       'search string NOT found',
-      'طول search: ' + searchLen + ' حرف',
+      'طول search: ' + search.length + ' حرف',
       'أول 50 حرف: "' + firstChars + '"',
       'آخر 20 حرف: "' + lastChars + '"',
       'طول الملف: ' + original.length + ' حرف (' + originalLines.length + ' سطر)',
@@ -158,25 +140,13 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
     ].join('\n');
     throw new Error(diagnosticMsg);
   }
-
   const count = (original.match(new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
   const updated = original.split(search).join(replace);
-
   const validation = await validateJsSyntax(updated, filePath);
   if (!validation.valid) {
-    throw new Error(
-      'SYNTAX ERROR — تم رفض التعديل ولم يُحفظ على GitHub.\n' +
-      'الملف: ' + filePath + '\n' +
-      'السبب:\n' + validation.error + '\n\n' +
-      'أعد المحاولة بتعديل صحيح. تحقق من:\n' +
-      '- const/let/var متبوعة بـ = وليس :\n' +
-      '- كل { له } مقابل\n' +
-      '- لم تحذف أجزاء من السطر الأصلي'
-    );
+    throw new Error('SYNTAX ERROR — تم رفض التعديل ولم يُحفظ على GitHub.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   }
-
   const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
-
   const putRes = await withTimeout(fetch(apiUrl, {
     method: 'PUT',
     headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
@@ -184,53 +154,25 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   }), TOOL_TIMEOUT_MS, 'github_put');
   const putData = await putRes.json();
   if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
-
-  return {
-    edited: true,
-    path: filePath,
-    replacements: count,
-    syntaxChecked: !validation.skipped,
-    syntaxMode: validation.mode || 'skipped',
-    commitSha: putData.commit?.sha || '',
-    commitUrl: putData.commit?.html_url || ''
-  };
+  return { edited: true, path: filePath, replacements: count, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 github_append_file — إضافة محتوى في نهاية ملف على GitHub
-// ═══════════════════════════════════════════════════════════
 async function githubAppendFile({ path: filePath, content, message, newline = true }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
-  if (!filePath || !content || !message) {
-    throw new Error('path, content, message required');
-  }
-
+  if (!filePath || !content || !message) throw new Error('path, content, message required');
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
-
-  const getRes = await withTimeout(fetch(apiUrl, {
-    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' }
-  }), TOOL_TIMEOUT_MS, 'github_get');
+  const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
   if (!getRes.ok) throw new Error('GET ' + getRes.status);
   const fileData = await getRes.json();
   if (!fileData.content || !fileData.sha) throw new Error('no content/sha');
-
   const original = Buffer.from(fileData.content, 'base64').toString('utf8');
   const separator = newline ? (original.endsWith('\n') ? '' : '\n') : '';
   const updated = original + separator + content;
   const originalLines = original.split('\n').length;
   const newLines = updated.split('\n').length;
-
   const validation = await validateJsSyntax(updated, filePath);
-  if (!validation.valid) {
-    throw new Error(
-      'SYNTAX ERROR — تم رفض الإضافة ولم تُحفظ على GitHub.\n' +
-      'الملف: ' + filePath + '\n' +
-      'السبب:\n' + validation.error
-    );
-  }
-
+  if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض الإضافة.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
-
   const putRes = await withTimeout(fetch(apiUrl, {
     method: 'PUT',
     headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
@@ -238,18 +180,13 @@ async function githubAppendFile({ path: filePath, content, message, newline = tr
   }), TOOL_TIMEOUT_MS, 'github_put');
   const putData = await putRes.json();
   if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
+  return { appended: true, path: filePath, bytesAdded: Buffer.byteLength(separator + content), linesBefore: originalLines, linesAfter: newLines, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
+}
 
-  return {
-    appended: true,
-    path: filePath,
-    bytesAdded: Buffer.byteLength(separator + content),
-    linesBefore: originalLines,
-    linesAfter: newLines,
-    syntaxChecked: !validation.skipped,
-    syntaxMode: validation.mode || 'skipped',
-    commitSha: putData.commit?.sha || '',
-    commitUrl: putData.commit?.html_url || ''
-  };
+async function securityAudit({}) {
+  const mod = await import('./security-agent.js');
+  const result = await mod.generateSecurityReport();
+  return result;
 }
 
 async function sendTelegram({ chat_id, text }) {
@@ -476,14 +413,16 @@ const TOOL_MAP = {
   list_files: listFiles, read_file: readFile, write_file: writeFile,
   github_api: githubApi, github_edit_file: githubEditFile,
   github_append_file: githubAppendFile,
+  security_audit: securityAudit,
   send_telegram: sendTelegram, shell_exec: shellExec, http_fetch: httpFetch,
   render_env_get: renderEnvGet, render_env_set: renderEnvSet,
   save_session: saveSession, load_session: loadSession, platform_fetch: platformFetch,
 };
 
 export const AVAILABLE_TOOLS = [
-  { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace. يفحص صيغة JavaScript قبل الحفظ.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
-  { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub (بدون الحاجة لـ search). يفحص الصيغة قبل الحفظ.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
+  { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
+  { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
+  { name: 'security_audit', description: 'فحص أمني دفاعي شامل للمنظومة (dependencies، env، ثغرات، مسارات بلا حماية).', params: {} },
   { name: 'web_search', description: 'البحث في الإنترنت.', params: { query: 'string', max_results: 'number' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
   { name: 'read_many_files', description: 'قراءة 5 ملفات.', params: { files: 'string[]' } },
@@ -515,4 +454,4 @@ export async function executeTool(toolName, params = {}) {
     logToolFailure(toolName, params, err);
     return { ok: false, tool: toolName, error: err.message || String(err) };
   }
-}
+    }
