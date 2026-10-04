@@ -1,6 +1,6 @@
 {
   "name": "aurora-bot-render",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "axios": "^1.7.7",
     "better-sqlite3": "^12.9.0",
     "delegate-os": "^0.3.0",
-    "imapflow": "^1.0.064",
+    "imapflow": "^1.0.164",
     "mailparser": "^3.7.1",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.16",
