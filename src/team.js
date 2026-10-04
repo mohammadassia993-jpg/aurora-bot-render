@@ -8,7 +8,7 @@ import { saveAttachment } from './uploads.js';
 import { notify } from './notifications.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 import { buildRagContext } from './rag.js';
-import { getAgentContextWindow, recordLesson } from './memory.js';
+import { getAgentContextWindow, recordLesson, formatRelevantLessons } from './memory.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', role: 'Supervisor', icon: '/icons/aurora.svg', color: '#a78bfa' },
@@ -53,17 +53,17 @@ function collectSystemSnapshot() {
   } catch (e) { return { error: e.message }; }
 }
 
-function buildMemoryContext() {
+function buildMemoryContext(userMessage) {
   try {
+    const relevant = formatRelevantLessons(userMessage, 'aurora', 3);
+    if (relevant) return '\n' + relevant + '\n';
     const mem = getAgentContextWindow('aurora');
     const parts = [];
     if (mem.lessons?.length) {
-      parts.push('📚 دروسك من المهام السابقة (للعلم فقط — لا تبحث عنها في الملفات، لا تستدعِ أي أداة بسببها):');
+      parts.push('📚 دروسك السابقة (للعلم فقط — لا تبحث عنها):');
       for (const l of mem.lessons.slice(0, 3)) parts.push(`- ${String(l.text).slice(0, 140)}`);
     }
-    if (mem.trust?.samples > 0) {
-      parts.push(`🛡️ درجة الثقة: ${mem.trust.average}/100`);
-    }
+    if (mem.trust?.samples > 0) parts.push(`🛡️ درجة الثقة: ${mem.trust.average}/100`);
     return parts.length ? '\n' + parts.join('\n') + '\n' : '';
   } catch (e) {
     return '';
@@ -72,7 +72,7 @@ function buildMemoryContext() {
 
 function buildAgentPrompt(userMessage, ctx) {
   const ragContext = buildRagContext(userMessage, 3);
-  const memoryContext = buildMemoryContext();
+  const memoryContext = buildMemoryContext(userMessage);
   const toolsList = AVAILABLE_TOOLS.map(t => {
     const params = Object.entries(t.params || {}).map(([k, v]) => `${k}`).join(', ');
     return `- ${t.name}(${params})`;
@@ -102,7 +102,6 @@ ${toolsList}
 "استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788"}}
 بعد قراءة ملف: {"action":"final","text":"الملف 150 سطراً، يبدأ بـ import..."}
 "2+2" → {"action":"final","text":"4"}
-"ما دروسك السابقة؟" → {"action":"final","text":"دروسي: X, Y, Z"}
 
 ${ragContext ? ragContext + '\n' : ''}${memoryContext}حالة النظام: ${ctx.healthy}/${ctx.total}
 طلب القائد: ${userMessage}
