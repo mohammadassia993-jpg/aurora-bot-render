@@ -36,13 +36,12 @@ function normalizeParams(tool, params) {
   if (fileTools.includes(tool)) {
     if (!p.file_path) p.file_path = p.path || p.file || p.filename || p.name || p.dir;
   }
-  if (tool === 'github_edit_file') {
-    if (!p.path) p.path = p.file_path || p.file || p.filename;
-  }
-  if (tool === 'github_append_file' || tool === 'github_create_file' || tool === 'github_delete_file') {
+  if (tool === 'github_edit_file' || tool === 'github_append_file' || tool === 'github_create_file' || tool === 'github_delete_file') {
     if (!p.path) p.path = p.file_path || p.file || p.filename;
   }
   if (tool === 'web_search' && !p.query && p.q) p.query = p.q;
+  if (tool === 'browse_url' && !p.url && p.link) p.url = p.link;
+  if (tool === 'browser_search' && !p.query && p.q) p.query = p.q;
   return p;
 }
 
@@ -82,23 +81,27 @@ function buildAgentPrompt(userMessage, ctx) {
 
   return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only.
 
+LANGUAGE RULE (CRITICAL):
+- Any "text" field in your JSON response MUST be in Arabic (العربية الفصحى).
+- Example: {"action":"final","text":"الملف يحتوي على 178 سطراً"}
+
 TOOLS:
 ${toolsList}
 
 FORMAT:
 Tool: {"action":"tool","tool":"<name>","params":{...}}
-Final: {"action":"final","text":"..."}
+Final: {"action":"final","text":"<Arabic text>"}
 
 RULES (10):
 1. JSON only. No markdown.
 2. ONE action per response.
-3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words).
+3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words, in Arabic).
 4. Never repeat failed tool with same params.
-5. Final text must be concise. No greetings.
-6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message.
+5. Final text must be in Arabic, concise. No greetings.
+6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message. browse_url: url. browser_search: query.
 7. Never invent files.
 8. If info in RAG/memory → no tools.
-9. Multi-part question → final asking for one point.
+9. Multi-part question → final asking for one point (in Arabic).
 10. On tool fail → try DIFFERENT approach.
 
 EXAMPLES:
@@ -106,12 +109,15 @@ EXAMPLES:
 "استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore"}}
 "أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New","message":"docs"}}
 "اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
+"افتح example.com" → {"action":"tool","tool":"browse_url","params":{"url":"https://example.com"}}
+"ابحث عن AI news" → {"action":"tool","tool":"browser_search","params":{"query":"AI news 2026"}}
 "2+2" → {"action":"final","text":"4"}
+"ما دروسك؟" → {"action":"final","text":"دروسي: X، Y، Z"}
 
 ${ragContext ? ragContext + '\n' : ''}${memoryContext}System: ${ctx.healthy}/${ctx.total} healthy
 User: ${userMessage}
 
-JSON only:`;
+JSON only (with Arabic text in "text" fields):`;
 }
 
 function parseAgentResponse(raw) {
@@ -184,10 +190,15 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'github_create_file') return '✅ ' + data.path + ' (' + data.lines + ' سطر)\n' + (data.commitUrl || '');
   if (toolName === 'github_delete_file') return '✅ ' + data.path + '\n' + (data.commitUrl || '');
   if (toolName === 'security_audit') return '🔒 تقرير أمني:\n' + String(data?.report || '').slice(0, 800);
-  if (toolName === 'web_search') {
+  if (toolName === 'web_search' || toolName === 'browser_search') {
     if (!data?.results?.length) return '🌐 لا نتائج';
     return '🌐 ' + data.count + ' نتائج:\n' + data.results.slice(0, 5).map((r, i) => (i+1) + '. ' + String(r.title).slice(0, 80)).join('\n');
   }
+  if (toolName === 'browse_url' || toolName === 'browser_extract') {
+    if (!data?.title) return '🌐 فتح الصفحة';
+    return '🌐 ' + data.title + '\nحجم النص: ' + (data.textLength || 0) + ' حرف\n' + String(data.text || '').slice(0, 600);
+  }
+  if (toolName === 'browser_screenshot') return '📸 ' + (data.bytes || 0) + ' بايت';
   if (toolName === 'render_env_get') return '🔧 ' + (data.count || 0) + ' متغيرات';
   if (toolName === 'render_env_set') return '✅ ' + data.key;
   if (toolName === 'shell_exec') return '⚙️ ' + String(data.stdout || data.stderr || 'ok').slice(0, 400);
