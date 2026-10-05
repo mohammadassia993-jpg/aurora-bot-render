@@ -60,10 +60,12 @@ async function runScan() {
   const findings = [];
   try {
     const gh = await fetchGithubTrending();
+    info('researcher', 'GitHub returned ' + (gh ? gh.length : 0) + ' items');
     if (gh && gh.length) findings.push.apply(findings, gh);
   } catch (e) { warn('researcher', 'github scan failed: ' + e.message); }
   try {
     const hf = await fetchHuggingFace();
+    info('researcher', 'HuggingFace returned ' + (hf ? hf.length : 0) + ' items');
     if (hf && hf.length) findings.push.apply(findings, hf);
   } catch (e) { warn('researcher', 'hf scan failed: ' + e.message); }
   if (findings.length === 0) { info('researcher', 'No findings this cycle'); return { added: 0 }; }
@@ -84,28 +86,37 @@ async function runScan() {
   return { added };
 }
 
-async function fetchGithubTrending() {
-  try {
-    const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const url = 'https://api.github.com/search/repositories?q=topic:ai+created:>' + since + '&sort=stars&order=desc&per_page=10';
-    const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'SG/1.0' } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.items || []).map(function(r) {
-      return { source: 'github', title: r.full_name + ' - ' + (r.description || '').slice(0, 80), url: r.html_url, description: (r.description || '') + ' | stars:' + r.stargazers_count + ' | lang:' + (r.language || '') };
-    });
-  } catch (e) { return []; }
+export async function fetchGithubTrending() {
+  const queries = [
+    'stars:>500 pushed:>2026-09-01',
+    'topic:llm stars:>300',
+    'topic:machine-learning stars:>500'
+  ];
+  const out = [];
+  for (const q of queries) {
+    try {
+      const url = 'https://api.github.com/search/repositories?q=' + encodeURIComponent(q) + '&sort=stars&order=desc&per_page=5';
+      const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'SilentGiants/1.0' } });
+      if (!res.ok) { warn('researcher', 'github HTTP ' + res.status + ' for query: ' + q); continue; }
+      const data = await res.json();
+      const items = data.items || [];
+      for (const r of items) {
+        out.push({ source: 'github', title: r.full_name + ' - ' + (r.description || '').slice(0, 80), url: r.html_url, description: (r.description || '') + ' | stars:' + r.stargazers_count + ' | lang:' + (r.language || '') });
+      }
+    } catch (e) { warn('researcher', 'github query failed: ' + e.message); }
+  }
+  return out;
 }
 
-async function fetchHuggingFace() {
+export async function fetchHuggingFace() {
   try {
-    const res = await fetch('https://huggingface.co/api/models?sort=trending&limit=10', { headers: { 'User-Agent': 'SG/1.0' } });
-    if (!res.ok) return [];
+    const res = await fetch('https://huggingface.co/api/models?sort=trending&limit=10', { headers: { 'User-Agent': 'SilentGiants/1.0' } });
+    if (!res.ok) { warn('researcher', 'hf HTTP ' + res.status); return []; }
     const data = await res.json();
     return (data || []).map(function(m) {
       return { source: 'hf', title: m.modelId || m.id || 'unknown', url: 'https://huggingface.co/' + (m.modelId || m.id), description: 'downloads:' + (m.downloads || 0) + ' | likes:' + (m.likes || 0) };
     });
-  } catch (e) { return []; }
+  } catch (e) { warn('researcher', 'hf fetch failed: ' + e.message); return []; }
 }
 
 async function analyzeRelevance(finding) {
