@@ -1,4 +1,4 @@
-// ai.js — Router-based Z.ai + LLM7 + HF fallback
+// ai.js — Z.ai primary + LLM7 + HF, with deep thinking & web search
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
@@ -7,7 +7,7 @@ const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 
 const LLM7_KEY = process.env.LLM7_API_KEY || '';
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'deepseek-ai/DeepSeek-V3';
+const LLM7_MODEL = 'DeepSeek-V4-Flash';
 
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
@@ -17,21 +17,37 @@ const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
+// ── ZAI: يدعم thinking + reasoning_effort + web_search ──
 async function callZAI(messages, options = {}) {
   if (!ZAI_KEY) throw new Error('ZAI_API_KEY missing');
   const model = options.model || 'glm-4.5-flash';
+
+  const body = {
+    model,
+    messages,
+    max_tokens: options.maxTokens || 800,
+    temperature: options.temperature !== undefined ? options.temperature : 0.2,
+    // تفعيل التفكير العميق (افتراضي: enabled)
+    thinking: { type: options.deepThinking === false ? 'disabled' : 'enabled' }
+  };
+
+  // جهد التفكير (للنماذج التي تدعمه - GLM-5.2+)
+  if (options.reasoningEffort) {
+    body.reasoning_effort = options.reasoningEffort;
+  }
+
+  // البحث على الويب (اختياري - بتكلفة إضافية)
+  if (options.webSearch === true) {
+    body.tool_web_search = true;
+  }
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 90000);
   try {
     const res = await fetch(ZAI_URL, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + ZAI_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: options.maxTokens || 800,
-        temperature: options.temperature !== undefined ? options.temperature : 0.2
-      }),
+      body: JSON.stringify(body),
       signal: ctrl.signal
     });
     const raw = await res.text();
@@ -60,15 +76,27 @@ async function callZAIWithFallback(messages, options) {
   throw lastErr || new Error('ZAI all models failed');
 }
 
+// ── LLM7: يدعم thinking + reasoning_effort ──
 async function callLLM7(messages, options = {}) {
   if (!LLM7_KEY) throw new Error('LLM7_API_KEY missing');
+
+  const body = {
+    model: LLM7_MODEL,
+    messages,
+    max_tokens: options.maxTokens || 800,
+    temperature: 0.2,
+    // DeepSeek-V4 يدعم thinking
+    thinking: { type: options.deepThinking === false ? 'disabled' : 'enabled' }
+  };
+  if (options.reasoningEffort) body.reasoning_effort = options.reasoningEffort;
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
     const res = await fetch(LLM7_URL, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + LLM7_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: LLM7_MODEL, messages, max_tokens: options.maxTokens || 800, temperature: 0.2 }),
+      body: JSON.stringify(body),
       signal: ctrl.signal
     });
     const raw = await res.text();
@@ -124,10 +152,18 @@ export async function callModel(agent, prompt, options = {}) {
     ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no text outside braces.' }, { role: 'user', content: String(prompt || '') }]
     : [{ role: 'user', content: String(prompt || '') }];
 
+  // إعدادات متقدمة حسب نوع المهمة
+  const deepThinking = options.deepThinking !== false; // مفعّل افتراضياً
+  const webSearch = options.webSearch === true;       // معطّل افتراضياً (له تكلفة)
+  const reasoningEffort = complexity === 'complex' ? 'max' : (complexity === 'medium' ? 'high' : 'low');
+
   const callOpts = {
     maxTokens: options.maxTokens || tier.maxTokens,
     temperature: tier.temperature,
-    model: tier.model
+    model: tier.model,
+    deepThinking,
+    webSearch,
+    reasoningEffort
   };
 
   const errors = [];
