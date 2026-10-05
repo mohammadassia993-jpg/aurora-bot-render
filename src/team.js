@@ -77,10 +77,10 @@ function buildAgentPrompt(userMessage, ctx) {
   const memoryContext = buildMemoryContext(userMessage);
   const toolsList = AVAILABLE_TOOLS.map(t => {
     const params = Object.entries(t.params || {}).map(([k]) => k).join(', ');
-    return '- ' + t.name + '(' + (params || 'none') + '): ' + (t.description || '');
+    return '- ' + t.name + '(' + (params || 'none') + ')';
   }).join('\n');
 
-  return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only. No text before or after.
+  return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only.
 
 TOOLS:
 ${toolsList}
@@ -90,24 +90,23 @@ Tool: {"action":"tool","tool":"<name>","params":{...}}
 Final: {"action":"final","text":"..."}
 
 RULES (10):
-1. Output JSON only. No markdown. No code fences.
-2. ONE action per response. Never combine multiple tools.
-3. After ANY tool succeeds → immediately reply with final (max ${MAX_FINAL_WORDS} words).
-4. Never repeat a tool call with same params after failure. Try different angle.
-5. Final text must be concise (max ${MAX_FINAL_WORDS} words). No greetings, no "here is", no "based on".
-6. For read: file_path. For edit: path, search, replace, message. For append: path, content, message. For create: path, content, message. For delete: path, message.
-7. Never invent files. Use only names that exist.
-8. If info is already in RAG or memory → don't call tools.
-9. If user asks multi-part question → final asking for one point only.
-10. If tool fails, read error and try a DIFFERENT approach.
+1. JSON only. No markdown.
+2. ONE action per response.
+3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words).
+4. Never repeat failed tool with same params.
+5. Final text must be concise. No greetings.
+6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message.
+7. Never invent files.
+8. If info in RAG/memory → no tools.
+9. Multi-part question → final asking for one point.
+10. On tool fail → try DIFFERENT approach.
 
 EXAMPLES:
 "اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
-"استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore: change port"}}
-"أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New section","message":"docs: add section"}}
+"استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore"}}
+"أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New","message":"docs"}}
 "اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
 "2+2" → {"action":"final","text":"4"}
-"ما دروسك؟" → {"action":"final","text":"دروسي: X، Y، Z"}
 
 ${ragContext ? ragContext + '\n' : ''}${memoryContext}System: ${ctx.healthy}/${ctx.total} healthy
 User: ${userMessage}
@@ -238,7 +237,7 @@ async function runAgentLoop(userMessage, ctx) {
       conversation += '\n\n⚠️ أعد JSON فقط:';
       consecutiveFailures++;
       if (consecutiveFailures >= 3) {
-        try { recordLesson('aurora', null, 'error', 'json_parse_fail', 'فشل تحليل JSON لطلب: ' + userMessage.slice(0, 80), 1.1); } catch {}
+        try { recordLesson('aurora', null, 'error', 'json_parse_fail', 'فشل JSON: ' + userMessage.slice(0, 80), 1.1); } catch {}
         if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
         return null;
       }
@@ -299,8 +298,9 @@ async function runAgentLoop(userMessage, ctx) {
       }
 
       if (toolResults.length > 0) {
+        const hasGoodSummary = summary && countWords(summary) >= 3;
+        if (hasGoodSummary) return summary;
         const parts = [];
-        if (summary && summary.length > 3) parts.push(summary, '');
         for (const tr of toolResults) parts.push(formatToolResult(tr.tool, tr.result, tr.params), '');
         return parts.join('\n').trim();
       }
@@ -372,9 +372,9 @@ async function generateAgentReplies(message) {
   let reply = await runAgentLoop(message.body, ctx);
   if (!reply) {
     reply = buildDiagnosticFallback(ctx);
-    try { recordLesson('aurora', null, 'error', 'agent_loop_fail', 'فشل معالجة: ' + message.body.slice(0, 80), 1.2); } catch {}
+    try { recordLesson('aurora', null, 'error', 'agent_loop_fail', 'فشل: ' + message.body.slice(0, 80), 1.2); } catch {}
   } else {
-    try { recordLesson('aurora', null, 'success_pattern', 'reply_ok:' + message.body.slice(0, 30), 'نجح الرد على: ' + message.body.slice(0, 100), 0.8); } catch {}
+    try { recordLesson('aurora', null, 'success_pattern', 'reply_ok:' + message.body.slice(0, 30), 'نجح: ' + message.body.slice(0, 100), 0.8); } catch {}
   }
   insertAgentMessage('aurora', reply);
   await sendTelegramSafe('💬 <b>أورورا</b>\n\n' + reply);
