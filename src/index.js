@@ -25,10 +25,12 @@ import { publishToAllPlatforms } from './multi-publisher.js';
 import { scanPrizes } from './prize-scanner.js';
 import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
-// 🆕 RAG: فهرسة المشروع للبحث الذكي
+// RAG: فهرسة المشروع للبحث الذكي
 import { initRagIndex, indexProject } from './rag.js';
-// 🆕 Security Guardian: حارس أمني دائم
+// Security Guardian: حارس أمني دائم
 import { startSecurityGuardian } from './security-researcher.js';
+// Researcher Agent: باحث AI دوري
+import { startResearcher } from './researcher-agent.js';
 
 import './bot-guard.js';
 import './self-healing-guard.js';
@@ -43,39 +45,39 @@ process.on('uncaughtException', caught => {
 
 const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
-info('platform', `⚙️ DAILY_REPORTS_ENABLED=${DAILY_REPORTS_ENABLED} (التقارير اليومية ${DAILY_REPORTS_ENABLED ? 'مفعّلة' : 'معطّلة'})`);
+info('platform', `DAILY_REPORTS_ENABLED=${DAILY_REPORTS_ENABLED}`);
 
-// 🆕 RAG: تهيئة الفهرس وبناء المشروع
+// RAG: تهيئة الفهرس
 try {
   initRagIndex();
   const count = indexProject();
-  info('rag', `✅ RAG index built: ${count} files`);
+  info('rag', `RAG index built: ${count} files`);
 } catch (e) {
   error('rag', `RAG init failed: ${e.message}`);
 }
 
-// 🆕 Security Guardian: تشغيل الحارس الأمني
+// Security Guardian
 try {
   startSecurityGuardian();
-  info('security-guardian', '✅ Security Guardian started');
+  info('security-guardian', 'Security Guardian started');
 } catch (e) {
   error('security-guardian', `failed to start: ${e.message}`);
 }
 
+// Researcher Agent
+try {
+  startResearcher();
+  info('researcher', 'Researcher Agent started');
+} catch (e) {
+  error('researcher', `failed to start: ${e.message}`);
+}
+
 setInterval(async () => {
-  try {
-    await runWatchdog();
-  } catch (caught) {
-    error('watchdog', caught.message);
-  }
+  try { await runWatchdog(); } catch (caught) { error('watchdog', caught.message); }
 }, 30_000);
 
 setInterval(async () => {
-  try {
-    await checkEmail();
-  } catch (caught) {
-    error('email_hourly', caught.message);
-  }
+  try { await checkEmail(); } catch (caught) { error('email_hourly', caught.message); }
 }, 60 * 60 * 1000);
 
 await runWatchdog();
@@ -101,7 +103,7 @@ if (config.autoRunConnectors) {
 }
 
 if (DAILY_REPORTS_ENABLED) {
-  info('reports', '📤 التقارير اليومية مُفعَّلة');
+  info('reports', 'Daily reports enabled');
 
   cronInterval(async () => {
     if (new Date().getHours() !== config.dailyReportHour) return;
@@ -110,12 +112,10 @@ if (DAILY_REPORTS_ENABLED) {
       info('report', 'daily digest cycle', result);
       if (result.published) {
         const delivered = await sendMessageDetailed(dailyReport());
-        info('report', 'daily report delivered to leader', { delivered });
+        info('report', 'daily report delivered', { delivered });
       }
       backupDatabase();
-    } catch (caught) {
-      error('report', caught.message);
-    }
+    } catch (caught) { error('report', caught.message); }
   }, 10 * 60_000);
 
   setInterval(async () => {
@@ -145,9 +145,7 @@ if (DAILY_REPORTS_ENABLED) {
       try {
         const result = await import('./research.js').then(module => module.runDailyResearch());
         info('daily_research', 'daily research cycle', result);
-      } catch (caught) {
-        error('daily_research', caught.message);
-      }
+      } catch (caught) { error('daily_research', caught.message); }
     }, 24 * 60 * 60_000).unref();
     import('./research.js').then(module => module.runDailyResearch())
       .then(result => info('daily_research', 'initial daily research run', result))
@@ -158,13 +156,11 @@ if (DAILY_REPORTS_ENABLED) {
     setInterval(async () => {
       try {
         await import('./research.js').then(module => module.runWeeklyResearch());
-      } catch (caught) {
-        error('weekly_research', caught.message);
-      }
+      } catch (caught) { error('weekly_research', caught.message); }
     }, 7 * 24 * 60 * 60_000).unref();
   }
 } else {
-  info('reports', '⏸ التقارير اليومية معطّلة (DAILY_REPORTS_ENABLED=false)');
+  info('reports', 'Daily reports disabled');
 }
 
 if (process.env.AURORA_AUTOMATION !== 'false') {
@@ -176,19 +172,20 @@ if (process.env.AURORA_AUTOMATION !== 'false') {
   startPrizesReport();
   startProductionMachine();
 } else {
-  info('platform', '⏸ FULL_STOP: all automated loops disabled (AURORA_AUTOMATION=false)');
+  info('platform', 'FULL_STOP: automation disabled');
 }
 
-info('platform', '🚀 Starting autonomous agent system (Kimi Plan)...');
+info('platform', 'Starting autonomous agent system...');
 startScheduler();
 eventBus.on(EVENTS.TASK_SUCCESS, (payload) => {
   initiator.learnFromSuccess(payload.taskId);
 });
-info('platform', '✅ Scheduler + Initiator + Reporter + EventBus active');
+info('platform', 'Scheduler + Initiator + Reporter + EventBus active');
 
 setTimeout(async () => {
   try {
-    if (process.env.CONTINUOUS_PRODUCTION_ENABLED !== 'false') { await startContinuousProduction(); } else { info('production', 'Continuous production DISABLED by leader instruction'); }
+    if (process.env.CONTINUOUS_PRODUCTION_ENABLED !== 'false') { await startContinuousProduction(); }
+    else { info('production', 'Continuous production DISABLED'); }
   } catch (e) { error('production', `Continuous production error: ${e.message}`); }
 }, 2 * 60 * 1000);
 
@@ -205,12 +202,8 @@ if (process.env.AURORA_AUTOMATION !== 'false') {
       const { runHeartbeat } = await import('./task-queue.js');
       const result = await runHeartbeat();
       info('heartbeat', `heartbeat ok: task=${result.executed} queue=${result.queue.pending}`);
-    } catch (caught) {
-      error('heartbeat', caught.message);
-    }
+    } catch (caught) { error('heartbeat', caught.message); }
   }, 5 * 60 * 1000);
-} else {
-  info('platform', '⏸ FULL_STOP: heartbeat disabled (AURORA_AUTOMATION=false)');
 }
 
 setInterval(async () => {
@@ -221,9 +214,7 @@ setInterval(async () => {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
     db.exec('VACUUM;');
     info('maintenance', 'SQLite VACUUM completed');
-  } catch (caught) {
-    error('maintenance', caught.message);
-  }
+  } catch (caught) { error('maintenance', caught.message); }
 }, 7 * 24 * 60 * 60_000).unref();
 
 setInterval(() => {
@@ -234,11 +225,7 @@ setInterval(() => {
 const peerUrl = process.env.PEER_KEEPALIVE_URL;
 if (peerUrl) {
   info('platform', `mutual keepalive active -> ${peerUrl}`);
-  setInterval(() => {
-    fetch(peerUrl).catch(() => {});
-  }, 5 * 60 * 1000);
-} else {
-  info('platform', 'PEER_KEEPALIVE_URL not set — mutual keepalive disabled');
+  setInterval(() => { fetch(peerUrl).catch(() => {}); }, 5 * 60 * 1000);
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
