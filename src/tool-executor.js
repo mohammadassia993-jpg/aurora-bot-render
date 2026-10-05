@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 21 أداة + فحص صيغة قبل الحفظ
+// tool-executor.js (ESM) — 25 أداة + متصفح + فحص صيغة
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -16,6 +16,7 @@ const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID || 'srv-da5a4njtqb8s739s
 const SAFE_ROOT = process.env.PROJECT_ROOT || process.cwd();
 const SHELL_ALLOWLIST = ['npm', 'npx', 'git', 'node'];
 const TOOL_TIMEOUT_MS = 20000;
+const BROWSER_TIMEOUT_MS = 40000;
 const SEARCH_TIMEOUT_MS = 15000;
 const SESSIONS_DIR = path.join(SAFE_ROOT, 'data', 'sessions');
 const SKIP_DIRS = new Set(['node_modules', '.git', 'data', 'logs', 'dist', '.cache', 'uploads']);
@@ -200,7 +201,7 @@ async function githubCreateFile({ path: filePath, content, message }) {
   if (!filePath || content === undefined || !message) throw new Error('path, content, message required');
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
   const headRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_head');
-  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath + ' — استخدم github_edit_file أو github_append_file');
+  if (headRes.ok) throw new Error('الملف موجود بالفعل: ' + filePath);
   const validation = await validateJsSyntax(content, filePath);
   if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض الإنشاء.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   const newBase64 = Buffer.from(content, 'utf8').toString('base64');
@@ -258,6 +259,36 @@ async function securityAudit({}) {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🆕 Browser tools (via Browserless.io)
+// ═══════════════════════════════════════════════════════════
+async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' }) {
+  const mod = await import('./browser.js');
+  if (!mod.isEnabled()) throw new Error('Browserless not configured');
+  return await withTimeout(mod.browseUrl(url, { waitMs, waitUntil }), BROWSER_TIMEOUT_MS, 'browse_url');
+}
+
+async function browserSearch({ query, waitMs = 1500 }) {
+  const mod = await import('./browser.js');
+  if (!mod.isEnabled()) throw new Error('Browserless not configured');
+  return await withTimeout(mod.searchGoogle(query, { waitMs }), BROWSER_TIMEOUT_MS, 'browser_search');
+}
+
+async function browserScreenshot({ url, fullPage = false, waitMs = 1000 }) {
+  const mod = await import('./browser.js');
+  if (!mod.isEnabled()) throw new Error('Browserless not configured');
+  return await withTimeout(mod.takeScreenshot(url, { fullPage, waitMs }), BROWSER_TIMEOUT_MS, 'browser_screenshot');
+}
+
+async function browserExtract({ url, waitMs = 1000 }) {
+  const mod = await import('./browser.js');
+  if (!mod.isEnabled()) throw new Error('Browserless not configured');
+  return await withTimeout(mod.extractText(url, { waitMs }), BROWSER_TIMEOUT_MS, 'browser_extract');
+}
+
+// ═══════════════════════════════════════════════════════════
+// Telegram + Shell + HTTP
+// ═══════════════════════════════════════════════════════════
 async function sendTelegram({ chat_id, text }) {
   if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
   const target = chat_id || DEFAULT_CHAT_ID;
@@ -289,6 +320,9 @@ async function httpFetch({ url, method = 'GET', headers = {}, body = null }) {
   return { status: res.status, ok: res.ok, data };
 }
 
+// ═══════════════════════════════════════════════════════════
+// Local file tools
+// ═══════════════════════════════════════════════════════════
 async function readFile({ file_path, start_line = null, end_line = null }) {
   const candidates = [file_path, 'src/' + file_path, 'public/' + file_path];
   let fullPath = null;
@@ -403,25 +437,12 @@ async function webSearch({ query, max_results = 5 }) {
       if (results.length > 0) return { query: q, count: results.length, results: results.slice(0, max_results), engine: 'ddg_instant' };
     }
   } catch {}
-  try {
-    const res = await withTimeout(fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SG/1.0)' } }), SEARCH_TIMEOUT_MS, 'ddg_html');
-    if (res.ok) {
-      const html = await res.text();
-      const results = [];
-      const regex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-      let m;
-      while ((m = regex.exec(html)) !== null && results.length < max_results) {
-        const url = cleanDdgUrl(m[1]);
-        const title = m[2].replace(/<[^>]*>/g, '').trim();
-        const snippet = m[3].replace(/<[^>]*>/g, '').trim().slice(0, 300);
-        if (title && url) results.push({ title, snippet, url, source: 'DDG HTML' });
-      }
-      if (results.length > 0) return { query: q, count: results.length, results, engine: 'ddg_html' };
-    }
-  } catch {}
   return { query: q, count: 0, results: [], error: 'no_results' };
 }
 
+// ═══════════════════════════════════════════════════════════
+// Render env
+// ═══════════════════════════════════════════════════════════
 async function renderEnvGet({}) {
   if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing');
   const res = await withTimeout(fetch('https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars?limit=100', {
@@ -446,6 +467,9 @@ async function renderEnvSet({ key, value }) {
   return { updated: true, key, note: 'Service will redeploy automatically' };
 }
 
+// ═══════════════════════════════════════════════════════════
+// Sessions
+// ═══════════════════════════════════════════════════════════
 async function saveSession({ name, cookies = '', headers = {}, notes = '' }) {
   if (!name) throw new Error('name required');
   ensureSessionsDir();
@@ -477,6 +501,9 @@ async function platformFetch({ url, method = 'GET', session = null, body = null,
   return { status: res.status, ok: res.ok, setCookie: res.headers.get('set-cookie') || null, data };
 }
 
+// ═══════════════════════════════════════════════════════════
+// Tool registry
+// ═══════════════════════════════════════════════════════════
 const TOOL_MAP = {
   web_search: webSearch, grep_files: grepFiles, read_many_files: readManyFiles,
   list_files: listFiles, read_file: readFile, write_file: writeFile,
@@ -487,6 +514,10 @@ const TOOL_MAP = {
   github_delete_file: githubDeleteFile,
   github_list_repo: githubListRepo,
   security_audit: securityAudit,
+  browse_url: browseUrl,
+  browser_search: browserSearch,
+  browser_screenshot: browserScreenshot,
+  browser_extract: browserExtract,
   send_telegram: sendTelegram, shell_exec: shellExec, http_fetch: httpFetch,
   render_env_get: renderEnvGet, render_env_set: renderEnvSet,
   save_session: saveSession, load_session: loadSession, platform_fetch: platformFetch,
@@ -494,26 +525,30 @@ const TOOL_MAP = {
 
 export const AVAILABLE_TOOLS = [
   { name: 'github_edit_file', description: 'تعديل ملف على GitHub عبر search/replace.', params: { path: 'string', search: 'string', replace: 'string', message: 'string' } },
-  { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string', newline: 'boolean' } },
+  { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
-  { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string', branch: 'string' } },
-  { name: 'security_audit', description: 'فحص أمني دفاعي شامل للمنظومة.', params: {} },
-  { name: 'web_search', description: 'البحث في الإنترنت.', params: { query: 'string', max_results: 'number' } },
-  { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string', max_results: 'number', context_lines: 'number' } },
-  { name: 'read_many_files', description: 'قراءة 5 ملفات.', params: { files: 'string[]' } },
-  { name: 'list_files', description: 'سرد مجلد محلي.', params: { dir: 'string', max_depth: 'number' } },
-  { name: 'read_file', description: 'قراءة ملف محلي.', params: { file_path: 'string', start_line: 'number', end_line: 'number' } },
+  { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string' } },
+  { name: 'security_audit', description: 'فحص أمني شامل.', params: {} },
+  { name: 'browse_url', description: 'فتح صفحة ويب عبر متصفح سحابي وإرجاع النص والروابط.', params: { url: 'string', waitMs: 'number' } },
+  { name: 'browser_search', description: 'بحث في الإنترنت عبر متصفح سحابي.', params: { query: 'string' } },
+  { name: 'browser_screenshot', description: 'لقطة شاشة لصفحة ويب.', params: { url: 'string', fullPage: 'boolean' } },
+  { name: 'browser_extract', description: 'استخراج نص من صفحة ويب.', params: { url: 'string' } },
+  { name: 'web_search', description: 'بحث سريع عبر DuckDuckGo.', params: { query: 'string' } },
+  { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string' } },
+  { name: 'read_many_files', description: 'قراءة عدة ملفات.', params: { files: 'string[]' } },
+  { name: 'list_files', description: 'سرد مجلد محلي.', params: { dir: 'string' } },
+  { name: 'read_file', description: 'قراءة ملف محلي.', params: { file_path: 'string' } },
   { name: 'write_file', description: 'كتابة ملف محلي.', params: { file_path: 'string', content: 'string' } },
   { name: 'github_api', description: 'استدعاء GitHub API مباشرة.', params: { endpoint: 'string', method: 'string', body: 'object' } },
-  { name: 'send_telegram', description: 'إرسال Telegram.', params: { chat_id: 'string', text: 'string' } },
+  { name: 'send_telegram', description: 'إرسال رسالة Telegram.', params: { text: 'string' } },
   { name: 'shell_exec', description: 'تنفيذ shell.', params: { command: 'string', args: 'string[]' } },
-  { name: 'http_fetch', description: 'طلب HTTP.', params: { url: 'string', method: 'string', headers: 'object', body: 'object' } },
+  { name: 'http_fetch', description: 'طلب HTTP.', params: { url: 'string', method: 'string', body: 'object' } },
   { name: 'render_env_get', description: 'قراءة متغيرات Render.', params: {} },
   { name: 'render_env_set', description: 'تعديل متغير Render.', params: { key: 'string', value: 'string' } },
-  { name: 'save_session', description: 'حفظ جلسة.', params: { name: 'string', cookies: 'string', headers: 'object' } },
+  { name: 'save_session', description: 'حفظ جلسة.', params: { name: 'string' } },
   { name: 'load_session', description: 'تحميل جلسة.', params: { name: 'string' } },
-  { name: 'platform_fetch', description: 'fetch مع جلسة.', params: { url: 'string', method: 'string', session: 'string', body: 'object' } },
+  { name: 'platform_fetch', description: 'fetch مع جلسة.', params: { url: 'string', session: 'string' } },
 ];
 
 export async function executeTool(toolName, params = {}) {
