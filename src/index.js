@@ -25,12 +25,14 @@ import { publishToAllPlatforms } from './multi-publisher.js';
 import { scanPrizes } from './prize-scanner.js';
 import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
-// RAG: فهرسة المشروع للبحث الذكي
+// RAG: فهرسة المشروع
 import { initRagIndex, indexProject } from './rag.js';
-// Security Guardian: حارس أمني دائم
+// Security Guardian
 import { startSecurityGuardian } from './security-researcher.js';
-// Researcher Agent: باحث AI دوري
+// Researcher Agent
 import { startResearcher } from './researcher-agent.js';
+// Developer Agent
+import { startDeveloperAgent } from './developer-agent.js';
 
 import './bot-guard.js';
 import './self-healing-guard.js';
@@ -47,7 +49,7 @@ const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
 info('platform', `DAILY_REPORTS_ENABLED=${DAILY_REPORTS_ENABLED}`);
 
-// RAG: تهيئة الفهرس
+// RAG
 try {
   initRagIndex();
   const count = indexProject();
@@ -70,6 +72,14 @@ try {
   info('researcher', 'Researcher Agent started');
 } catch (e) {
   error('researcher', `failed to start: ${e.message}`);
+}
+
+// Developer Agent
+try {
+  startDeveloperAgent();
+  info('developer', 'Developer Agent started');
+} catch (e) {
+  error('developer', `failed to start: ${e.message}`);
 }
 
 setInterval(async () => {
