@@ -121,12 +121,12 @@ export async function fetchHuggingFace() {
 
 async function analyzeRelevance(finding) {
   try {
-    const prompt = 'Evaluate this AI discovery for Silent Giants (Node.js bot with 5 AI agents using Z.ai, LLM7, HF).\n\nTitle: ' + finding.title + '\nDescription: ' + finding.description + '\n\nAnswer JSON only: {"score": 0-10, "reason": "short reason", "actionable": true|false}\n\n0-3 irrelevant, 4-6 interesting, 7-10 directly useful (tool/library/API we could integrate).';
+    const prompt = 'Evaluate this AI discovery for Silent Giants (Node.js bot with 5 AI agents using Z.ai, LLM7, HF).\n\nTitle: ' + finding.title + '\nDescription: ' + finding.description + '\n\nAnswer JSON only: {"score": 0-10, "reason": "short reason in Arabic", "actionable": true|false}\n\n0-3 irrelevant, 4-6 interesting, 7-10 directly useful (tool/library/API we could integrate).';
     const raw = await callModel('researcher', prompt, { noJsonMode: false, maxTokens: 200 });
     const parsed = parseJson(raw);
-    if (!parsed) return { score: 3, reason: 'parse failed', actionable: false };
+    if (!parsed) return { score: 3, reason: 'فشل التحليل', actionable: false };
     return { score: Math.min(10, Math.max(0, Number(parsed.score) || 0)), reason: String(parsed.reason || ''), actionable: Boolean(parsed.actionable) };
-  } catch (e) { return { score: 3, reason: 'analysis error', actionable: false }; }
+  } catch (e) { return { score: 3, reason: 'خطأ في التحليل', actionable: false }; }
 }
 
 function parseJson(raw) {
@@ -152,26 +152,27 @@ async function sendDailyReport() {
     const today = db.prepare("SELECT source,title,url,relevance_score,relevance_reason,actionable FROM research_findings WHERE seen_at >= datetime('now', '-24 hours') AND relevance_score >= 6 ORDER BY relevance_score DESC LIMIT 10").all();
     const stats = getStats();
     const lines = [
-      'AI Research Daily Report',
-      '=========================',
-      'Date: ' + new Date().toISOString().slice(0, 10),
-      'Total findings: ' + stats.total,
-      'Findings 24h: ' + stats.today,
-      'Actionable: ' + stats.actionable,
+      '📊 تقرير الباحث اليومي',
+      '━━━━━━━━━━━━━━━━━━━',
+      'التاريخ: ' + new Date().toISOString().slice(0, 10),
+      'إجمالي الاكتشافات: ' + stats.total,
+      'خلال 24 ساعة: ' + stats.today,
+      'قابلة للتطبيق: ' + stats.actionable,
       ''
     ];
     if (today.length === 0) {
-      lines.push('No high-relevance findings today.');
+      lines.push('لا توجد اكتشافات عالية الأهمية اليوم.');
+      lines.push('الباحث يراقب باستمرار — سنُبلّغك عند وجود شيء يستحق.');
     } else {
-      lines.push('Top ' + today.length + ' items:');
+      lines.push('أهم ' + today.length + ' اكتشافات:');
       lines.push('');
       for (let i = 0; i < today.length; i++) {
         const f = today[i];
-        const icon = f.actionable ? '[ACTION]' : '[INFO]';
-        lines.push((i + 1) + '. ' + icon + ' [' + f.source + '] score ' + f.relevance_score + '/10');
+        const icon = f.actionable ? '🎯 قابل للتطبيق' : '📌 للمعلومة';
+        lines.push((i + 1) + '. ' + icon + ' [' + f.source + '] — أهمية ' + f.relevance_score + '/10');
         lines.push('   ' + String(f.title).slice(0, 150));
-        if (f.url) lines.push('   ' + f.url);
-        if (f.relevance_reason) lines.push('   Reason: ' + String(f.relevance_reason).slice(0, 150));
+        if (f.url) lines.push('   🔗 ' + f.url);
+        if (f.relevance_reason) lines.push('   السبب: ' + String(f.relevance_reason).slice(0, 150));
         lines.push('');
       }
     }
