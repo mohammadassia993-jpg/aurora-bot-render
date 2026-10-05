@@ -9,6 +9,7 @@ import { info, warn, error } from './logger.js';
 const SCAN_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const DAILY_REPORT_HOUR = 11;
 const INITIAL_DELAY_MS = 10 * 60 * 1000;
+const ALERT_MIN_SCORE = 7;
 const ROOT = config.root;
 
 let lastDailyReportDay = null;
@@ -34,7 +35,7 @@ async function sendToTelegram(text) {
 }
 
 export function startDeveloperAgent() {
-  info('developer', 'Starting 12h scans, daily report at ' + DAILY_REPORT_HOUR + ':00');
+  info('developer', 'Starting 12h scans, daily report at ' + DAILY_REPORT_HOUR + ':00, alerts at score>=' + ALERT_MIN_SCORE);
   setTimeout(function() {
     tick().catch(function(e) { error('developer', e.message); });
     setInterval(function() { tick().catch(function(e) { error('developer', e.message); }); }, SCAN_INTERVAL_MS).unref();
@@ -71,8 +72,10 @@ async function runDevScan() {
       if (r.length) all.push.apply(all, r);
     } catch (e) { warn('developer', s.name + ' failed: ' + e.message); }
   }
-  if (all.length === 0) return { added: 0 };
+  if (all.length === 0) return { added: 0, alerts: 0 };
   let added = 0;
+  let alerts = 0;
+  const alertQueue = [];
   for (let i = 0; i < Math.min(all.length, 12); i++) {
     const f = all[i];
     try {
@@ -82,10 +85,45 @@ async function runDevScan() {
       db.prepare('INSERT INTO developer_findings(category,source,title,url,description,relevance_score,relevance_reason,actionable) VALUES (?,?,?,?,?,?,?,?)')
         .run(f.category || 'ai-news', f.source, String(f.title).slice(0, 300), f.url || '', String(f.description || '').slice(0, 500), analysis.score, String(analysis.reason).slice(0, 500), analysis.actionable ? 1 : 0);
       added++;
+      if (analysis.score >= ALERT_MIN_SCORE) {
+        alertQueue.push({ source: f.source, title: f.title, url: f.url, description: f.description, score: analysis.score, reason: analysis.reason, actionable: analysis.actionable });
+      }
     } catch (e) { warn('developer', 'insert failed: ' + e.message); }
   }
-  info('developer', 'Scan complete: ' + added + ' new findings');
-  return { added };
+  if (alertQueue.length > 0) {
+    await sendAlert(alertQueue);
+    alerts = alertQueue.length;
+  }
+  info('developer', 'Scan complete: ' + added + ' new findings (' + alerts + ' alerts sent)');
+  return { added, alerts };
+}
+
+async function sendAlert(items) {
+  try {
+    const lines = [
+      '🚨 اكتشاف مهم من وكيل المطور',
+      '━━━━━━━━━━━━━━━━━━━',
+      'عدد الاكتشافات المهمة: ' + items.length,
+      ''
+    ];
+    for (let i = 0; i < items.length; i++) {
+      const f = items[i];
+      const icon = f.actionable ? '🎯 قابل للتطبيق' : '📌 للمعلومة';
+      lines.push((i + 1) + '. ' + icon + ' — أهمية ' + f.score + '/10');
+      lines.push('   المصدر: ' + f.source);
+      lines.push('   العنوان: ' + String(f.title).slice(0, 200));
+      if (f.url) lines.push('   🔗 ' + f.url);
+      if (f.reason) lines.push('   السبب: ' + String(f.reason).slice(0, 200));
+      if (f.description) lines.push('   التفاصيل: ' + String(f.description).slice(0, 200));
+      lines.push('');
+    }
+    await sendToTelegram(lines.join('\n'));
+    info('developer', 'Alert sent: ' + items.length + ' high-value items');
+    return true;
+  } catch (e) {
+    error('developer', 'alert failed: ' + e.message);
+    return false;
+  }
 }
 
 async function fetchReddit(subreddit) {
@@ -177,7 +215,6 @@ async function analyzeRepository() {
     const files = await fs.readdir(srcDir);
     let totalFiles = 0;
     let totalLines = 0;
-    const summaries = [];
     for (const f of files.slice(0, 15)) {
       try {
         const full = path.join(srcDir, f);
