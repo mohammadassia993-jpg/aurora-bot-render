@@ -1,4 +1,4 @@
-// security-researcher.js — Continuous Security Guardian
+// security-researcher.js — Continuous Security Guardian (Arabic)
 import { generateSecurityReport } from './security-agent-v2.js';
 import { info, warn, error } from './logger.js';
 
@@ -21,16 +21,16 @@ async function sendToTelegram(text) {
 }
 
 function buildAlert(report) {
-  return 'SECURITY ALERT\n' +
-    'Time: ' + new Date().toISOString() + '\n' +
-    'Issues: ' + ((report.summary && report.summary.issues) || 0) + '\n\n' +
+  return '🚨 تنبيه أمني عاجل\n' +
+    '⏰ الوقت: ' + new Date().toISOString() + '\n' +
+    '⚠️ عدد الملاحظات: ' + ((report.summary && report.summary.issues) || 0) + '\n\n' +
     String(report.report || '').slice(0, 3500);
 }
 
 function buildDailyReport(report) {
-  return 'Daily Security Report\n' +
-    'Time: ' + new Date().toISOString() + '\n' +
-    'Status: ' + (((report.summary && report.summary.issues) || 0) === 0 ? 'SAFE' : (report.summary.issues + ' issue(s)')) + '\n\n' +
+  return '📊 التقرير الأمني اليومي\n' +
+    '⏰ الوقت: ' + new Date().toISOString() + '\n' +
+    '🔒 الحالة: ' + (((report.summary && report.summary.issues) || 0) === 0 ? '✅ آمن' : ('⚠️ ' + report.summary.issues + ' ملاحظة')) + '\n\n' +
     String(report.report || '').slice(0, 3500);
 }
 
