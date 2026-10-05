@@ -1,4 +1,4 @@
-// security-agent-v2.js — Full Defensive Security Auditor
+// security-agent-v2.js — Full Defensive Security Auditor (Arabic)
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -29,32 +29,27 @@ export async function auditEnvVars() {
       if (!SECRET.test(m[1])) continue;
       if (PLACEHOLDER.test(m[2].trim())) continue;
       if (m[2].trim().length < 15) continue;
-      issues.push({ file: '.env.example', key: m[1], issue: 'value looks real' });
+      issues.push({ file: '.env.example', key: m[1], issue: 'القيمة تبدو حقيقية وليست نموذجاً' });
     }
   } catch (e) {}
   try {
     const gi = await fs.readFile(path.join(ROOT, '.gitignore'), 'utf8');
-    if (!gi.includes('.env')) issues.push({ file: '.gitignore', issue: 'does not ignore .env' });
+    if (!gi.includes('.env')) issues.push({ file: '.gitignore', issue: 'لا يتجاهل ملف .env' });
   } catch (e) {
-    issues.push({ file: '.gitignore', issue: 'missing' });
+    issues.push({ file: '.gitignore', issue: 'غير موجود' });
   }
   return { ok: issues.length === 0, issues: issues };
 }
 
 export async function auditDependencies() {
-  // check package.json exists
   try { await fs.access(path.join(ROOT, 'package.json')); }
-  catch (e) { return { ok: true, skipped: true, reason: 'package.json not found' }; }
+  catch (e) { return { ok: true, skipped: true, reason: 'package.json غير موجود' }; }
 
-  // run npm audit: --loglevel=error suppresses warnings; --audit-level=none ensures exit code 0
   const result = await runCmd('npm', ['audit', '--json', '--loglevel=error', '--audit-level=none']);
-
-  // collect from stdout; if empty, try stderr
   let raw = String(result.stdout || '').trim();
   if (!raw) raw = String(result.stderr || '').trim();
-  if (!raw) return { ok: true, skipped: true, reason: 'npm audit produced no output' };
+  if (!raw) return { ok: true, skipped: true, reason: 'npm audit لم يُنتج مخرجات' };
 
-  // parse json
   let data = null;
   try { data = JSON.parse(raw); } catch (e) {
     const start = raw.indexOf('{');
@@ -63,7 +58,7 @@ export async function auditDependencies() {
       try { data = JSON.parse(raw.slice(start, end + 1)); } catch (e2) {}
     }
   }
-  if (!data) return { ok: true, skipped: true, reason: 'npm audit JSON parse failed' };
+  if (!data) return { ok: true, skipped: true, reason: 'فشل تحليل JSON' };
 
   const v = (data.metadata ? data.metadata.vulnerabilities : null) || {};
   let total = 0;
@@ -73,10 +68,10 @@ export async function auditDependencies() {
 
 export async function auditRecentErrors() {
   const patterns = [
-    { name: 'SQL injection', regex: /(union\s+select|';--)/i },
-    { name: 'Path traversal', regex: /(\.\.\/|%2e%2e)/i },
-    { name: 'XSS attempt', regex: /(<script|javascript:)/i },
-    { name: 'Command injection', regex: /(;\s*rm\s|&&\s*curl)/i }
+    { name: 'محاولة SQL Injection', regex: /(union\s+select|';--)/i },
+    { name: 'اختراق مسارات (Path Traversal)', regex: /(\.\.\/|%2e%2e)/i },
+    { name: 'هجوم XSS', regex: /(<script|javascript:)/i },
+    { name: 'حقن أوامر (Command Injection)', regex: /(;\s*rm\s|&&\s*curl)/i }
   ];
   try {
     const rows = db.prepare("SELECT scope, error_type, message FROM errors WHERE created_at >= datetime('now', '-24 hours') LIMIT 500").all();
@@ -144,37 +139,38 @@ export async function generateSecurityReport() {
     auditFileIntegrity()
   ]);
   const issues = [];
-  if (!deps.ok && !deps.skipped) issues.push('Dependencies: ' + deps.total + ' vulnerabilities (C:' + deps.critical + ' H:' + deps.high + ' M:' + deps.moderate + ' L:' + deps.low + ')');
-  if (!env.ok) for (const i of env.issues) issues.push('Env: ' + i.file + ' — ' + i.issue);
-  if (!errors.ok) for (const h of errors.hits) issues.push('Attack pattern: ' + h.pattern + ' in ' + h.scope);
-  if (!auth.ok) for (const r of auth.unprotected) issues.push('Unprotected route: ' + r);
-  const status = issues.length === 0 ? 'SAFE' : (issues.length + ' note(s)');
+  if (!deps.ok && !deps.skipped) issues.push('المكتبات: ' + deps.total + ' ثغرة (حرجة:' + deps.critical + ' عالية:' + deps.high + ' متوسطة:' + deps.moderate + ' منخفضة:' + deps.low + ')');
+  if (!env.ok) for (const i of env.issues) issues.push('متغيرات: ' + i.file + ' — ' + i.issue);
+  if (!errors.ok) for (const h of errors.hits) issues.push('نمط هجوم: ' + h.pattern + ' في ' + h.scope);
+  if (!auth.ok) for (const r of auth.unprotected) issues.push('مسار بلا حماية: ' + r);
+
+  const status = issues.length === 0 ? '✅ آمن' : '⚠️ ' + issues.length + ' ملاحظة';
   const lines = [];
-  lines.push('Security Audit Report');
-  lines.push('=====================');
-  lines.push('Status: ' + status);
+  lines.push('🔒 تقرير الفحص الأمني');
+  lines.push('━━━━━━━━━━━━━━━━━━━');
+  lines.push('الحالة: ' + status);
   lines.push('');
-  lines.push('Dependencies:');
-  lines.push(deps.skipped ? '  (skipped: ' + deps.reason + ')' : ('  ' + (deps.total === 0 ? 'OK - no vulnerabilities' : (deps.total + ' (C:' + deps.critical + ' H:' + deps.high + ' M:' + deps.moderate + ' L:' + deps.low + ')'))));
+  lines.push('📦 المكتبات:');
+  lines.push(deps.skipped ? '  (تم التخطي: ' + deps.reason + ')' : ('  ' + (deps.total === 0 ? '✅ لا ثغرات' : ('⚠️ ' + deps.total + ' (حرجة:' + deps.critical + ' عالية:' + deps.high + ' متوسطة:' + deps.moderate + ' منخفضة:' + deps.low + ')'))));
   lines.push('');
-  lines.push('Env Vars:');
-  lines.push(env.ok ? '  OK' : ('  ' + env.issues.length + ' issue(s)'));
+  lines.push('🔑 متغيرات البيئة:');
+  lines.push(env.ok ? '  ✅ لا مشاكل' : ('  ⚠️ ' + env.issues.length + ' مشكلة'));
   lines.push('');
-  lines.push('API Auth:');
-  lines.push(auth.skipped ? ('  (skipped: ' + auth.reason + ')') : ('  ' + (auth.unprotected.length === 0 ? 'OK - all routes protected' : (auth.unprotected.length + ' unprotected'))));
+  lines.push('🛡️ حماية المسارات:');
+  lines.push(auth.skipped ? ('  (تم التخطي: ' + auth.reason + ')') : ('  ' + (auth.unprotected.length === 0 ? '✅ كل المسارات محمية' : ('⚠️ ' + auth.unprotected.length + ' مسار بلا حماية'))));
   lines.push('');
-  lines.push('Errors (24h):');
-  lines.push(errors.skipped ? '  (skipped)' : ('  scanned ' + errors.scanned + ' — ' + errors.hits.length + ' suspicious'));
+  lines.push('📊 الأخطاء (24 ساعة):');
+  lines.push(errors.skipped ? '  (تم التخطي)' : ('  فُحص ' + errors.scanned + ' خطأ — ' + errors.hits.length + ' نمط مشبوه'));
   lines.push('');
-  lines.push('File Integrity:');
+  lines.push('📁 سلامة الملفات:');
   for (const f of files.files) {
-    lines.push('  ' + (f.missing ? 'MISSING' : 'OK') + ' ' + f.file + (f.size ? (' (' + f.size + 'B)') : ''));
+    lines.push('  ' + (f.missing ? '❌ مفقود' : '✅ سليم') + ' ' + f.file + (f.size ? (' (' + f.size + 'B)') : ''));
   }
   if (issues.length) {
     lines.push('');
-    lines.push('=====================');
-    lines.push('Issues:');
-    for (const i of issues) lines.push('  ' + i);
+    lines.push('━━━━━━━━━━━━━━━━━━━');
+    lines.push('📋 التفاصيل:');
+    for (const i of issues) lines.push('  ⚠️ ' + i);
   }
   return {
     report: lines.join('\n'),
