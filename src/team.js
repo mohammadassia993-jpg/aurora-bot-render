@@ -21,9 +21,10 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 5;
+const MAX_AGENT_STEPS = 6;
 const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
+const MAX_FINAL_WORDS = 120;
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -36,6 +37,9 @@ function normalizeParams(tool, params) {
     if (!p.file_path) p.file_path = p.path || p.file || p.filename || p.name || p.dir;
   }
   if (tool === 'github_edit_file') {
+    if (!p.path) p.path = p.file_path || p.file || p.filename;
+  }
+  if (tool === 'github_append_file' || tool === 'github_create_file' || tool === 'github_delete_file') {
     if (!p.path) p.path = p.file_path || p.file || p.filename;
   }
   if (tool === 'web_search' && !p.query && p.q) p.query = p.q;
@@ -60,53 +64,55 @@ function buildMemoryContext(userMessage) {
     const mem = getAgentContextWindow('aurora');
     const parts = [];
     if (mem.lessons?.length) {
-      parts.push('📚 دروسك السابقة (للعلم فقط — لا تبحث عنها):');
-      for (const l of mem.lessons.slice(0, 3)) parts.push(`- ${String(l.text).slice(0, 140)}`);
+      parts.push('دروسك السابقة:');
+      for (const l of mem.lessons.slice(0, 3)) parts.push('- ' + String(l.text).slice(0, 140));
     }
-    if (mem.trust?.samples > 0) parts.push(`🛡️ درجة الثقة: ${mem.trust.average}/100`);
+    if (mem.trust?.samples > 0) parts.push('درجة الثقة: ' + mem.trust.average + '/100');
     return parts.length ? '\n' + parts.join('\n') + '\n' : '';
-  } catch (e) {
-    return '';
-  }
+  } catch (e) { return ''; }
 }
 
 function buildAgentPrompt(userMessage, ctx) {
   const ragContext = buildRagContext(userMessage, 3);
   const memoryContext = buildMemoryContext(userMessage);
   const toolsList = AVAILABLE_TOOLS.map(t => {
-    const params = Object.entries(t.params || {}).map(([k, v]) => `${k}`).join(', ');
-    return `- ${t.name}(${params})`;
+    const params = Object.entries(t.params || {}).map(([k]) => k).join(', ');
+    return '- ' + t.name + '(' + (params || 'none') + '): ' + (t.description || '');
   }).join('\n');
 
-  return `أنت أورورا. ردّك JSON واحد فقط، بلا أي نص آخر قبله أو بعده.
+  return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only. No text before or after.
 
-الأدوات:
+TOOLS:
 ${toolsList}
 
-الصيغة:
-- أداة: {"action":"tool","tool":"<name>","params":{...}}
-- إجابة: {"action":"final","text":"..."}
+FORMAT:
+Tool: {"action":"tool","tool":"<name>","params":{...}}
+Final: {"action":"final","text":"..."}
 
-قواعد (8):
-1. JSON فقط. لا markdown، لا شرح.
-2. خطوة واحدة فقط في كل رد.
-3. بعد أي أداة → أنهِ بـ final بملخص قصير (أقل من 80 كلمة).
-4. لا تكرر نفس الأداة بنفس المعاملات إن فشلت.
-5. لا تكتب "إليك" أو "بناءً على طلبك" أو مقدمات.
-6. للقراءة: file_path. للتعديل: path, search, replace.
-7. لا تخترع ملفات — استخدم أسماء موجودة فقط.
-8. إذا كانت المعلومات في السياق (RAG أو الذاكرة) → لا تستخدم أداة.
+RULES (10):
+1. Output JSON only. No markdown. No code fences.
+2. ONE action per response. Never combine multiple tools.
+3. After ANY tool succeeds → immediately reply with final (max ${MAX_FINAL_WORDS} words).
+4. Never repeat a tool call with same params after failure. Try different angle.
+5. Final text must be concise (max ${MAX_FINAL_WORDS} words). No greetings, no "here is", no "based on".
+6. For read: file_path. For edit: path, search, replace, message. For append: path, content, message. For create: path, content, message. For delete: path, message.
+7. Never invent files. Use only names that exist.
+8. If info is already in RAG or memory → don't call tools.
+9. If user asks multi-part question → final asking for one point only.
+10. If tool fails, read error and try a DIFFERENT approach.
 
-أمثلة:
+EXAMPLES:
 "اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
-"استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788"}}
-بعد قراءة ملف: {"action":"final","text":"الملف 150 سطراً، يبدأ بـ import..."}
+"استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore: change port"}}
+"أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New section","message":"docs: add section"}}
+"اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
 "2+2" → {"action":"final","text":"4"}
+"ما دروسك؟" → {"action":"final","text":"دروسي: X، Y، Z"}
 
-${ragContext ? ragContext + '\n' : ''}${memoryContext}حالة النظام: ${ctx.healthy}/${ctx.total}
-طلب القائد: ${userMessage}
+${ragContext ? ragContext + '\n' : ''}${memoryContext}System: ${ctx.healthy}/${ctx.total} healthy
+User: ${userMessage}
 
-ردّك JSON فقط:`;
+JSON only:`;
 }
 
 function parseAgentResponse(raw) {
@@ -140,39 +146,53 @@ function cleanText(text) {
   return c.split('\n').filter(l => l.trim()).join('\n').trim();
 }
 
+function countWords(text) {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
 function formatToolResult(toolName, toolResult, originalParams) {
-  if (!toolResult || !toolResult.ok) return `❌ فشل ${toolName}: ${String(toolResult?.error || 'unknown').slice(0, 300)}`;
+  if (!toolResult || !toolResult.ok) return '❌ ' + toolName + ': ' + String(toolResult?.error || 'unknown').slice(0, 300);
   const data = toolResult.result;
   if (toolName === 'grep_files') {
-    if (!data?.results?.length) return `🔍 لا نتائج لـ "${originalParams?.pattern}"`;
-    const lines = [`🔍 "${originalParams?.pattern}" (${data.results_count}):`];
-    for (const r of data.results.slice(0, 10)) lines.push(`📄 ${r.file}:${r.line} → ${String(r.text).slice(0, 120)}`);
+    if (!data?.results?.length) return '🔍 لا نتائج';
+    const lines = ['🔍 ' + (data.results_count || 0) + ' نتائج:'];
+    for (const r of data.results.slice(0, 10)) lines.push('📄 ' + r.file + ':' + r.line);
     return lines.join('\n');
   }
-  if (toolName === 'read_file') { if (!data?.content) return '📄 فارغ'; return `📄 ${data.path || ''} (${data.total_lines || '?'}):\n${String(data.content).slice(0, 1500)}`; }
+  if (toolName === 'read_file') {
+    if (!data?.content) return '📄 فارغ';
+    return '📄 ' + (data.path || '') + ' (' + (data.total_lines || '?') + ' سطر):\n' + String(data.content).slice(0, 1500);
+  }
   if (toolName === 'read_many_files') {
     if (!data?.files) return '📄 لا ملفات';
-    const lines = [`📚 ${data.count} ملف:`];
-    for (const f of data.files) { if (f.error) lines.push(`❌ ${f.file}: ${f.error}`); else lines.push(`📄 ${f.file} (${f.size}B):\n${String(f.content).slice(0, 600)}`); }
+    const lines = ['📚 ' + data.count + ' ملف:'];
+    for (const f of data.files) {
+      if (f.error) lines.push('❌ ' + f.file + ': ' + f.error);
+      else lines.push('📄 ' + f.file + ':\n' + String(f.content).slice(0, 500));
+    }
     return lines.join('\n');
   }
-  if (toolName === 'list_files') { if (!data?.items) return '📂 فارغ'; return `📂 ${data.dir} (${data.count}):\n` + data.items.slice(0, 40).map(i => `${i.type === 'dir' ? '📁' : '📄'} ${i.path}`).join('\n'); }
+  if (toolName === 'list_files') {
+    if (!data?.items) return '📂 فارغ';
+    return '📂 ' + data.dir + ' (' + data.count + '):\n' + data.items.slice(0, 30).map(i => (i.type === 'dir' ? '📁' : '📄') + ' ' + i.path).join('\n');
+  }
+  if (toolName === 'github_list_repo') {
+    if (!data?.items) return '📂 فارغ';
+    return '📂 ' + data.path + ' (' + data.count + '):\n' + data.items.slice(0, 40).map(i => (i.type === 'dir' ? '📁' : '📄') + ' ' + i.name).join('\n');
+  }
+  if (toolName === 'github_edit_file') return '✅ ' + data.path + ' (' + data.replacements + ')\n' + (data.commitUrl || '');
+  if (toolName === 'github_append_file') return '✅ ' + data.path + ' (+' + data.bytesAdded + 'B)\n' + (data.commitUrl || '');
+  if (toolName === 'github_create_file') return '✅ ' + data.path + ' (' + data.lines + ' سطر)\n' + (data.commitUrl || '');
+  if (toolName === 'github_delete_file') return '✅ ' + data.path + '\n' + (data.commitUrl || '');
+  if (toolName === 'security_audit') return '🔒 تقرير أمني:\n' + String(data?.report || '').slice(0, 800);
   if (toolName === 'web_search') {
-    if (!data?.results?.length) return `🌐 لا نتائج لـ "${originalParams?.query}"`;
-    const lines = [`🌐 "${originalParams?.query}":`];
-    for (let i = 0; i < Math.min(data.results.length, 5); i++) { const r = data.results[i]; lines.push(`${i+1}. ${r.title}`); if (r.snippet) lines.push(`   ${String(r.snippet).slice(0, 150)}`); if (r.url) lines.push(`   🔗 ${r.url}`); }
-    return lines.join('\n');
+    if (!data?.results?.length) return '🌐 لا نتائج';
+    return '🌐 ' + data.count + ' نتائج:\n' + data.results.slice(0, 5).map((r, i) => (i+1) + '. ' + String(r.title).slice(0, 80)).join('\n');
   }
-  if (toolName === 'render_env_get') { if (!data?.vars) return '🔧 لا متغيرات'; return `🔧 متغيرات Render (${data.count}):\n` + data.vars.slice(0, 40).map(v => '• ' + v.key).join('\n'); }
-  if (toolName === 'render_env_set') return `✅ تم تحديث ${data.key}`;
-  if (toolName === 'github_edit_file') return `✅ تم تعديل ${data.path} (${data.replacements})\n🔗 ${data.commitUrl}`;
-  if (toolName === 'github_api') return `✅ GitHub API: ${data.status || 'ok'}`;
-  if (toolName === 'save_session') return `💾 جلسة: ${data.name}`;
-  if (toolName === 'load_session') return data?.loaded ? `📂 جلسة: ${data.name}` : '❌ غير موجودة';
-  if (toolName === 'send_telegram') return `✅ رسالة (id=${data.message_id})`;
-  if (toolName === 'write_file') return `💾 ${data.path} (${data.bytes}B)`;
-  if (toolName === 'shell_exec') return `⚙️\n${(data.stdout || data.stderr || 'ok').slice(0, 400)}`;
-  return `✅ ${toolName}: ${JSON.stringify(data).slice(0, 300)}`;
+  if (toolName === 'render_env_get') return '🔧 ' + (data.count || 0) + ' متغيرات';
+  if (toolName === 'render_env_set') return '✅ ' + data.key;
+  if (toolName === 'shell_exec') return '⚙️ ' + String(data.stdout || data.stderr || 'ok').slice(0, 400);
+  return '✅ ' + toolName;
 }
 
 async function autoVerify(filePath, toolResults) {
@@ -181,7 +201,6 @@ async function autoVerify(filePath, toolResults) {
     toolResults.push({ tool: 'read_file', result: res, params: { file_path: filePath, auto: true } });
     return res;
   } catch (e) {
-    toolResults.push({ tool: 'read_file', result: { ok: false, error: e.message }, params: { file_path: filePath, auto: true } });
     return { ok: false, error: e.message };
   }
 }
@@ -204,7 +223,7 @@ async function runAgentLoop(userMessage, ctx) {
       await autoVerify(fp, toolResults);
       const last = toolResults[toolResults.length - 1];
       const preview = last.result?.ok ? String(last.result.result?.content || '').slice(0, 400) : 'فشل';
-      conversation += `\n\n🔎 تحقق تلقائي:\n${preview}\n\nأنهِ المهمة بـ final.`;
+      conversation += '\n\n🔎 تحقق تلقائي:\n' + preview + '\n\nأنهِ المهمة بـ final.';
       continue;
     }
 
@@ -216,10 +235,10 @@ async function runAgentLoop(userMessage, ctx) {
 
     const parsed = parseAgentResponse(raw);
     if (!parsed || !parsed.action) {
-      conversation += `\n\n⚠️ أعد JSON فقط:`;
+      conversation += '\n\n⚠️ أعد JSON فقط:';
       consecutiveFailures++;
       if (consecutiveFailures >= 3) {
-        try { recordLesson('aurora', null, 'error', 'json_parse_fail', `فشل تحليل JSON لطلب: ${userMessage.slice(0,80)}`, 1.1); } catch {}
+        try { recordLesson('aurora', null, 'error', 'json_parse_fail', 'فشل تحليل JSON لطلب: ' + userMessage.slice(0, 80), 1.1); } catch {}
         if (toolResults.length > 0) return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
         return null;
       }
@@ -243,15 +262,15 @@ async function runAgentLoop(userMessage, ctx) {
       toolResults.push({ tool: parsed.tool, result: toolResult, params: normalizedParams });
 
       if (!toolResult.ok) {
-        try { recordLesson('aurora', null, 'error', `${parsed.tool}_fail`, `${parsed.tool} فشل: ${String(toolResult.error).slice(0,100)}`, 1.1); } catch {}
+        try { recordLesson('aurora', null, 'error', parsed.tool + '_fail', parsed.tool + ' فشل: ' + String(toolResult.error).slice(0, 100), 1.1); } catch {}
       }
 
       if (parsed.tool === 'github_edit_file' && toolResult.ok) {
         const fp = normalizedParams?.path || normalizedParams?.file_path;
         if (fp) {
           pendingAutoVerify = fp;
-          try { recordLesson('aurora', null, 'success_pattern', 'github_edit_ok', `تعديل ناجح لـ ${fp}`, 1.0); } catch {}
-          conversation += `\n\n✅ تم تعديل ${fp}. تحقق تلقائي.`;
+          try { recordLesson('aurora', null, 'success_pattern', 'github_edit_ok', 'تعديل ناجح لـ ' + fp, 1.0); } catch {}
+          conversation += '\n\n✅ تم تعديل ' + fp + '. تحقق تلقائي.';
           continue;
         }
       }
@@ -266,25 +285,26 @@ async function runAgentLoop(userMessage, ctx) {
 
       const txt = JSON.stringify(toolResult).slice(0, 1500);
       const emoji = toolResult.ok ? '✅' : '❌';
-      conversation += `\n\n${emoji} نتيجة ${parsed.tool}:\n${txt}\n\nاستمر بـ JSON:`;
+      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\nأكمل بـ JSON:';
       continue;
     }
 
     if (parsed.action === 'final') {
-      if (pendingAutoVerify) {
-        conversation += `\n\n⚠️ انتظر التحقق.`;
-        continue;
-      }
-      const summary = cleanText(parsed.text || '');
+      if (pendingAutoVerify) { conversation += '\n\n⚠️ انتظر التحقق.'; continue; }
+      let summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
+
+      if (countWords(summary) > MAX_FINAL_WORDS * 1.5) {
+        summary = summary.split(/\s+/).slice(0, MAX_FINAL_WORDS).join(' ') + '...';
+      }
 
       if (toolResults.length > 0) {
         const parts = [];
-        if (summary && summary.length > 5) parts.push(summary, '');
-        for (const tr of toolResults) { parts.push(formatToolResult(tr.tool, tr.result, tr.params), ''); }
+        if (summary && summary.length > 3) parts.push(summary, '');
+        for (const tr of toolResults) parts.push(formatToolResult(tr.tool, tr.result, tr.params), '');
         return parts.join('\n').trim();
       }
-      if (summary && summary.length > 5) return summary;
+      if (summary && summary.length > 3) return summary;
     }
   }
 
@@ -293,7 +313,7 @@ async function runAgentLoop(userMessage, ctx) {
 }
 
 function buildDiagnosticFallback(ctx) {
-  return `⚠️ لم أتمكن من معالجة أمرك\nحالة النظام: ${ctx.healthy || 0}/${ctx.total || 0} سليمة`;
+  return '⚠️ لم أتمكن من معالجة أمرك\nحالة النظام: ' + (ctx.healthy || 0) + '/' + (ctx.total || 0) + ' سليمة';
 }
 
 function sanitizeStoredBody(body) {
@@ -323,7 +343,7 @@ async function sendTelegramSafe(text) {
     }
     let last = { delivered: false };
     for (let i = 0; i < parts.length; i++) {
-      const prefix = parts.length > 1 ? `[${i+1}/${parts.length}]\n` : '';
+      const prefix = parts.length > 1 ? '[' + (i+1) + '/' + parts.length + ']\n' : '';
       last = await mod.sendMessageDetailed(prefix + parts[i]);
     }
     return last;
@@ -352,13 +372,13 @@ async function generateAgentReplies(message) {
   let reply = await runAgentLoop(message.body, ctx);
   if (!reply) {
     reply = buildDiagnosticFallback(ctx);
-    try { recordLesson('aurora', null, 'error', 'agent_loop_fail', `فشل معالجة طلب: ${message.body.slice(0,80)}`, 1.2); } catch {}
+    try { recordLesson('aurora', null, 'error', 'agent_loop_fail', 'فشل معالجة: ' + message.body.slice(0, 80), 1.2); } catch {}
   } else {
-    try { recordLesson('aurora', null, 'success_pattern', 'reply_ok:' + message.body.slice(0,30), `نجح الرد على: ${message.body.slice(0,100)}`, 0.8); } catch {}
+    try { recordLesson('aurora', null, 'success_pattern', 'reply_ok:' + message.body.slice(0, 30), 'نجح الرد على: ' + message.body.slice(0, 100), 0.8); } catch {}
   }
   insertAgentMessage('aurora', reply);
-  await sendTelegramSafe(`💬 <b>أورورا</b>\n\n${reply}`);
-  await notify('team_message', `رد أورورا`, message.body.slice(0, 500));
+  await sendTelegramSafe('💬 <b>أورورا</b>\n\n' + reply);
+  await notify('team_message', 'رد أورورا', message.body.slice(0, 500));
 }
 
 function insertAgentMessage(agent, body) {
