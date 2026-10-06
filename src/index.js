@@ -30,6 +30,7 @@ import { startSecurityGuardian } from './security-researcher.js';
 import { startResearcher } from './researcher-agent.js';
 import { startDeveloperAgent } from './developer-agent.js';
 import { startCostAlerts } from './cost-alerts.js';
+import { startToolAlerts } from './tool-alerts.js';
 
 import './bot-guard.js';
 import './self-healing-guard.js';
@@ -80,6 +81,13 @@ try {
   info('cost-alerts', 'Cost Alerts started');
 } catch (e) {
   error('cost-alerts', `failed to start: ${e.message}`);
+}
+
+try {
+  startToolAlerts();
+  info('tool-alerts', 'Tool Alerts started');
+} catch (e) {
+  error('tool-alerts', `failed to start: ${e.message}`);
 }
 
 setInterval(async () => {
