@@ -1,10 +1,11 @@
-// tool-executor.js (ESM) — 25 أداة + متصفح + فحص صيغة
+// tool-executor.js (ESM) — 25 أداة + متصفح + تنبيهات فشل
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { recordError } from './db.js';
+import { recordToolFailure } from './tool-alerts.js';
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -64,12 +65,10 @@ function ensureSessionsDir() { try { fsSync.mkdirSync(SESSIONS_DIR, { recursive:
 function logToolFailure(toolName, params, error) {
   try {
     recordError('tool:' + toolName, 'TOOL_FAILED', String(error?.message || error).slice(0, 500), { params: JSON.stringify(params || {}).slice(0, 500) }, 'auto');
+    recordToolFailure(toolName, String(error?.message || error));
   } catch {}
 }
 
-// ═══════════════════════════════════════════════════════════
-// GitHub helpers
-// ═══════════════════════════════════════════════════════════
 async function githubApi({ endpoint, method = 'GET', body = null }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   const url = endpoint.startsWith('http') ? endpoint
@@ -112,9 +111,6 @@ async function validateJsSyntax(content, filePath) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_edit_file
-// ═══════════════════════════════════════════════════════════
 async function githubEditFile({ path: filePath, search, replace, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !search || replace === undefined || !message) throw new Error('path, search, replace, message required');
@@ -164,9 +160,6 @@ async function githubEditFile({ path: filePath, search, replace, message }) {
   return { edited: true, path: filePath, replacements: count, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_append_file
-// ═══════════════════════════════════════════════════════════
 async function githubAppendFile({ path: filePath, content, message, newline = true }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !content || !message) throw new Error('path, content, message required');
@@ -193,9 +186,6 @@ async function githubAppendFile({ path: filePath, content, message, newline = tr
   return { appended: true, path: filePath, bytesAdded: Buffer.byteLength(separator + content), linesBefore: originalLines, linesAfter: newLines, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_create_file
-// ═══════════════════════════════════════════════════════════
 async function githubCreateFile({ path: filePath, content, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || content === undefined || !message) throw new Error('path, content, message required');
@@ -215,9 +205,6 @@ async function githubCreateFile({ path: filePath, content, message }) {
   return { created: true, path: filePath, bytes: Buffer.byteLength(content), lines: content.split('\n').length, syntaxChecked: !validation.skipped, syntaxMode: validation.mode || 'skipped', commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_delete_file
-// ═══════════════════════════════════════════════════════════
 async function githubDeleteFile({ path: filePath, message }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   if (!filePath || !message) throw new Error('path, message required');
@@ -236,9 +223,6 @@ async function githubDeleteFile({ path: filePath, message }) {
   return { deleted: true, path: filePath, commitSha: delData.commit?.sha || '', commitUrl: delData.commit?.html_url || '' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// github_list_repo
-// ═══════════════════════════════════════════════════════════
 async function githubListRepo({ path: subPath = '', branch = 'main' }) {
   if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
   const endpoint = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + subPath + '?ref=' + branch;
@@ -250,18 +234,12 @@ async function githubListRepo({ path: subPath = '', branch = 'main' }) {
   return { path: subPath || '/', count: items.length, items };
 }
 
-// ═══════════════════════════════════════════════════════════
-// security_audit
-// ═══════════════════════════════════════════════════════════
 async function securityAudit({}) {
   const mod = await import('./security-agent-v2.js');
   const result = await mod.generateSecurityReport();
   return result;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 Browser tools (via Browserless.io)
-// ═══════════════════════════════════════════════════════════
 async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' }) {
   const mod = await import('./browser.js');
   if (!mod.isEnabled()) throw new Error('Browserless not configured');
@@ -286,9 +264,6 @@ async function browserExtract({ url, waitMs = 1000 }) {
   return await withTimeout(mod.extractText(url, { waitMs }), BROWSER_TIMEOUT_MS, 'browser_extract');
 }
 
-// ═══════════════════════════════════════════════════════════
-// Telegram + Shell + HTTP
-// ═══════════════════════════════════════════════════════════
 async function sendTelegram({ chat_id, text }) {
   if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
   const target = chat_id || DEFAULT_CHAT_ID;
@@ -320,9 +295,6 @@ async function httpFetch({ url, method = 'GET', headers = {}, body = null }) {
   return { status: res.status, ok: res.ok, data };
 }
 
-// ═══════════════════════════════════════════════════════════
-// Local file tools
-// ═══════════════════════════════════════════════════════════
 async function readFile({ file_path, start_line = null, end_line = null }) {
   const candidates = [file_path, 'src/' + file_path, 'public/' + file_path];
   let fullPath = null;
@@ -440,9 +412,6 @@ async function webSearch({ query, max_results = 5 }) {
   return { query: q, count: 0, results: [], error: 'no_results' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// Render env
-// ═══════════════════════════════════════════════════════════
 async function renderEnvGet({}) {
   if (!RENDER_API_KEY) throw new Error('RENDER_API_KEY missing');
   const res = await withTimeout(fetch('https://api.render.com/v1/services/' + RENDER_SERVICE_ID + '/env-vars?limit=100', {
@@ -467,9 +436,6 @@ async function renderEnvSet({ key, value }) {
   return { updated: true, key, note: 'Service will redeploy automatically' };
 }
 
-// ═══════════════════════════════════════════════════════════
-// Sessions
-// ═══════════════════════════════════════════════════════════
 async function saveSession({ name, cookies = '', headers = {}, notes = '' }) {
   if (!name) throw new Error('name required');
   ensureSessionsDir();
@@ -501,9 +467,6 @@ async function platformFetch({ url, method = 'GET', session = null, body = null,
   return { status: res.status, ok: res.ok, setCookie: res.headers.get('set-cookie') || null, data };
 }
 
-// ═══════════════════════════════════════════════════════════
-// Tool registry
-// ═══════════════════════════════════════════════════════════
 const TOOL_MAP = {
   web_search: webSearch, grep_files: grepFiles, read_many_files: readManyFiles,
   list_files: listFiles, read_file: readFile, write_file: writeFile,
@@ -530,7 +493,7 @@ export const AVAILABLE_TOOLS = [
   { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
   { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string' } },
   { name: 'security_audit', description: 'فحص أمني شامل.', params: {} },
-  { name: 'browse_url', description: 'فتح صفحة ويب عبر متصفح سحابي وإرجاع النص والروابط.', params: { url: 'string', waitMs: 'number' } },
+  { name: 'browse_url', description: 'فتح صفحة ويب عبر متصفح سحابي.', params: { url: 'string', waitMs: 'number' } },
   { name: 'browser_search', description: 'بحث في الإنترنت عبر متصفح سحابي.', params: { query: 'string' } },
   { name: 'browser_screenshot', description: 'لقطة شاشة لصفحة ويب.', params: { url: 'string', fullPage: 'boolean' } },
   { name: 'browser_extract', description: 'استخراج نص من صفحة ويب.', params: { url: 'string' } },
