@@ -31,6 +31,7 @@ import { startResearcher } from './researcher-agent.js';
 import { startDeveloperAgent } from './developer-agent.js';
 import { startCostAlerts } from './cost-alerts.js';
 import { startToolAlerts } from './tool-alerts.js';
+import { startBountyScout } from './bounty-scout.js';
 
 import './bot-guard.js';
 import './self-healing-guard.js';
@@ -42,20 +43,6 @@ process.on('uncaughtException', caught => {
   error('process', 'uncaught exception', { error: caught.stack });
   process.exit(1);
 });
-
-// ═══════════════════════════════════════════════════════════
-// TEMPORARY: one-time cleanup script (will be removed after)
-// ═══════════════════════════════════════════════════════════
-if (process.env.RUN_CLEANUP === 'true') {
-  info('cleanup', '🏃 Running cleanup.mjs...');
-  try {
-    const cleanupModule = await import('./cleanup.mjs');
-    info('cleanup', '✅ cleanup.mjs finished');
-  } catch (e) {
-    error('cleanup', '❌ cleanup failed: ' + e.message);
-  }
-}
-// ═══════════════════════════════════════════════════════════
 
 const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
@@ -102,6 +89,13 @@ try {
   info('tool-alerts', 'Tool Alerts started');
 } catch (e) {
   error('tool-alerts', `failed to start: ${e.message}`);
+}
+
+try {
+  startBountyScout();
+  info('bounty-scout', 'Bounty Scout started');
+} catch (e) {
+  error('bounty-scout', `failed to start: ${e.message}`);
 }
 
 setInterval(async () => {
