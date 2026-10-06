@@ -25,14 +25,11 @@ import { publishToAllPlatforms } from './multi-publisher.js';
 import { scanPrizes } from './prize-scanner.js';
 import { discoverPlatforms } from './platform-discovery.js';
 import { PersistentMemory } from './persistent-memory.js';
-// RAG: فهرسة المشروع
 import { initRagIndex, indexProject } from './rag.js';
-// Security Guardian
 import { startSecurityGuardian } from './security-researcher.js';
-// Researcher Agent
 import { startResearcher } from './researcher-agent.js';
-// Developer Agent
 import { startDeveloperAgent } from './developer-agent.js';
+import { startCostAlerts } from './cost-alerts.js';
 
 import './bot-guard.js';
 import './self-healing-guard.js';
@@ -49,7 +46,6 @@ const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
 info('platform', `DAILY_REPORTS_ENABLED=${DAILY_REPORTS_ENABLED}`);
 
-// RAG
 try {
   initRagIndex();
   const count = indexProject();
@@ -58,7 +54,6 @@ try {
   error('rag', `RAG init failed: ${e.message}`);
 }
 
-// Security Guardian
 try {
   startSecurityGuardian();
   info('security-guardian', 'Security Guardian started');
@@ -66,7 +61,6 @@ try {
   error('security-guardian', `failed to start: ${e.message}`);
 }
 
-// Researcher Agent
 try {
   startResearcher();
   info('researcher', 'Researcher Agent started');
@@ -74,12 +68,18 @@ try {
   error('researcher', `failed to start: ${e.message}`);
 }
 
-// Developer Agent
 try {
   startDeveloperAgent();
   info('developer', 'Developer Agent started');
 } catch (e) {
   error('developer', `failed to start: ${e.message}`);
+}
+
+try {
+  startCostAlerts();
+  info('cost-alerts', 'Cost Alerts started');
+} catch (e) {
+  error('cost-alerts', `failed to start: ${e.message}`);
 }
 
 setInterval(async () => {
