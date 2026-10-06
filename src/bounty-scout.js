@@ -42,8 +42,8 @@ async function fetchAlgora() {
   try {
     const mod = await import('./browser.js');
     if (!mod.isEnabled()) { warn('bounty-scout', 'browserless disabled'); return []; }
-    const r = await mod.browseUrl('https://algora.io/bounties', { waitMs: 3000 });
-    return (r.links || []).filter(function(l) { return l.href && l.href.includes('/bounty/'); }).slice(0, 20).map(function(l) {
+    const r = await mod.browseUrl('https://algora.io/bounties', { waitMs: 5000 });
+    return (r.links || []).filter(function(l) { return l.href && (l.href.includes('/bounty/') || l.href.includes('/b/')); }).slice(0, 20).map(function(l) {
       return { source: 'Algora', title: (l.text || 'Algora Bounty').slice(0, 200), url: l.href, reward: '', description: '' };
     });
   } catch (e) { warn('bounty-scout', 'algora error: ' + e.message); return []; }
@@ -53,7 +53,7 @@ async function fetchImmunefi() {
   try {
     const mod = await import('./browser.js');
     if (!mod.isEnabled()) return [];
-    const r = await mod.browseUrl('https://immunefi.com/bug-bounty/', { waitMs: 3000 });
+    const r = await mod.browseUrl('https://immunefi.com/bug-bounty/', { waitMs: 5000 });
     return (r.links || []).filter(function(l) { return l.href && l.href.includes('/bounty/'); }).slice(0, 20).map(function(l) {
       return { source: 'Immunefi', title: (l.text || 'Immunefi Bounty').slice(0, 200), url: l.href, reward: '', description: '' };
     });
@@ -72,14 +72,50 @@ function parseJson(raw) {
   return null;
 }
 
+function heuristicScore(finding) {
+  const t = (finding.title + ' ' + finding.description).toLowerCase();
+  const highMatch = ['hackathon','hack','blockchain','web3','solidity','solana','ethereum','smart contract','mvp','build','develop','code','programming','agent','bot','api','ai '];
+  const mediumMatch = ['design','content','writing','article','technical','research','translation'];
+  const lowMatch = ['video','edit','marketing','twitter','social media','banner','poster','nft'];
+  let score = 3;
+  if (highMatch.some(function(k){ return t.includes(k); })) score = 8;
+  else if (mediumMatch.some(function(k){ return t.includes(k); })) score = 5;
+  else if (lowMatch.some(function(k){ return t.includes(k); })) score = 2;
+  const rewardMatch = String(finding.reward || '').match(/\d+/);
+  if (rewardMatch && Number(rewardMatch[0]) >= 500) score = Math.min(10, score + 1);
+  return score;
+}
+
 async function analyzeRelevance(finding) {
+  const prompt = 'قيّم الفرصة التالية لفريق "عمالقة الصمت":\nفريق مطورين لديهم خبرة في Node.js, Solidity, Web3, وبناء بوتات AI.\n\n' +
+    'العنوان: ' + finding.title + '\n' +
+    'الوصف: ' + finding.description + '\n' +
+    'المكافأة: ' + finding.reward + '\n\n' +
+    'أعد JSON فقط:\n' +
+    '{"score": 7, "reason": "سبب قصير بالعربية", "actionable": true}\n\n' +
+    'معايير:\n' +
+    '0-3: لا يناسبنا (تصميم فقط, فيديو, تسويق)\n' +
+    '4-6: محتمل (يحتاج تعلم)\n' +
+    '7-10: يناسبنا مباشرة (تطوير Web3, بوتات, هكاثونات, محتوى تقني)\n\n' +
+    'ردك JSON فقط:';
+
   try {
-    const prompt = 'قيّم هذه الفرصة لمشروع "عمالقة الصمت" (بوت Node.js، 5 وكلاء AI، خبرة Solidity).\n\nالمصدر: ' + finding.source + '\nالعنوان: ' + finding.title + '\nالوصف: ' + finding.description + '\nالمكافأة: ' + finding.reward + '\n\nأجب JSON فقط: {"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n0-3 غير مناسب. 4-6 محتمل. 7-10 مناسب لخبرتنا ومربح.';
-    const raw = await callModel('aurora', prompt, { noJsonMode: false, maxTokens: 200 });
+    const raw = await callModel('aurora', prompt, { noJsonMode: false, maxTokens: 500 });
     const parsed = parseJson(raw);
-    if (!parsed) return { score: 3, reason: 'فشل التحليل', actionable: false };
-    return { score: Math.min(10, Math.max(0, Number(parsed.score) || 0)), reason: String(parsed.reason || ''), actionable: Boolean(parsed.actionable) };
-  } catch (e) { return { score: 3, reason: 'خطأ التحليل', actionable: false }; }
+    if (parsed && typeof parsed.score === 'number') {
+      return {
+        score: Math.min(10, Math.max(0, Number(parsed.score))),
+        reason: String(parsed.reason || '').slice(0, 300),
+        actionable: Boolean(parsed.actionable)
+      };
+    }
+    // Fallback heuristic
+    const score = heuristicScore(finding);
+    return { score, reason: 'تحليل تلقائي (AI غير متاح)', actionable: score >= 7 };
+  } catch (e) {
+    const score = heuristicScore(finding);
+    return { score, reason: 'تحليل تلقائي (خطأ: ' + String(e.message).slice(0, 50) + ')', actionable: score >= 7 };
+  }
 }
 
 async function runScan() {
@@ -93,7 +129,7 @@ async function runScan() {
 
   let added = 0;
   const alerts = [];
-  for (let i = 0; i < Math.min(all.length, 10); i++) {
+  for (let i = 0; i < Math.min(all.length, 15); i++) {
     const f = all[i];
     try {
       const exists = db.prepare('SELECT id FROM bounty_findings WHERE title = ? LIMIT 1').get(f.title);
