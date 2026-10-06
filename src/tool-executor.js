@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 29 أداة + متصفح + chunked write
+// tool-executor.js (ESM) — 30 أداة + متصفح + replace file
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -16,13 +16,11 @@ const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID || 'srv-da5a4njtqb8s739s
 
 const SAFE_ROOT = process.env.PROJECT_ROOT || process.cwd();
 const SHELL_ALLOWLIST = ['npm', 'npx', 'git', 'node'];
-const TOOL_TIMEOUT_MS = 20000;
+const TOOL_TIMEOUT_MS = 30000;
 const BROWSER_TIMEOUT_MS = 40000;
 const SEARCH_TIMEOUT_MS = 15000;
 const SESSIONS_DIR = path.join(SAFE_ROOT, 'data', 'sessions');
 const SKIP_DIRS = new Set(['node_modules', '.git', 'data', 'logs', 'dist', '.cache', 'uploads']);
-
-let activeRewrite = null;
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -270,50 +268,23 @@ async function githubInsertAtLine({ path: filePath, line, content, message }) {
   return { inserted: true, path: filePath, atLine: lineNum, linesBefore: lines.length, linesAfter: updated.split('\n').length, linesAdded: newLines.length, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
-async function fileRewriteStart({ path: filePath }) {
-  if (!filePath) throw new Error('path required');
-  let originalLines = 0;
-  try {
-    const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
-    const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
-    if (getRes.ok) {
-      const fileData = await getRes.json();
-      if (fileData.content) {
-        const original = Buffer.from(fileData.content, 'base64').toString('utf8');
-        originalLines = original.split('\n').length;
-      }
-    }
-  } catch (e) {}
-  activeRewrite = { path: filePath, chunks: [], startedAt: new Date().toISOString(), originalLines };
-  return { started: true, path: filePath, originalLines, next: 'أضف الأجزاء عبر file_rewrite_add ثم أنهِ بـ file_rewrite_finish.' };
-}
-
-async function fileRewriteAdd({ chunk }) {
-  if (!activeRewrite) throw new Error('لا توجد جلسة إعادة كتابة نشطة. استخدم file_rewrite_start أولاً.');
-  if (!chunk) throw new Error('chunk required');
-  activeRewrite.chunks.push(String(chunk));
-  const totalChars = activeRewrite.chunks.reduce((sum, c) => sum + c.length, 0);
-  const totalLines = activeRewrite.chunks.join('').split('\n').length;
-  return { added: true, path: activeRewrite.path, chunksCount: activeRewrite.chunks.length, totalChars, totalLines };
-}
-
-async function fileRewriteFinish({ message }) {
-  if (!activeRewrite) throw new Error('لا توجد جلسة إعادة كتابة نشطة.');
-  if (!message) throw new Error('message required');
-  const session = activeRewrite;
-  activeRewrite = null;
-  const filePath = session.path;
-  const content = session.chunks.join('');
-  if (!content) throw new Error('لا يوجد محتوى للكتابة');
-  const validation = await validateJsSyntax(content, filePath);
-  if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض إعادة الكتابة.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
+async function githubReplaceFile({ path: filePath, content, message }) {
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  if (!filePath || content === undefined || !message) throw new Error('path, content, message required');
   const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
   const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
   let sha = null;
+  let originalLines = 0;
   if (getRes.ok) {
     const fileData = await getRes.json();
+    if (fileData.content) {
+      const original = Buffer.from(fileData.content, 'base64').toString('utf8');
+      originalLines = original.split('\n').length;
+    }
     sha = fileData.sha;
   }
+  const validation = await validateJsSyntax(content, filePath);
+  if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض إعادة الكتابة.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
   const newBase64 = Buffer.from(content, 'utf8').toString('base64');
   const body = { message, content: newBase64, branch: 'main' };
   if (sha) body.sha = sha;
@@ -325,7 +296,7 @@ async function fileRewriteFinish({ message }) {
   const putData = await putRes.json();
   if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
   const newLines = content.split('\n').length;
-  return { finished: true, path: filePath, originalLines: session.originalLines, newLines, linesDiff: newLines - session.originalLines, chunksCount: session.chunks.length, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
+  return { replaced: true, path: filePath, originalLines, newLines, linesDiff: newLines - originalLines, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
 async function securityAudit({}) {
@@ -571,9 +542,7 @@ const TOOL_MAP = {
   github_delete_file: githubDeleteFile,
   github_list_repo: githubListRepo,
   github_insert_at_line: githubInsertAtLine,
-  file_rewrite_start: fileRewriteStart,
-  file_rewrite_add: fileRewriteAdd,
-  file_rewrite_finish: fileRewriteFinish,
+  github_replace_file: githubReplaceFile,
   security_audit: securityAudit,
   browse_url: browseUrl,
   browser_search: browserSearch,
@@ -590,10 +559,8 @@ export const AVAILABLE_TOOLS = [
   { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
   { name: 'github_insert_at_line', description: 'إدراج محتوى عند رقم سطر محدد (1-based).', params: { path: 'string', line: 'number', content: 'string', message: 'string' } },
+  { name: 'github_replace_file', description: 'استبدال محتوى ملف كاملاً بمحتوى جديد (بدون search/replace). الأنسب للملفات الكبيرة.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string' } },
-  { name: 'file_rewrite_start', description: 'بدء جلسة إعادة كتابة ملف كامل. استخدمها ثم أضف أجزاء عبر file_rewrite_add.', params: { path: 'string' } },
-  { name: 'file_rewrite_add', description: 'إضافة جزء من المحتوى (50-100 سطر) إلى جلسة إعادة الكتابة النشطة.', params: { chunk: 'string' } },
-  { name: 'file_rewrite_finish', description: 'إنهاء جلسة إعادة الكتابة، التحقق من الصيغة، والنشر على GitHub.', params: { message: 'string' } },
   { name: 'security_audit', description: 'فحص أمني شامل.', params: {} },
   { name: 'browse_url', description: 'فتح صفحة ويب عبر متصفح سحابي.', params: { url: 'string', waitMs: 'number' } },
   { name: 'browser_search', description: 'بحث في الإنترنت عبر متصفح سحابي.', params: { query: 'string' } },
