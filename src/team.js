@@ -21,11 +21,11 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 6;
+const MAX_AGENT_STEPS = 12;
 const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
 const MAX_FINAL_WORDS = 120;
-const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
+const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set', 'file_rewrite_finish']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -36,7 +36,7 @@ function normalizeParams(tool, params) {
   if (fileTools.includes(tool)) {
     if (!p.file_path) p.file_path = p.path || p.file || p.filename || p.name || p.dir;
   }
-  if (tool === 'github_edit_file' || tool === 'github_append_file' || tool === 'github_create_file' || tool === 'github_delete_file') {
+  if (tool === 'github_edit_file' || tool === 'github_append_file' || tool === 'github_create_file' || tool === 'github_delete_file' || tool === 'github_insert_at_line' || tool === 'file_rewrite_start') {
     if (!p.path) p.path = p.file_path || p.file || p.filename;
   }
   if (tool === 'web_search' && !p.query && p.q) p.query = p.q;
@@ -92,25 +92,32 @@ FORMAT:
 Tool: {"action":"tool","tool":"<name>","params":{...}}
 Final: {"action":"final","text":"<Arabic text>"}
 
-RULES (10):
+RULES (12):
 1. JSON only. No markdown.
 2. ONE action per response.
-3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words, in Arabic).
+3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words, in Arabic) — UNLESS you are doing file_rewrite_*.
 4. Never repeat failed tool with same params.
 5. Final text must be in Arabic, concise. No greetings.
-6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message. browse_url: url. browser_search: query.
+6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message. insert_at_line: path,line,content,message. browse_url: url. browser_search: query.
 7. Never invent files.
 8. If info in RAG/memory → no tools.
 9. Multi-part question → final asking for one point (in Arabic).
 10. On tool fail → try DIFFERENT approach.
+11. FILE REWRITE MODE (for large files > 100 lines):
+    - Step 1: file_rewrite_start(path)
+    - Steps 2-N: file_rewrite_add(chunk) — write 50-100 lines each
+    - Final step: file_rewrite_finish(message)
+    - In rewrite mode, KEEP GOING (don't reply with final) until finish.
+12. TO INSERT AT LINE: use github_insert_at_line(path, line, content, message).
 
 EXAMPLES:
 "اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
 "استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore"}}
 "أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New","message":"docs"}}
+"أدرج بعد السطر 47 في team.js" → {"action":"tool","tool":"github_insert_at_line","params":{"path":"src/team.js","line":48,"content":"...","message":"feat"}}
 "اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
 "افتح example.com" → {"action":"tool","tool":"browse_url","params":{"url":"https://example.com"}}
-"ابحث عن AI news" → {"action":"tool","tool":"browser_search","params":{"query":"AI news 2026"}}
+"أعد كتابة ai.js بالكامل" → {"action":"tool","tool":"file_rewrite_start","params":{"path":"src/ai.js"}}
 "2+2" → {"action":"final","text":"4"}
 "ما دروسك؟" → {"action":"final","text":"دروسي: X، Y، Z"}
 
@@ -189,6 +196,10 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'github_append_file') return '✅ ' + data.path + ' (+' + data.bytesAdded + 'B)\n' + (data.commitUrl || '');
   if (toolName === 'github_create_file') return '✅ ' + data.path + ' (' + data.lines + ' سطر)\n' + (data.commitUrl || '');
   if (toolName === 'github_delete_file') return '✅ ' + data.path + '\n' + (data.commitUrl || '');
+  if (toolName === 'github_insert_at_line') return '✅ إدراج في ' + data.path + ' عند السطر ' + data.atLine + ' (+' + data.linesAdded + ' سطر)\n' + (data.commitUrl || '');
+  if (toolName === 'file_rewrite_start') return '📝 بدأت إعادة كتابة ' + data.path + ' (الأصلي: ' + data.originalLines + ' سطر).\n' + data.next;
+  if (toolName === 'file_rewrite_add') return '📝 أُضيف جزء ' + data.chunksCount + ' (' + data.totalLines + ' سطر حتى الآن)';
+  if (toolName === 'file_rewrite_finish') return '✅ اكتملت إعادة كتابة ' + data.path + ' (' + data.originalLines + ' → ' + data.newLines + ' سطر, ' + data.chunksCount + ' أجزاء)\n' + (data.commitUrl || '');
   if (toolName === 'security_audit') return '🔒 تقرير أمني:\n' + String(data?.report || '').slice(0, 800);
   if (toolName === 'web_search' || toolName === 'browser_search') {
     if (!data?.results?.length) return '🌐 لا نتائج';
@@ -238,7 +249,7 @@ async function runAgentLoop(userMessage, ctx) {
     }
 
     let raw;
-    try { raw = await callModel('aurora', conversation, { noJsonMode: false, step, failures: consecutiveFailures }); }
+    try { raw = await callModel('aurora', conversation, { noJsonMode: false, step, failures: consecutiveFailures, maxTokens: 2500 }); }
     catch (e) { console.error('[agent] step ' + step + ' LLM: ' + e.message); continue; }
 
     if (!raw || String(raw).trim().length < 5) { consecutiveFailures++; continue; }
