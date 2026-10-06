@@ -1,4 +1,4 @@
-// tool-executor.js (ESM) — 25 أداة + متصفح + تنبيهات فشل
+// tool-executor.js (ESM) — 26 أداة + متصفح + تنبيهات فشل
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -232,6 +232,40 @@ async function githubListRepo({ path: subPath = '', branch = 'main' }) {
   if (!Array.isArray(data)) return { path: subPath, type: 'file' };
   const items = data.map(item => ({ name: item.name, path: item.path, type: item.type, size: item.size }));
   return { path: subPath || '/', count: items.length, items };
+}
+
+async function githubInsertAtLine({ path: filePath, line, content, message }) {
+  if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing in Environment');
+  if (!filePath || line === undefined || content === undefined || !message) throw new Error('path, line, content, message required');
+  const lineNum = Number(line);
+  if (!Number.isInteger(lineNum) || lineNum < 1) throw new Error('line must be a positive integer');
+  const apiUrl = 'https://api.github.com/repos/' + GITHUB_OWNER_REPO + '/contents/' + filePath;
+  const getRes = await withTimeout(fetch(apiUrl, { headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json' } }), TOOL_TIMEOUT_MS, 'github_get');
+  if (!getRes.ok) throw new Error('GET ' + getRes.status);
+  const fileData = await getRes.json();
+  if (!fileData.content || !fileData.sha) throw new Error('no content/sha');
+  const original = Buffer.from(fileData.content, 'base64').toString('utf8');
+  const lines = original.split('\n');
+  if (lineNum > lines.length + 1) {
+    throw new Error('رقم السطر خارج النطاق. الملف يحتوي على ' + lines.length + ' سطر. استخدم line من 1 إلى ' + (lines.length + 1));
+  }
+  const idx = lineNum - 1;
+  const before = lines.slice(0, idx);
+  const after = lines.slice(idx);
+  const cleanContent = content.endsWith('\n') ? content.slice(0, -1) : content;
+  const newLines = cleanContent.split('\n');
+  const updated = before.concat(newLines).concat(after).join('\n');
+  const validation = await validateJsSyntax(updated, filePath);
+  if (!validation.valid) throw new Error('SYNTAX ERROR — تم رفض الإدراج.\nالملف: ' + filePath + '\nالسبب:\n' + validation.error);
+  const newBase64 = Buffer.from(updated, 'utf8').toString('base64');
+  const putRes = await withTimeout(fetch(apiUrl, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, content: newBase64, sha: fileData.sha, branch: 'main' })
+  }), TOOL_TIMEOUT_MS, 'github_put');
+  const putData = await putRes.json();
+  if (!putRes.ok) throw new Error('PUT ' + putRes.status + ': ' + JSON.stringify(putData).slice(0, 300));
+  return { inserted: true, path: filePath, atLine: lineNum, linesBefore: lines.length, linesAfter: updated.split('\n').length, linesAdded: newLines.length, syntaxChecked: !validation.skipped, commitSha: putData.commit?.sha || '', commitUrl: putData.commit?.html_url || '' };
 }
 
 async function securityAudit({}) {
@@ -476,6 +510,7 @@ const TOOL_MAP = {
   github_create_file: githubCreateFile,
   github_delete_file: githubDeleteFile,
   github_list_repo: githubListRepo,
+  github_insert_at_line: githubInsertAtLine,
   security_audit: securityAudit,
   browse_url: browseUrl,
   browser_search: browserSearch,
@@ -491,6 +526,7 @@ export const AVAILABLE_TOOLS = [
   { name: 'github_append_file', description: 'إضافة محتوى في نهاية ملف على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_create_file', description: 'إنشاء ملف جديد على GitHub.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_delete_file', description: 'حذف ملف من GitHub.', params: { path: 'string', message: 'string' } },
+  { name: 'github_insert_at_line', description: 'إدراج محتوى عند رقم سطر محدد (1-based).', params: { path: 'string', line: 'number', content: 'string', message: 'string' } },
   { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string' } },
   { name: 'security_audit', description: 'فحص أمني شامل.', params: {} },
   { name: 'browse_url', description: 'فتح صفحة ويب عبر متصفح سحابي.', params: { url: 'string', waitMs: 'number' } },
