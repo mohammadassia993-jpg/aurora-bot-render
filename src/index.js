@@ -43,6 +43,20 @@ process.on('uncaughtException', caught => {
   process.exit(1);
 });
 
+// ═══════════════════════════════════════════════════════════
+// TEMPORARY: one-time cleanup script (will be removed after)
+// ═══════════════════════════════════════════════════════════
+if (process.env.RUN_CLEANUP === 'true') {
+  info('cleanup', '🏃 Running cleanup.mjs...');
+  try {
+    const cleanupModule = await import('./cleanup.mjs');
+    info('cleanup', '✅ cleanup.mjs finished');
+  } catch (e) {
+    error('cleanup', '❌ cleanup failed: ' + e.message);
+  }
+}
+// ═══════════════════════════════════════════════════════════
+
 const server = await startServer();
 info('platform', `dashboard listening on port ${config.port}`);
 info('platform', `DAILY_REPORTS_ENABLED=${DAILY_REPORTS_ENABLED}`);
