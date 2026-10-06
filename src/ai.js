@@ -1,4 +1,4 @@
-// ai.js — Z.ai primary + LLM7 + HF (stable version)
+// ai.js — Z.ai primary + LLM7 + HF (with high max_tokens for large writes)
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
@@ -13,6 +13,8 @@ const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
 const HF_MODELS = ['meta-llama/Llama-3.3-70B-Instruct'];
 
+const DEFAULT_MAX_TOKENS = 12000;
+
 const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
@@ -23,11 +25,11 @@ async function callZAI(messages, options = {}) {
   const body = {
     model,
     messages,
-    max_tokens: options.maxTokens || 800,
+    max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
     temperature: options.temperature !== undefined ? options.temperature : 0.2
   };
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 90000);
+  const t = setTimeout(() => ctrl.abort(), 120000);
   try {
     const res = await fetch(ZAI_URL, {
       method: 'POST',
@@ -64,12 +66,12 @@ async function callZAIWithFallback(messages, options) {
 async function callLLM7(messages, options = {}) {
   if (!LLM7_KEY) throw new Error('LLM7_API_KEY missing');
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
+  const t = setTimeout(() => ctrl.abort(), 90000);
   try {
     const res = await fetch(LLM7_URL, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + LLM7_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: LLM7_MODEL, messages, max_tokens: options.maxTokens || 800, temperature: 0.2 }),
+      body: JSON.stringify({ model: LLM7_MODEL, messages, max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS, temperature: 0.2 }),
       signal: ctrl.signal
     });
     const raw = await res.text();
@@ -84,12 +86,12 @@ async function callLLM7(messages, options = {}) {
 async function callHF(model, messages, options = {}) {
   if (!HF_TOKEN) throw new Error('HF_TOKEN missing');
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
+  const t = setTimeout(() => ctrl.abort(), 90000);
   try {
     const res = await fetch(HF_URL, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + HF_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, max_tokens: options.maxTokens || 800, temperature: 0.2, stream: false }),
+      body: JSON.stringify({ model, messages, max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS, temperature: 0.2, stream: false }),
       signal: ctrl.signal
     });
     const raw = await res.text();
@@ -126,7 +128,7 @@ export async function callModel(agent, prompt, options = {}) {
     : [{ role: 'user', content: String(prompt || '') }];
 
   const callOpts = {
-    maxTokens: options.maxTokens || tier.maxTokens,
+    maxTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
     temperature: tier.temperature,
     model: tier.model
   };
