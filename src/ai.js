@@ -1,17 +1,13 @@
-// ai.js — Puter (multi-format) + NagaAI + Z.ai + Cloudflare + HF
-// Env vars required: PUTER_AUTH_TOKEN, NAGAAI_API_KEY
-// Env vars existing: ZAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN
+// ai.js — NagaAI (primary) + Z.ai (secondary) + Cloudflare (tertiary) + HF (last resort)
+// Env vars required: NAGAAI_API_KEY, ZAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
 // ================= ENV VARS =================
-const PUTER_TOKEN = process.env.PUTER_AUTH_TOKEN || '';
-const PUTER_MODEL = process.env.PUTER_MODEL || 'gpt-4o-mini';
-
 const NAGA_KEY = process.env.NAGAAI_API_KEY || '';
 const NAGA_URL = 'https://api.naga.ac/v1/chat/completions';
-const NAGA_MODEL = 'meta-llama/Llama-3.3-70B-Instruct';
+const NAGA_MODEL = 'llama-3.3-70b-instruct:free';
 
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
@@ -32,97 +28,7 @@ const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ================= PUTER (multi-format) =================
-async function callPuterFormat1(messages, options) {
-  // Format 1: drivers/call with driver "openai"
-  const body = {
-    interface: 'puter-chat-completion',
-    driver: 'openai',
-    method: 'complete',
-    args: {
-      messages,
-      model: options.model || PUTER_MODEL,
-      max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-      temperature: options.temperature !== undefined ? options.temperature : 0.2
-    }
-  };
-  return await puterFetch('https://api.puter.com/drivers/call', body);
-}
-
-async function callPuterFormat2(messages, options) {
-  // Format 2: OpenAI-compatible endpoint
-  const body = {
-    model: options.model || PUTER_MODEL,
-    messages,
-    max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-    temperature: options.temperature !== undefined ? options.temperature : 0.2
-  };
-  return await puterFetch('https://api.puter.com/v1/chat/completions', body);
-}
-
-async function callPuterFormat3(messages, options) {
-  // Format 3: /puterai/openai endpoint
-  const body = {
-    model: options.model || PUTER_MODEL,
-    messages,
-    max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-    temperature: options.temperature !== undefined ? options.temperature : 0.2
-  };
-  return await puterFetch('https://api.puter.com/puterai/openai/v1/chat/completions', body);
-}
-
-async function puterFetch(url, body) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 120000);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + PUTER_TOKEN,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const raw = await res.text();
-    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + raw.slice(0, 200));
-    let data;
-    try { data = JSON.parse(raw); } catch { data = null; }
-    // Try all known response shapes
-    const text =
-      (data && data.result && data.result.message && data.result.message.content) ||
-      (data && data.result && data.result.content) ||
-      (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ||
-      (data && data.message && data.message.content) ||
-      (data && data.content) ||
-      (typeof data === 'string' ? data : '');
-    if (!text) throw new Error('empty response: ' + raw.slice(0, 200));
-    return String(text);
-  } finally { clearTimeout(t); }
-}
-
-async function callPuter(messages, options = {}) {
-  if (!PUTER_TOKEN) throw new Error('PUTER_AUTH_TOKEN missing');
-  const formats = [
-    { name: 'fmt1-drivers-openai', fn: callPuterFormat1 },
-    { name: 'fmt2-openai-direct', fn: callPuterFormat2 },
-    { name: 'fmt3-puterai-openai', fn: callPuterFormat3 }
-  ];
-  const errors = [];
-  for (const fmt of formats) {
-    try {
-      const result = await fmt.fn(messages, options);
-      console.log('[ai] Puter success via ' + fmt.name);
-      return result;
-    } catch (e) {
-      errors.push(fmt.name + '=' + String(e.message).slice(0, 100));
-      console.warn('[ai] Puter ' + fmt.name + ' failed: ' + String(e.message).slice(0, 150));
-    }
-  }
-  throw new Error('Puter all formats failed → ' + errors.join(' | '));
-}
-
-// ================= NAGAAI =================
+// ================= NAGAAI (Primary) =================
 async function callNagaAI(messages, options = {}) {
   if (!NAGA_KEY) throw new Error('NAGAAI_API_KEY missing');
   const model = options.model || NAGA_MODEL;
@@ -150,7 +56,7 @@ async function callNagaAI(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
-// ================= Z.AI =================
+// ================= Z.AI (Secondary) =================
 async function callZAI(messages, options = {}) {
   if (!ZAI_KEY) throw new Error('ZAI_API_KEY missing');
   const model = options.model || ZAI_MODEL;
@@ -188,7 +94,6 @@ async function callZAIWithFallback(messages, options) {
       lastErr = e;
       console.warn('[ai] ZAI attempt ' + (attempt+1) + ' failed: ' + String(e.message).slice(0,150));
       const msg = String(e.message || '');
-      // Don't retry on rate limit
       if (msg.includes('429')) break;
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
     }
@@ -240,14 +145,13 @@ async function callHF(model, messages, options = {}) {
 }
 
 // ================= PUBLIC API =================
-export function selectModel() { return 'puter-router'; }
+export function selectModel() { return 'naga-router'; }
 
 export function availableModels() {
   return [
-    { name: 'puter', model: PUTER_MODEL, role: 'primary' },
-    { name: 'nagaai', model: NAGA_MODEL, role: 'secondary' },
-    { name: 'zai', model: ZAI_MODEL, role: 'tertiary' },
-    { name: 'cloudflare', model: CF_MODEL, role: 'quaternary' },
+    { name: 'nagaai', model: NAGA_MODEL, role: 'primary' },
+    { name: 'zai', model: ZAI_MODEL, role: 'secondary' },
+    { name: 'cloudflare', model: CF_MODEL, role: 'tertiary' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'last-resort' }))
   ];
 }
@@ -273,21 +177,7 @@ export async function callModel(agent, prompt, options = {}) {
 
   const errors = [];
 
-  // 1. Puter (primary)
-  if (PUTER_TOKEN) {
-    try {
-      const r = await callPuter(messages, callOpts);
-      trackOk('puter'); recordUsage('puter', PUTER_MODEL, true);
-      return r;
-    } catch (e) {
-      trackFail('puter', e.message);
-      recordUsage('puter', PUTER_MODEL, false, e.message);
-      errors.push('Puter:' + String(e.message).slice(0,100));
-      console.error('[ai] Puter failed:', e.message);
-    }
-  }
-
-  // 2. NagaAI (secondary) — قبل Z.ai لأنه أكثر استقراراً
+  // 1. NagaAI (primary)
   if (NAGA_KEY) {
     try {
       const r = await callNagaAI(messages, callOpts);
@@ -302,7 +192,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // 3. Z.ai (tertiary)
+  // 2. Z.ai (secondary)
   try {
     const result = await callZAIWithFallback(messages, callOpts);
     trackOk('zai:' + result.model);
@@ -315,7 +205,7 @@ export async function callModel(agent, prompt, options = {}) {
     console.error('[ai] ZAI failed:', e.message);
   }
 
-  // 4. Cloudflare (quaternary)
+  // 3. Cloudflare (tertiary)
   if (CF_ACCOUNT && CF_TOKEN) {
     try {
       const r = await callCF(messages, callOpts);
@@ -328,7 +218,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // 5. HuggingFace (last resort)
+  // 4. HuggingFace (last resort)
   for (const model of HF_MODELS) {
     try {
       const r = await callHF(model, messages, callOpts);
