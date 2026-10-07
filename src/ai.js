@@ -1,17 +1,16 @@
-// ai.js — NagaAI (primary) + Z.ai (secondary) + Cloudflare (tertiary) + HF (last resort)
-// Env vars required: NAGAAI_API_KEY, ZAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN
+// ai.js — Z.ai (primary) + NagaAI (secondary) + Cloudflare (tertiary) + HF (last resort)
+// Env vars: ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
-// ================= ENV VARS =================
-const NAGA_KEY = process.env.NAGAAI_API_KEY || '';
-const NAGA_URL = 'https://api.naga.ac/v1/chat/completions';
-const NAGA_MODEL = 'llama-3.3-70b-instruct:free';
-
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 const ZAI_MODEL = 'glm-4.5-flash';
+
+const NAGA_KEY = process.env.NAGAAI_API_KEY || '';
+const NAGA_URL = 'https://api.naga.ac/v1/chat/completions';
+const NAGA_MODEL = 'llama-3.3-70b-instruct:free';
 
 const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
@@ -23,55 +22,28 @@ const HF_MODELS = ['meta-llama/Llama-3.3-70B-Instruct'];
 
 const DEFAULT_MAX_TOKENS = 12000;
 
-// ================= METRICS =================
 const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ================= NAGAAI (Primary) =================
-async function callNagaAI(messages, options = {}) {
-  if (!NAGA_KEY) throw new Error('NAGAAI_API_KEY missing');
-  const model = options.model || NAGA_MODEL;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 120000);
-  try {
-    const res = await fetch(NAGA_URL, {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + NAGA_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-        temperature: options.temperature !== undefined ? options.temperature : 0.2,
-        stream: false
-      }),
-      signal: ctrl.signal
-    });
-    const raw = await res.text();
-    if (!res.ok) throw new Error('NagaAI ' + res.status + ': ' + raw.slice(0, 250));
-    const data = JSON.parse(raw);
-    const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('NagaAI empty');
-    return String(text);
-  } finally { clearTimeout(t); }
-}
-
-// ================= Z.AI (Secondary) =================
+// ================= Z.AI (Primary) =================
 async function callZAI(messages, options = {}) {
   if (!ZAI_KEY) throw new Error('ZAI_API_KEY missing');
   const model = options.model || ZAI_MODEL;
+  const body = {
+    model,
+    messages,
+    max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
+    temperature: options.temperature !== undefined ? options.temperature : 0.2,
+    thinking: { type: 'disabled' }  // ← هذا هو الإصلاح السحري
+  };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 120000);
   try {
     const res = await fetch(ZAI_URL, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + ZAI_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-        temperature: options.temperature !== undefined ? options.temperature : 0.2
-      }),
+      body: JSON.stringify(body),
       signal: ctrl.signal
     });
     const raw = await res.text();
@@ -99,6 +71,28 @@ async function callZAIWithFallback(messages, options) {
     }
   }
   throw lastErr || new Error('ZAI all attempts failed');
+}
+
+// ================= NAGAAI (Secondary) =================
+async function callNagaAI(messages, options = {}) {
+  if (!NAGA_KEY) throw new Error('NAGAAI_API_KEY missing');
+  const model = options.model || NAGA_MODEL;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const res = await fetch(NAGA_URL, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + NAGA_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS, temperature: options.temperature !== undefined ? options.temperature : 0.2, stream: false }),
+      signal: ctrl.signal
+    });
+    const raw = await res.text();
+    if (!res.ok) throw new Error('NagaAI ' + res.status + ': ' + raw.slice(0, 250));
+    const data = JSON.parse(raw);
+    const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!text) throw new Error('NagaAI empty');
+    return String(text);
+  } finally { clearTimeout(t); }
 }
 
 // ================= CLOUDFLARE =================
@@ -145,12 +139,12 @@ async function callHF(model, messages, options = {}) {
 }
 
 // ================= PUBLIC API =================
-export function selectModel() { return 'naga-router'; }
+export function selectModel() { return 'zai-router'; }
 
 export function availableModels() {
   return [
-    { name: 'nagaai', model: NAGA_MODEL, role: 'primary' },
-    { name: 'zai', model: ZAI_MODEL, role: 'secondary' },
+    { name: 'zai', model: ZAI_MODEL, role: 'primary' },
+    { name: 'nagaai', model: NAGA_MODEL, role: 'secondary' },
     { name: 'cloudflare', model: CF_MODEL, role: 'tertiary' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'last-resort' }))
   ];
@@ -162,7 +156,6 @@ export async function callModel(agent, prompt, options = {}) {
     currentStep: options.step || 1
   });
   const tier = selectModelForTask(complexity);
-
   console.log('[ai] complexity=' + complexity + ' tier.model=' + tier.model);
 
   const wantJson = options.noJsonMode === false;
@@ -170,14 +163,21 @@ export async function callModel(agent, prompt, options = {}) {
     ? [{ role: 'system', content: 'Reply with ONE valid JSON object only. No markdown, no text outside braces.' }, { role: 'user', content: String(prompt || '') }]
     : [{ role: 'user', content: String(prompt || '') }];
 
-  const callOpts = {
-    maxTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-    temperature: tier.temperature
-  };
-
+  const callOpts = { maxTokens: options.maxTokens || DEFAULT_MAX_TOKENS, temperature: tier.temperature };
   const errors = [];
 
-  // 1. NagaAI (primary)
+  // 1. Z.ai (primary)
+  try {
+    const result = await callZAIWithFallback(messages, callOpts);
+    trackOk('zai:' + result.model); recordUsage('zai', result.model, true);
+    return result.text;
+  } catch (e) {
+    trackFail('zai:' + ZAI_MODEL, e.message); recordUsage('zai', ZAI_MODEL, false, e.message);
+    errors.push('ZAI:' + String(e.message).slice(0,80));
+    console.error('[ai] ZAI failed:', e.message);
+  }
+
+  // 2. NagaAI (secondary)
   if (NAGA_KEY) {
     try {
       const r = await callNagaAI(messages, callOpts);
@@ -185,24 +185,10 @@ export async function callModel(agent, prompt, options = {}) {
       console.log('[ai] NagaAI success');
       return r;
     } catch (e) {
-      trackFail('nagaai', e.message);
-      recordUsage('nagaai', NAGA_MODEL, false, e.message);
+      trackFail('nagaai', e.message); recordUsage('nagaai', NAGA_MODEL, false, e.message);
       errors.push('NagaAI:' + String(e.message).slice(0,80));
       console.error('[ai] NagaAI failed:', e.message);
     }
-  }
-
-  // 2. Z.ai (secondary)
-  try {
-    const result = await callZAIWithFallback(messages, callOpts);
-    trackOk('zai:' + result.model);
-    recordUsage('zai', result.model, true);
-    return result.text;
-  } catch (e) {
-    trackFail('zai:' + ZAI_MODEL, e.message);
-    recordUsage('zai', ZAI_MODEL, false, e.message);
-    errors.push('ZAI:' + String(e.message).slice(0,80));
-    console.error('[ai] ZAI failed:', e.message);
   }
 
   // 3. Cloudflare (tertiary)
@@ -210,10 +196,10 @@ export async function callModel(agent, prompt, options = {}) {
     try {
       const r = await callCF(messages, callOpts);
       trackOk('cloudflare'); recordUsage('cloudflare', CF_MODEL, true);
+      console.log('[ai] CF success');
       return r;
     } catch (e) {
-      trackFail('cloudflare', e.message);
-      recordUsage('cloudflare', CF_MODEL, false, e.message);
+      trackFail('cloudflare', e.message); recordUsage('cloudflare', CF_MODEL, false, e.message);
       errors.push('CF:' + String(e.message).slice(0,80));
     }
   }
@@ -225,8 +211,7 @@ export async function callModel(agent, prompt, options = {}) {
       trackOk('hf:' + model); recordUsage('huggingface', model, true);
       return r;
     } catch (e) {
-      trackFail('hf:' + model, e.message);
-      recordUsage('huggingface', model, false, e.message);
+      trackFail('hf:' + model, e.message); recordUsage('huggingface', model, false, e.message);
       errors.push('HF:' + String(e.message).slice(0,80));
     }
   }
