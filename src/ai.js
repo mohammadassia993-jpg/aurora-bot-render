@@ -1,13 +1,13 @@
-// ai.js — Z.ai + LLM7 + HF
+// ai.js — Z.ai primary + Cloudflare + HF fallback
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 
-const LLM7_KEY = process.env.LLM7_API_KEY || '';
-const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'DeepSeek-V4.1-Flash';
+const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || '';
+const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
+const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
@@ -70,22 +70,23 @@ async function callZAIWithFallback(messages, options) {
   throw lastErr || new Error('ZAI all attempts failed');
 }
 
-async function callLLM7(messages, options = {}) {
-  if (!LLM7_KEY) throw new Error('LLM7_API_KEY missing');
+async function callCF(messages, options = {}) {
+  if (!CF_ACCOUNT || !CF_TOKEN) throw new Error('CF env missing');
+  const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT + '/ai/run/' + CF_MODEL;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 90000);
   try {
-    const res = await fetch(LLM7_URL, {
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + LLM7_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: LLM7_MODEL, messages, max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS, temperature: 0.2 }),
+      headers: { 'Authorization': 'Bearer ' + CF_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, max_tokens: options.maxTokens || 800, temperature: 0.2 }),
       signal: ctrl.signal
     });
     const raw = await res.text();
-    if (!res.ok) throw new Error('LLM7 ' + res.status + ': ' + raw.slice(0, 200));
+    if (!res.ok) throw new Error('CF ' + res.status + ': ' + raw.slice(0, 200));
     const data = JSON.parse(raw);
-    const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('LLM7 empty');
+    const text = data && data.result && data.result.response;
+    if (!text) throw new Error('CF empty');
     return String(text);
   } finally { clearTimeout(t); }
 }
@@ -115,7 +116,7 @@ export function selectModel() { return 'zai-router'; }
 export function availableModels() {
   return [
     { name: 'zai', model: 'glm-4.5-flash', role: 'primary' },
-    { name: 'llm7', model: LLM7_MODEL,     role: 'fallback' },
+    { name: 'cloudflare', model: CF_MODEL, role: 'secondary' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'tertiary' }))
   ];
 }
@@ -154,14 +155,15 @@ export async function callModel(agent, prompt, options = {}) {
     console.error('[ai] ZAI failed:', e.message);
   }
 
-  if (LLM7_KEY) {
+  if (CF_ACCOUNT && CF_TOKEN) {
     try {
-      const r = await callLLM7(messages, callOpts);
-      trackOk('llm7'); recordUsage('llm7', LLM7_MODEL, true);
+      const r = await callCF(messages, callOpts);
+      trackOk('cloudflare'); recordUsage('cloudflare', CF_MODEL, true);
+      console.log('[ai] CF success');
       return r;
     } catch (e) {
-      trackFail('llm7', e.message); recordUsage('llm7', LLM7_MODEL, false, e.message);
-      errors.push('LLM7:' + String(e.message).slice(0,80));
+      trackFail('cloudflare', e.message); recordUsage('cloudflare', CF_MODEL, false, e.message);
+      errors.push('CF:' + String(e.message).slice(0,80));
     }
   }
 
