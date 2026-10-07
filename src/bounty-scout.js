@@ -3,13 +3,17 @@ import { db } from './db.js';
 import { callModel } from './ai.js';
 import { info, warn, error } from './logger.js';
 
-const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const SCAN_INTERVAL_MS = 12 * 60 * 60 * 1000;  // ← تغيير 1: من 6 ساعات إلى 12 ساعة
 const DAILY_REPORT_HOUR = 12;
 const INITIAL_DELAY_MS = 3 * 60 * 1000;
 const ALERT_MIN_SCORE = 7;
 const AI_CALL_DELAY_MS = 3000;
 const MAX_ANALYZE = 8;
 const MAX_ALERTS = 5;
+
+// ← تغيير 2 و 3: أعلام إيقاف الإشعارات
+const SEND_ALERTS = false;         // إيقاف تقارير "فرص مغرية"
+const SEND_DAILY_REPORT = false;   // إيقاف التقرير اليومي
 
 db.exec(`CREATE TABLE IF NOT EXISTS bounty_findings (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, title TEXT NOT NULL, url TEXT DEFAULT "", reward TEXT DEFAULT "", description TEXT DEFAULT "", relevance_score REAL DEFAULT 0, relevance_reason TEXT DEFAULT "", actionable INTEGER DEFAULT 0, seen_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
 
@@ -105,12 +109,12 @@ async function runScan() {
       if (analysis.score >= ALERT_MIN_SCORE && alerts.length < MAX_ALERTS) {
         alerts.push({ ...f, score: analysis.score, reason: analysis.reason });
       }
-      // انتظر 3 ثواني قبل الاستدعاء التالي (لتجنب 429)
       if (i < toAnalyze.length - 1) await sleep(AI_CALL_DELAY_MS);
     } catch (e) { warn('bounty-scout', 'insert failed: ' + e.message); }
   }
 
-  if (alerts.length > 0) {
+  // ← تغيير 2: الإشعارات معطّلة الآن (SEND_ALERTS = false)
+  if (SEND_ALERTS && alerts.length > 0) {
     const lines = ['🎯 فرص مغرية مكتشفة (' + alerts.length + ')', '━━━━━━━━━━━━━━━━━━━', ''];
     for (let i = 0; i < alerts.length; i++) {
       const a = alerts[i];
@@ -122,9 +126,11 @@ async function runScan() {
     }
     await sendToTelegram(lines.join('\n'));
     info('bounty-scout', 'Alert sent: ' + alerts.length + ' items');
+  } else if (alerts.length > 0) {
+    info('bounty-scout', 'Alert suppressed (SEND_ALERTS=false): ' + alerts.length + ' items');
   }
 
-  info('bounty-scout', 'Scan complete: ' + added + ' new, ' + alerts.length + ' alerts');
+  info('bounty-scout', 'Scan complete: ' + added + ' new, ' + alerts.length + ' alerts (suppressed)');
   return { added, alerts: alerts.length };
 }
 
@@ -155,11 +161,18 @@ async function tick() {
   const today = now.toISOString().slice(0, 10);
   const isDaily = now.getHours() === DAILY_REPORT_HOUR && lastDailyReportDay !== today;
   await runScan();
-  if (isDaily) { lastDailyReportDay = today; await sendDailyReport(); }
+  // ← تغيير 3: التقرير اليومي معطّل الآن (SEND_DAILY_REPORT = false)
+  if (SEND_DAILY_REPORT && isDaily) {
+    lastDailyReportDay = today;
+    await sendDailyReport();
+  } else if (isDaily) {
+    lastDailyReportDay = today;
+    info('bounty-scout', 'Daily report suppressed (SEND_DAILY_REPORT=false)');
+  }
 }
 
 export function startBountyScout() {
-  info('bounty-scout', 'Started — 6h scans, report at ' + DAILY_REPORT_HOUR + ', delay=' + AI_CALL_DELAY_MS + 'ms, max=' + MAX_ANALYZE);
+  info('bounty-scout', 'Started — 12h scans (alerts OFF), report at ' + DAILY_REPORT_HOUR + ' (OFF), delay=' + AI_CALL_DELAY_MS + 'ms, max=' + MAX_ANALYZE);
   setTimeout(function() {
     tick().catch(function(e) { error('bounty-scout', e.message); });
     setInterval(function() { tick().catch(function(e) { error('bounty-scout', e.message); }); }, SCAN_INTERVAL_MS).unref();
