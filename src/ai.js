@@ -1,4 +1,4 @@
-// ai.js — Z.ai primary + LLM7 + HF (with high max_tokens for large writes)
+// ai.js — Z.ai + LLM7 + HF
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
@@ -7,7 +7,7 @@ const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 
 const LLM7_KEY = process.env.LLM7_API_KEY || '';
 const LLM7_URL = 'https://api.llm7.io/v1/chat/completions';
-const LLM7_MODEL = 'DeepSeek-V4-Flash';
+const LLM7_MODEL = 'DeepSeek-V4.1-Flash';
 
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
@@ -50,17 +50,24 @@ async function callZAIWithFallback(messages, options) {
   const primary = options.model || 'glm-4.5-flash';
   const fallbacks = [primary, 'glm-4.5-flash'].filter((v,i,a) => a.indexOf(v) === i);
   let lastErr = null;
-  for (const model of fallbacks) {
-    try {
-      const r = await callZAI(messages, { ...options, model });
-      console.log('[ai] ZAI success with ' + model);
-      return { text: r, model };
-    } catch (e) {
-      lastErr = e;
-      console.warn('[ai] ZAI ' + model + ' failed: ' + String(e.message).slice(0,150));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const model of fallbacks) {
+      try {
+        const r = await callZAI(messages, { ...options, model });
+        console.log('[ai] ZAI success with ' + model + ' (attempt ' + (attempt+1) + ')');
+        return { text: r, model };
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e.message || '');
+        console.warn('[ai] ZAI ' + model + ' attempt ' + (attempt+1) + ' failed: ' + msg.slice(0,150));
+        if (msg.includes('ZAI empty')) {
+          await new Promise(r => setTimeout(r, 800));
+          continue;
+        }
+      }
     }
   }
-  throw lastErr || new Error('ZAI all models failed');
+  throw lastErr || new Error('ZAI all attempts failed');
 }
 
 async function callLLM7(messages, options = {}) {
