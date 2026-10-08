@@ -21,6 +21,9 @@
   .stat:last-child { border-bottom: none; }
   .stat .label { color: #94a3b8; }
   .stat .value { color: #e0e7ff; font-weight: 600; }
+  .stat.clickable { cursor: pointer; padding: 10px 8px; border-radius: 8px; transition: background 0.2s; }
+  .stat.clickable:active { background: #312e81; }
+  .stat.clickable .value::after { content: ' ›'; color: #a78bfa; font-weight: 400; }
   .item { padding: 10px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; }
   .item .meta { color: #a78bfa; font-size: 11px; margin-bottom: 4px; }
   .item .body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
@@ -32,6 +35,16 @@
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+
+  /* Modal */
+  #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; padding: 16px; overflow-y: auto; }
+  #modal-overlay.open { display: block; }
+  #modal-panel { max-width: 600px; margin: 40px auto; background: #1e293b; border-radius: 14px; padding: 20px; border: 1px solid #334155; }
+  #modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #334155; padding-bottom: 12px; }
+  #modal-title { color: #a78bfa; font-size: 16px; font-weight: 600; }
+  #modal-close { background: none; border: none; color: #94a3b8; font-size: 28px; cursor: pointer; line-height: 1; padding: 0 4px; }
+  #modal-close:active { color: #e0e7ff; }
+  #modal-body { color: #e0e7ff; font-size: 14px; max-height: 70vh; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -119,8 +132,18 @@
   </div>
 </div>
 
+<!-- Modal للتفاصيل -->
+<div id="modal-overlay">
+  <div id="modal-panel">
+    <div id="modal-header">
+      <div id="modal-title"></div>
+      <button id="modal-close" aria-label="إغلاق">×</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
 <script>
-  // Force fresh dashboard.js every page load — defeats browser cache entirely
   (function() {
     var s = document.createElement('script');
     s.src = '/dashboard.js?v=' + Date.now();
