@@ -1,14 +1,12 @@
 // ai.js — Pollinations (primary, no key) + Z.ai + NagaAI + Cloudflare + HF
 // Env vars: ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN
-// Pollinations needs NO API key
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
-// ============ ⬇️ جديد: Pollinations ============
-const POLL_URL = 'https://text.pollinations.ai/openai';
+// ============ Pollinations (GET endpoint — لا يحتاج مفتاحاً) ============
+const POLL_BASE = 'https://text.pollinations.ai';
 const POLL_MODEL = 'openai';
-// ============ ⬆️ نهاية الإضافة ============
 
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
@@ -32,36 +30,36 @@ const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ============ ⬇️ جديد: دالة Pollinations ============
+// ============ Pollinations (GET) ============
 async function callPollinations(messages, options = {}) {
-  const body = {
-    model: options.model || POLL_MODEL,
-    messages,
-    max_tokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-    temperature: options.temperature !== undefined ? options.temperature : 0.7,
-    stream: false
-  };
-  if (options.reasoning) body.reasoning_effort = options.reasoning;
+  let system = '';
+  let prompt = '';
+  for (const msg of messages) {
+    if (msg.role === 'system') system = msg.content;
+    else if (msg.role === 'user') prompt = prompt ? (prompt + '\n\n' + msg.content) : msg.content;
+    else if (msg.role === 'assistant') prompt += '\n\nAssistant: ' + msg.content;
+  }
+  if (!prompt) throw new Error('Pollinations: no user prompt');
 
+  const params = new URLSearchParams();
+  params.set('model', options.model || POLL_MODEL);
+  params.set('temperature', String(options.temperature !== undefined ? options.temperature : 0.7));
+  if (system) params.set('system', system);
+  if (options.json) params.set('json', 'true');
+
+  const url = POLL_BASE + '/' + encodeURIComponent(prompt) + '?' + params.toString();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 120000);
   try {
-    const res = await fetch(POLL_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
+    const res = await fetch(url, { signal: ctrl.signal });
     const raw = await res.text();
     if (!res.ok) throw new Error('Pollinations ' + res.status + ': ' + raw.slice(0, 200));
-    const data = JSON.parse(raw);
-    const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) throw new Error('Pollinations empty');
-    return String(text);
+    if (!raw || raw.length < 2) throw new Error('Pollinations empty');
+    return raw;
   } finally { clearTimeout(t); }
 }
-// ============ ⬆️ نهاية الإضافة ============
 
+// ============ Z.AI ============
 async function callZAI(messages, options = {}) {
   if (!ZAI_KEY) throw new Error('ZAI_API_KEY missing');
   const body = {
@@ -201,11 +199,11 @@ export async function callModel(agent, prompt, options = {}) {
   const callOpts = {
     maxTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
     temperature: tier.temperature,
-    reasoning: complexity === 'complex' ? 'high' : (complexity === 'medium' ? 'medium' : 'low')
+    json: wantJson
   };
   const errors = [];
 
-  // ============ ⬇️ جديد: Pollinations أولاً ============
+  // 1. Pollinations
   try {
     const r = await callPollinations(messages, callOpts);
     trackOk('pollinations'); recordUsage('pollinations', POLL_MODEL, true);
@@ -217,9 +215,8 @@ export async function callModel(agent, prompt, options = {}) {
     errors.push('Pollinations:' + String(e.message).slice(0,80));
     console.error('[ai] Pollinations failed:', e.message);
   }
-  // ============ ⬆️ نهاية الإضافة ============
 
-  // Z.ai (secondary) — كما كان تماماً
+  // 2. Z.ai
   try {
     const result = await callZAIWithFallback(messages, callOpts);
     trackOk('zai:' + result.model);
@@ -232,7 +229,7 @@ export async function callModel(agent, prompt, options = {}) {
     console.error('[ai] ZAI failed:', e.message);
   }
 
-  // NagaAI (tertiary) — كما كان تماماً
+  // 3. NagaAI
   if (NAGA_KEY) {
     try {
       const r = await callNagaAI(messages, callOpts);
@@ -247,7 +244,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // Cloudflare (quaternary) — كما كان تماماً
+  // 4. Cloudflare
   if (CF_ACCOUNT && CF_TOKEN) {
     try {
       const r = await callCF(messages, callOpts);
@@ -261,7 +258,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // HuggingFace (last resort) — كما كان تماماً
+  // 5. HuggingFace
   for (const model of HF_MODELS) {
     try {
       const r = await callHF(model, messages, callOpts);
