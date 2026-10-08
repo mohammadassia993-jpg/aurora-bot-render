@@ -1,4 +1,4 @@
-// dashboard.js — bulletproof, escape-safe, cache-proof
+// dashboard.js — bulletproof, escape-safe, cache-proof, with clickable stats
 (function () {
   'use strict';
 
@@ -24,6 +24,64 @@
     });
   }
 
+  // ============ Modal ============
+  function openModal(title, html) {
+    var o = document.getElementById('modal-overlay');
+    var t = document.getElementById('modal-title');
+    var b = document.getElementById('modal-body');
+    if (!o || !t || !b) return;
+    t.textContent = title;
+    b.innerHTML = html;
+    o.classList.add('open');
+  }
+  function closeModal() {
+    var o = document.getElementById('modal-overlay');
+    if (o) o.classList.remove('open');
+  }
+  function initModal() {
+    var c = document.getElementById('modal-close');
+    var o = document.getElementById('modal-overlay');
+    if (c) c.onclick = closeModal;
+    if (o) o.onclick = function (ev) { if (ev.target === o) closeModal(); };
+  }
+
+  // ============ Detail handlers ============
+  window.__showProjects = function () {
+    var d = window.__lastDashboard || {};
+    var list = Array.isArray(d.projects) ? d.projects : [];
+    if (!list.length) { openModal('المشاريع', '<div class="empty">لا مشاريع</div>'); return; }
+    var html = '';
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      html += '<div class="item">' +
+        '<div class="meta">' + escapeHtml(p.source || '?') + (p.owner ? ' · ' + escapeHtml(p.owner) : '') + '</div>' +
+        '<div class="body">الإجمالي: ' + Number(p.total || 0) + ' · مكتمل: ' + Number(p.completed || 0) + '</div>' +
+        '</div>';
+    }
+    openModal('📁 المشاريع (' + list.length + ')', html);
+  };
+
+  window.__showTasks = function (filter) {
+    var title = filter === 'pending' ? '⏳ المهام المعلقة' : '✅ المهام المكتملة';
+    openModal(title, '<div class="empty">جاري التحميل...</div>');
+    fetchJson('/api/team/tasks').then(function (data) {
+      var tasks = data.tasks || [];
+      var pendingStates = ['discovered', 'planned', 'drafted', 'needs_revision'];
+      var doneStates = ['submitted', 'delivered', 'paid'];
+      var wanted = filter === 'pending' ? pendingStates : doneStates;
+      var filtered = tasks.filter(function (t) { return wanted.indexOf(String(t.status)) >= 0; });
+      if (!filtered.length) { openModal(title, '<div class="empty">لا مهام</div>'); return; }
+      var html = filtered.map(function (t) {
+        return '<div class="item"><div class="meta">#' + escapeHtml(t.id) + ' · ' + escapeHtml(t.status || '') + '</div>' +
+               '<div class="body">' + escapeHtml(t.title || '(بدون عنوان)') + '</div></div>';
+      }).join('');
+      openModal(title + ' (' + filtered.length + ')', html);
+    }).catch(function (e) {
+      openModal(title, '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>');
+    });
+  };
+
+  // ============ Tabs ============
   function initTabs() {
     var tabs = document.querySelectorAll('.tab');
     for (var i = 0; i < tabs.length; i++) {
@@ -59,28 +117,26 @@
 
   function loadSystem() {
     return fetchJson('/api/dashboard').then(function (data) {
+      window.__lastDashboard = data; // نحفظ للاستخدام في Modal
       var fin = data.finance || {};
       var el = document.getElementById('system-stats');
       if (!el) return;
 
-      // الإصلاح: data.projects مصفوفة كائنات — نحسب مجموع total
       var projectsList = Array.isArray(data.projects) ? data.projects : [];
       var totalProjects = 0;
       for (var i = 0; i < projectsList.length; i++) {
         totalProjects += Number(projectsList[i].total || 0);
       }
-
-      // الإصلاح: أسماء الحقول الصحيحة من الـ backend
-      var tasksDone = (fin.completedTasks != null ? fin.completedTasks : (data.tasksDone || 0));
-      var tasksPending = (fin.pendingTasks != null ? fin.pendingTasks : (data.tasksPending || 0));
+      var tasksDone = (fin.completedTasks != null ? fin.completedTasks : 0);
+      var tasksPending = (fin.pendingTasks != null ? fin.pendingTasks : 0);
 
       el.innerHTML =
         '<div class="stat"><span class="label">الحالة</span><span class="value">نشط</span></div>' +
-        '<div class="stat"><span class="label">المشاريع</span><span class="value">' + totalProjects + '</span></div>' +
+        '<div class="stat clickable" onclick="window.__showProjects()"><span class="label">المشاريع</span><span class="value">' + totalProjects + '</span></div>' +
         '<div class="stat"><span class="label">الرصيد</span><span class="value">USD ' + (fin.earned || 0) + '</span></div>' +
         '<div class="stat"><span class="label">Pipeline</span><span class="value">USD ' + (fin.pipeline || 0) + '</span></div>' +
-        '<div class="stat"><span class="label">مهام مكتملة</span><span class="value">' + tasksDone + '</span></div>' +
-        '<div class="stat"><span class="label">مهام معلقة</span><span class="value">' + tasksPending + '</span></div>';
+        '<div class="stat clickable" onclick="window.__showTasks(\'done\')"><span class="label">مهام مكتملة</span><span class="value">' + tasksDone + '</span></div>' +
+        '<div class="stat clickable" onclick="window.__showTasks(\'pending\')"><span class="label">مهام معلقة</span><span class="value">' + tasksPending + '</span></div>';
     }).catch(function (e) {
       var el = document.getElementById('system-stats');
       if (el) el.innerHTML = '<div class="error">' + escapeHtml(e.message) + '</div>';
@@ -167,10 +223,9 @@
           if (net.indexOf('ton') >= 0) ton = list[i];
           if (net.indexOf('base') >= 0) base = list[i];
         }
-        function setBal(id, v) { var e = el.querySelector('#' + id); if (e && v != null) e.textContent = Number(v).toFixed(4); }
         var html = '<div style="text-align:center;padding:20px"><h3>المحافظ</h3>';
-        if (ton) { html += '<p>USDT/TON: <span id="balance-ton">' + (ton.balance || ton.amount || '—') + '</span></p>'; }
-        if (base) { html += '<p>USDC/Base: <span id="balance-base">' + (base.balance || base.amount || '—') + '</span></p>'; }
+        if (ton) { html += '<p>USDT/TON: ' + (ton.balance || ton.amount || '—') + '</p>'; }
+        if (base) { html += '<p>USDC/Base: ' + (base.balance || base.amount || '—') + '</p>'; }
         if (!ton && !base) html += '<p>لا محافظ</p>';
         html += '</div>';
         el.innerHTML = html;
@@ -231,6 +286,7 @@
   }
 
   function init() {
+    try { initModal(); } catch (e) {}
     try { initTabs(); } catch (e) {}
     try { initSend(); } catch (e) {}
     try { loadSystem(); } catch (e) {}
