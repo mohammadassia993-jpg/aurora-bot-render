@@ -33,6 +33,9 @@ import { startCostAlerts } from './cost-alerts.js';
 import { startToolAlerts } from './tool-alerts.js';
 import { startBountyScout } from './bounty-scout.js';
 
+// ⬇️ السطر الجديد الوحيد (يختبر Turso تلقائياً)
+import './chat-db.js';
+
 import './bot-guard.js';
 import './self-healing-guard.js';
 
