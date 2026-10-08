@@ -62,13 +62,25 @@
       var fin = data.finance || {};
       var el = document.getElementById('system-stats');
       if (!el) return;
+
+      // الإصلاح: data.projects مصفوفة كائنات — نحسب مجموع total
+      var projectsList = Array.isArray(data.projects) ? data.projects : [];
+      var totalProjects = 0;
+      for (var i = 0; i < projectsList.length; i++) {
+        totalProjects += Number(projectsList[i].total || 0);
+      }
+
+      // الإصلاح: أسماء الحقول الصحيحة من الـ backend
+      var tasksDone = (fin.completedTasks != null ? fin.completedTasks : (data.tasksDone || 0));
+      var tasksPending = (fin.pendingTasks != null ? fin.pendingTasks : (data.tasksPending || 0));
+
       el.innerHTML =
         '<div class="stat"><span class="label">الحالة</span><span class="value">نشط</span></div>' +
-        '<div class="stat"><span class="label">المشاريع</span><span class="value">' + (data.projects || 0) + '</span></div>' +
+        '<div class="stat"><span class="label">المشاريع</span><span class="value">' + totalProjects + '</span></div>' +
         '<div class="stat"><span class="label">الرصيد</span><span class="value">USD ' + (fin.earned || 0) + '</span></div>' +
         '<div class="stat"><span class="label">Pipeline</span><span class="value">USD ' + (fin.pipeline || 0) + '</span></div>' +
-        '<div class="stat"><span class="label">مهام مكتملة</span><span class="value">' + (data.tasksDone || 0) + '</span></div>' +
-        '<div class="stat"><span class="label">مهام معلقة</span><span class="value">' + (data.tasksPending || 0) + '</span></div>';
+        '<div class="stat"><span class="label">مهام مكتملة</span><span class="value">' + tasksDone + '</span></div>' +
+        '<div class="stat"><span class="label">مهام معلقة</span><span class="value">' + tasksPending + '</span></div>';
     }).catch(function (e) {
       var el = document.getElementById('system-stats');
       if (el) el.innerHTML = '<div class="error">' + escapeHtml(e.message) + '</div>';
