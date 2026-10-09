@@ -1,4 +1,4 @@
-// dashboard.js — bulletproof, escape-safe, cache-proof, with clickable stats + full history
+// dashboard.js — bulletproof, escape-safe, cache-proof, sessions view
 (function () {
   'use strict';
 
@@ -22,6 +22,15 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     });
+  }
+
+  // أسماء الجلسات للعرض
+  function sessionLabel(id) {
+    if (id === 'team') return '👥 غرفة الفريق';
+    if (id === 'telegram-relay') return '📱 Telegram';
+    if (id && id.indexOf('telegram') === 0) return '📱 ' + id;
+    if (id && id.indexOf('__') === 0) return '⚙️ اختبار داخلي';
+    return '💬 ' + id;
   }
 
   // ============ Modal ============
@@ -81,56 +90,45 @@
     });
   };
 
-  // ⬇️ جديد: عرض السجل الكامل من Turso (بالمفتاح في الرابط)
+  // ⬇️ السجل الكامل: يعرض الجلسات أولاً
   window.__showFullHistory = function () {
     var html =
       '<div style="margin-bottom:12px;">' +
-        '<input id="history-search" placeholder="ابحث في المحادثات..." style="width:100%;padding:10px;background:#0f172a;color:#e0e7ff;border:1px solid #334155;border-radius:10px;font-size:13px;font-family:inherit;" />' +
+        '<input id="history-search" placeholder="ابحث في كل الرسائل..." style="width:100%;padding:10px;background:#0f172a;color:#e0e7ff;border:1px solid #334155;border-radius:10px;font-size:13px;font-family:inherit;" />' +
       '</div>' +
-      '<div id="history-list"><div class="empty">جاري التحميل...</div></div>' +
-      '<div style="text-align:center;margin-top:12px;">' +
-        '<button id="history-more" class="btn-secondary" style="display:none;">تحميل المزيد</button>' +
-      '</div>';
+      '<div id="history-content"><div class="empty">جاري التحميل...</div></div>';
     openModal('📜 السجل الكامل', html);
 
     var searchInput = document.getElementById('history-search');
-    var listEl = document.getElementById('history-list');
-    var moreBtn = document.getElementById('history-more');
-    if (!listEl) return;
+    var contentEl = document.getElementById('history-content');
+    if (!contentEl) return;
 
-    var currentOffset = 0;
-    var currentSearch = '';
-    var allMessages = [];
     var searchTimer = null;
+    var searchQuery = '';
 
-    function render() {
-      if (!allMessages.length) { listEl.innerHTML = '<div class="empty">لا رسائل</div>'; return; }
-      var out = [];
-      for (var i = 0; i < allMessages.length; i++) {
-        var m = allMessages[i];
-        var role = m.role || m.session_id || '?';
-        var color = role === 'leader' ? '#a78bfa' : (role === 'aurora' ? '#34d399' : '#60a5fa');
-        out.push('<div class="live-item" style="border-right-color:' + color + '">' +
-          '<div class="live-meta" style="color:' + color + '">' + escapeHtml(role) + ' · ' + escapeHtml(m.created_at || '') + '</div>' +
-          '<div class="live-body">' + escapeHtml(m.content || '') + '</div></div>');
-      }
-      listEl.innerHTML = out.join('');
-    }
-
-    function load(reset) {
-      if (reset) { allMessages = []; currentOffset = 0; }
-      var url = '/api/team/history?limit=50&offset=' + currentOffset + '&key=' + encodeURIComponent(TEAM_KEY);
-      if (currentSearch) url += '&q=' + encodeURIComponent(currentSearch);
-      listEl.innerHTML = '<div class="empty">جاري التحميل...</div>';
-      fetchJson(url).then(function (data) {
-        var messages = (data.messages || []).slice().reverse();
-        allMessages = allMessages.concat(messages);
-        render();
-        currentOffset += messages.length;
-        if (data.hasMore) moreBtn.style.display = 'inline-block';
-        else moreBtn.style.display = 'none';
+    // عرض قائمة الجلسات
+    function showSessions() {
+      contentEl.innerHTML = '<div class="empty">جاري التحميل...</div>';
+      fetchJson('/api/team/sessions').then(function (data) {
+        var sessions = data.sessions || [];
+        if (!sessions.length) { contentEl.innerHTML = '<div class="empty">لا محادثات بعد</div>'; return; }
+        var out = [];
+        for (var i = 0; i < sessions.length; i++) {
+          var s = sessions[i];
+          out.push(
+            '<div class="live-item" style="cursor:pointer;border-right-color:#a78bfa;" onclick="window.__openSession(\'' +
+              escapeHtml(String(s.session_id).replace(/'/g, "\\'")) + '\')">' +
+              '<div class="live-meta" style="color:#a78bfa;display:flex;justify-content:space-between;">' +
+                '<span>' + escapeHtml(sessionLabel(s.session_id)) + '</span>' +
+                '<span style="color:#94a3b8;font-weight:400;">' + Number(s.cnt || 0) + ' رسالة</span>' +
+              '</div>' +
+              '<div class="live-body" style="color:#94a3b8;font-size:12px;">آخر نشاط: ' + escapeHtml(s.last_at || '') + '</div>' +
+            '</div>'
+          );
+        }
+        contentEl.innerHTML = out.join('');
       }).catch(function (e) {
-        listEl.innerHTML = '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>';
+        contentEl.innerHTML = '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>';
       });
     }
 
@@ -138,14 +136,81 @@
       searchInput.oninput = function () {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(function () {
-          currentSearch = searchInput.value.trim();
-          load(true);
+          searchQuery = searchInput.value.trim();
+          if (searchQuery) showSearchResults(searchQuery);
+          else showSessions();
         }, 400);
       };
     }
-    if (moreBtn) moreBtn.onclick = function () { load(false); };
 
-    load(true);
+    // عرض نتائج البحث
+    function showSearchResults(q) {
+      contentEl.innerHTML = '<div class="empty">جاري البحث...</div>';
+      fetchJson('/api/team/history?limit=100&q=' + encodeURIComponent(q)).then(function (data) {
+        var messages = (data.messages || []).slice().reverse();
+        if (!messages.length) { contentEl.innerHTML = '<div class="empty">لا نتائج</div>'; return; }
+        var out = [];
+        for (var i = 0; i < messages.length; i++) {
+          var m = messages[i];
+          var role = m.role || '?';
+          var color = role === 'leader' ? '#a78bfa' : (role === 'aurora' ? '#34d399' : '#60a5fa');
+          out.push(
+            '<div class="live-item" style="border-right-color:' + color + '">' +
+              '<div class="live-meta" style="color:' + color + '">' +
+                escapeHtml(role) + ' · ' + escapeHtml(sessionLabel(m.session_id)) + ' · ' + escapeHtml(m.created_at || '') +
+              '</div>' +
+              '<div class="live-body">' + escapeHtml(m.content || '') + '</div>' +
+            '</div>'
+          );
+        }
+        contentEl.innerHTML = out.join('');
+      }).catch(function (e) {
+        contentEl.innerHTML = '<div class="error">تعذر البحث: ' + escapeHtml(e.message) + '</div>';
+      });
+    }
+
+    // زر رجوع إلى الجلسات
+    window.__backToSessions = function () {
+      if (searchInput) searchInput.value = '';
+      searchQuery = '';
+      showSessions();
+    };
+
+    showSessions();
+  };
+
+  // ⬇️ فتح جلسة معينة
+  window.__openSession = function (sessionId) {
+    var title = sessionLabel(sessionId);
+    openModal('💬 ' + title, '<div class="empty">جاري التحميل...</div>');
+    var url = '/api/team/history?limit=200&session=' + encodeURIComponent(sessionId);
+    fetchJson(url).then(function (data) {
+      var messages = (data.messages || []).slice().reverse();
+      var header = '<div style="margin-bottom:12px;">' +
+        '<button onclick="window.__showFullHistory()" class="btn-secondary" style="font-size:12px;">← رجوع للجلسات</button>' +
+        '</div>';
+      if (!messages.length) {
+        openModal('💬 ' + title, header + '<div class="empty">لا رسائل</div>');
+        return;
+      }
+      var out = [header];
+      for (var i = 0; i < messages.length; i++) {
+        var m = messages[i];
+        var role = m.role || '?';
+        var color = role === 'leader' ? '#a78bfa' : (role === 'aurora' ? '#34d399' : '#60a5fa');
+        out.push(
+          '<div class="live-item" style="border-right-color:' + color + '">' +
+            '<div class="live-meta" style="color:' + color + '">' +
+              escapeHtml(role) + ' · ' + escapeHtml(m.created_at || '') +
+            '</div>' +
+            '<div class="live-body">' + escapeHtml(m.content || '') + '</div>' +
+          '</div>'
+        );
+      }
+      openModal('💬 ' + title, out.join(''));
+    }).catch(function (e) {
+      openModal('💬 ' + title, '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>');
+    });
   };
 
   // ============ Tabs ============
