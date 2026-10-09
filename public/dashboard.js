@@ -15,6 +15,7 @@
   var waitingForReply = false;
   var sessions = [];
   var attachedFile = null;
+  var panelHistoryPushed = false;
 
   var $area, $body, $sendBtn, $attachBtn, $fileInput, $sidebar, $sidebarOverlay,
       $chatsListInner, $currentTitle, $statusPill, $statusText, $toast,
@@ -65,7 +66,13 @@
       var time = (m.createdAt || '').slice(11, 16) || '';
       var attachHtml = '';
       if (m.attachmentName) {
-        attachHtml = '<div class="attachment">📎 ' + escapeHtml(m.attachmentName) + '</div>';
+        var url = m.attachmentPath ? m.attachmentPath : '';
+        var isImage = (m.attachmentType || '').indexOf('image/') === 0;
+        if (isImage && url) {
+          attachHtml = '<div class="attachment" style="padding:0;overflow:hidden;"><img src="' + escapeHtml(url) + '" style="max-width:100%;border-radius:8px;display:block;" /></div>';
+        } else {
+          attachHtml = '<div class="attachment"><a href="' + escapeHtml(url) + '" target="_blank" style="color:#a78bfa;text-decoration:none;">📎 ' + escapeHtml(m.attachmentName) + '</a></div>';
+        }
       }
       var displayName = sender === 'leader' ? 'أنت' : sender;
       html += '<div class="msg ' + cls + '">' +
@@ -381,13 +388,6 @@
         });
       })(nodes[j]);
     }
-    var handler = function (ev) {
-      if (ev.target === $modal) {
-        closeModal();
-        $modal.removeEventListener('click', handler);
-      }
-    };
-    $modal.addEventListener('click', handler);
   }
 
   function closeModal() { $modal.classList.remove('open'); }
@@ -409,11 +409,27 @@
     document.getElementById('prompt-cancel').addEventListener('click', closeModal);
   }
 
-  // ===== Attachments =====
+  // ===== Attachments (with menu) =====
+  function openAttachMenu() {
+    showModal([
+      { label: '🖼️ الصور', action: function () { openFilePicker('image/*'); } },
+      { label: '🎥 الفيديو', action: function () { openFilePicker('video/*'); } },
+      { label: '📁 الملفات', action: function () { openFilePicker('*/*'); } },
+      { label: 'إلغاء', cancel: true }
+    ]);
+  }
+
+  function openFilePicker(accept) {
+    if (!$fileInput) return;
+    $fileInput.setAttribute('accept', accept);
+    $fileInput.click();
+  }
+
   function handleFile(ev) {
     var f = ev.target.files && ev.target.files[0];
     if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { showToast('الحد الأقصى 5 ميغا', 2500); return; }
+    var limit = 20 * 1024 * 1024;
+    if (f.size > limit) { showToast('الحد الأقصى 20 ميغا', 2500); return; }
     var reader = new FileReader();
     reader.onload = function () {
       var dataUrl = reader.result;
@@ -432,34 +448,54 @@
     $attachName.textContent = '';
   }
 
-  // ===== Sidebar tabs (open panels) =====
+  // ===== Panels (with back-button support) =====
   function openPanel(tab) {
     closeSidebar();
     if (tab === 'main') { showDashboardPanel(); return; }
-    if (tab === 'tasks') { showTasksPanel(); return; }
     if (tab === 'notifications') { showNotificationsPanel(); return; }
     if (tab === 'wallets') { location.href = '/wallets.html'; return; }
     if (tab === 'ai-usage') { location.href = '/ai-usage'; return; }
     if (tab === 'observability') { location.href = '/observability'; return; }
   }
 
-  function closePanel() { $panelOverlay.classList.remove('open'); }
+  function preparePanel() {
+    $panelSheet.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #334155;position:sticky;top:0;background:#1e293b;border-radius:16px 16px 0 0;z-index:1;">' +
+        '<div style="color:#a78bfa;font-weight:600;font-size:15px;" id="panel-title"></div>' +
+        '<button id="panel-close" style="background:none;border:none;color:#94a3b8;font-size:26px;cursor:pointer;padding:0 6px;">×</button>' +
+      '</div>' +
+      '<div id="panel-content" style="padding:16px;"></div>';
+    $panelOverlay.classList.add('open');
+    var closeBtn = document.getElementById('panel-close');
+    if (closeBtn) closeBtn.addEventListener('click', function () { closePanel(true); });
+    if (!panelHistoryPushed) {
+      panelHistoryPushed = true;
+      try { history.pushState({ panel: true }, ''); } catch (e) {}
+    }
+  }
+
+  function closePanel(useHistory) {
+    $panelOverlay.classList.remove('open');
+    if (useHistory && panelHistoryPushed) {
+      panelHistoryPushed = false;
+      try { history.back(); } catch (e) {}
+    }
+  }
 
   function statBox(label, value) {
     return '<div style="padding:12px;background:#0f172a;border-radius:10px;border:1px solid #334155;"><div style="color:#94a3b8;font-size:11px;margin-bottom:4px;">' + escapeHtml(label) + '</div><div style="color:#e0e7ff;font-weight:600;">' + escapeHtml(value) + '</div></div>';
   }
 
   function showDashboardPanel() {
-    $panelSheet.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
-    $panelOverlay.classList.add('open');
-    var h = function (ev) { if (ev.target === $panelOverlay) { closePanel(); $panelOverlay.removeEventListener('click', h); } };
-    $panelOverlay.addEventListener('click', h);
+    preparePanel();
+    var t = document.getElementById('panel-title');
+    var c = document.getElementById('panel-content');
+    if (t) t.textContent = '📊 حالة النظام';
+    if (c) c.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
     api('/api/dashboard').then(function (d) {
       var fin = d.finance || {};
       var agents = d.agents || [];
-      var html = '<div style="padding:16px;">';
-      html += '<h3 style="color:#a78bfa;margin-bottom:12px;">📊 حالة النظام</h3>';
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">';
+      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">';
       html += statBox('الحالة', 'نشط');
       html += statBox('الرصيد', 'USD ' + (fin.earned || 0));
       html += statBox('Pipeline', 'USD ' + (fin.pipeline || 0));
@@ -469,44 +505,25 @@
       for (var i = 0; i < agents.length; i++) {
         html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #334155;"><span>' + escapeHtml(agents[i].name) + '</span><span style="color:#34d399;">' + escapeHtml(agents[i].status || 'idle') + '</span></div>';
       }
-      html += '</div>';
-      $panelSheet.innerHTML = html;
-    }).catch(function () { $panelSheet.innerHTML = '<div class="empty-state">تعذر التحميل</div>'; });
-  }
-
-  function showTasksPanel() {
-    $panelSheet.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
-    $panelOverlay.classList.add('open');
-    var h = function (ev) { if (ev.target === $panelOverlay) { closePanel(); $panelOverlay.removeEventListener('click', h); } };
-    $panelOverlay.addEventListener('click', h);
-    api('/api/team/tasks').then(function (d) {
-      var tasks = d.tasks || [];
-      var html = '<div style="padding:16px;"><h3 style="color:#a78bfa;margin-bottom:12px;">📋 المهام</h3>';
-      if (!tasks.length) html += '<div class="empty-state">لا مهام</div>';
-      for (var i = 0; i < tasks.length && i < 50; i++) {
-        var t = tasks[i];
-        html += '<div style="padding:10px;background:#0f172a;border-radius:8px;margin-bottom:8px;"><div style="color:#a78bfa;font-size:11px;">#' + escapeHtml(t.id) + ' · ' + escapeHtml(t.status) + '</div><div>' + escapeHtml(t.title || '') + '</div></div>';
-      }
-      html += '</div>';
-      $panelSheet.innerHTML = html;
-    });
+      if (c) c.innerHTML = html;
+    }).catch(function () { if (c) c.innerHTML = '<div class="empty-state">تعذر التحميل</div>'; });
   }
 
   function showNotificationsPanel() {
-    $panelSheet.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
-    $panelOverlay.classList.add('open');
-    var h = function (ev) { if (ev.target === $panelOverlay) { closePanel(); $panelOverlay.removeEventListener('click', h); } };
-    $panelOverlay.addEventListener('click', h);
+    preparePanel();
+    var t = document.getElementById('panel-title');
+    var c = document.getElementById('panel-content');
+    if (t) t.textContent = '🔔 الإشعارات';
+    if (c) c.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
     api('/api/notifications').then(function (d) {
       var items = d.notifications || [];
-      var html = '<div style="padding:16px;"><h3 style="color:#a78bfa;margin-bottom:12px;">🔔 الإشعارات</h3>';
-      if (!items.length) html += '<div class="empty-state">لا إشعارات</div>';
+      var html = '';
+      if (!items.length) html = '<div class="empty-state">لا إشعارات</div>';
       for (var i = 0; i < items.length && i < 50; i++) {
         var n = items[i];
         html += '<div style="padding:10px;background:#0f172a;border-radius:8px;margin-bottom:8px;"><div style="color:#a78bfa;font-size:11px;">' + escapeHtml(n.kind || '') + '</div><div>' + escapeHtml(n.title || '') + '</div></div>';
       }
-      html += '</div>';
-      $panelSheet.innerHTML = html;
+      if (c) c.innerHTML = html;
     });
   }
 
@@ -542,7 +559,7 @@
     var menuBtn = $('chat-menu-btn');
     if (menuBtn) menuBtn.addEventListener('click', openChatOptions);
     if ($sendBtn) $sendBtn.addEventListener('click', sendMessage);
-    if ($attachBtn) $attachBtn.addEventListener('click', function () { $fileInput.click(); });
+    if ($attachBtn) $attachBtn.addEventListener('click', openAttachMenu);
     if ($fileInput) $fileInput.addEventListener('change', handleFile);
     if ($attachRemove) $attachRemove.addEventListener('click', clearAttachment);
 
@@ -564,6 +581,30 @@
       (function (t) {
         t.addEventListener('click', function () { openPanel(t.getAttribute('data-tab')); });
       })(tabs[i]);
+    }
+
+    // Back-button handling
+    window.addEventListener('popstate', function () {
+      if ($panelOverlay && $panelOverlay.classList.contains('open')) {
+        panelHistoryPushed = false;
+        $panelOverlay.classList.remove('open');
+        return;
+      }
+      if ($sidebar && $sidebar.classList.contains('open')) {
+        closeSidebar();
+        return;
+      }
+      if ($modal && $modal.classList.contains('open')) {
+        closeModal();
+        return;
+      }
+    });
+
+    // Click on panel overlay → close (with history)
+    if ($panelOverlay) {
+      $panelOverlay.addEventListener('click', function (ev) {
+        if (ev.target === $panelOverlay) closePanel(true);
+      });
     }
 
     $currentTitle.textContent = currentChatTitle;
