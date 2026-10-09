@@ -21,7 +21,7 @@ import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from 
 import { getAllWallets } from './wallets.js';
 import { formatReport as formatAiUsage } from './cost-governor.js';
 import { getFullReport } from './observability.js';
-import { listAllMessages } from './chat-db.js';
+import { listAllMessages, listSessions } from './chat-db.js';
 
 const FALLBACK_TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
@@ -36,7 +36,7 @@ const mimeTypes = {
 
 const PUBLIC_GET_PATHS = new Set([
   '/', '/dashboard', '/app',
-  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/team/history',
+  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/team/history', '/api/team/sessions',
   '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability',
   '/api/wallets/balances', '/api/status',
   '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive'
@@ -409,18 +409,30 @@ export async function startServer() {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
 
-      // ⬇️ السجل الدائم — عام (نفس مستوى /api/team/messages)
+      // ⬇️ جديد: قائمة الجلسات
+      if (url.pathname === '/api/team/sessions' && request.method === 'GET') {
+        try {
+          const sessions = await listSessions(50);
+          return json(response, 200, { ok: true, sessions: sessions || [] });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      // ⬇️ محدّث: يدعم فلترة حسب الجلسة
       if (url.pathname === '/api/team/history' && request.method === 'GET') {
         try {
           const limit = Number(url.searchParams.get('limit') || 100);
           const offset = Number(url.searchParams.get('offset') || 0);
           const q = url.searchParams.get('q') || '';
-          const result = await listAllMessages(limit, offset, q);
+          const session = url.searchParams.get('session') || '';
+          const result = await listAllMessages(limit, offset, q, session);
           return json(response, 200, {
             ok: true,
             messages: result.messages || [],
             hasMore: result.hasMore || false,
             query: q,
+            session,
             offset
           });
         } catch (e) {
