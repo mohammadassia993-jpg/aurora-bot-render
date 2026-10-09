@@ -1,444 +1,575 @@
-// dashboard.js — bulletproof, escape-safe, cache-proof, sessions view
+// dashboard.js — Chat-first UI with sessions, working indicator, options
 (function () {
   'use strict';
 
   var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
-  var headers = { 'x-team-key': TEAM_KEY, 'content-type': 'application/json' };
+  var STORAGE_KEY = 'sg_current_chat';
+  var POLL_INTERVAL = 3000;
+
+  var currentChatId = localStorage.getItem(STORAGE_KEY) || 'team';
+  var currentChatTitle = 'غرفة الفريق';
+  var lastMessageId = 0;
+  var pollTimer = null;
+  var workingTimer = null;
+  var workingStart = 0;
+  var waitingForReply = false;
+  var sessions = [];
+  var attachedFile = null;
+
+  var $area, $body, $sendBtn, $attachBtn, $fileInput, $sidebar, $sidebarOverlay,
+      $chatsListInner, $currentTitle, $statusPill, $statusText, $toast,
+      $modal, $modalSheet, $panelOverlay, $panelSheet, $attachPreview,
+      $attachName, $attachRemove;
+
+  function $(id) { return document.getElementById(id); }
 
   function escapeHtml(s) {
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  function fetchJson(path, options) {
-    options = options || {};
-    var opts = { headers: headers, cache: 'no-store' };
-    for (var k in options) opts[k] = options[k];
-    return fetch(path, opts).then(function (r) {
+  function api(path, opts) {
+    opts = opts || {};
+    var url = path;
+    if (url.indexOf('?') === -1) url += '?key=' + encodeURIComponent(TEAM_KEY);
+    else url += '&key=' + encodeURIComponent(TEAM_KEY);
+    var o = { cache: 'no-store' };
+    if (opts.method) o.method = opts.method;
+    if (opts.body) { o.body = opts.body; o.headers = { 'content-type': 'application/json' }; }
+    return fetch(url, o).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     });
   }
 
-  // أسماء الجلسات للعرض
-  function sessionLabel(id) {
-    if (id === 'team') return '👥 غرفة الفريق';
-    if (id === 'telegram-relay') return '📱 Telegram';
-    if (id && id.indexOf('telegram') === 0) return '📱 ' + id;
-    if (id && id.indexOf('__') === 0) return '⚙️ اختبار داخلي';
-    return '💬 ' + id;
+  function showToast(msg, ms) {
+    if (!$toast) return;
+    $toast.textContent = msg;
+    $toast.classList.add('visible');
+    setTimeout(function () { $toast.classList.remove('visible'); }, ms || 2000);
   }
 
-  // ============ Modal ============
-  function openModal(title, html) {
-    var o = document.getElementById('modal-overlay');
-    var t = document.getElementById('modal-title');
-    var b = document.getElementById('modal-body');
-    if (!o || !t || !b) return;
-    t.textContent = title;
-    b.innerHTML = html;
-    o.classList.add('open');
-  }
-  function closeModal() {
-    var o = document.getElementById('modal-overlay');
-    if (o) o.classList.remove('open');
-  }
-  function initModal() {
-    var c = document.getElementById('modal-close');
-    var o = document.getElementById('modal-overlay');
-    if (c) c.onclick = closeModal;
-    if (o) o.onclick = function (ev) { if (ev.target === o) closeModal(); };
-  }
-
-  // ============ Detail handlers ============
-  window.__showProjects = function () {
-    var d = window.__lastDashboard || {};
-    var list = Array.isArray(d.projects) ? d.projects : [];
-    if (!list.length) { openModal('المشاريع', '<div class="empty">لا مشاريع</div>'); return; }
+  // ===== Chat rendering =====
+  function renderMessages(msgs) {
+    if (!msgs || !msgs.length) {
+      $area.innerHTML = '<div class="empty-state"><div class="big">💬</div><div>ابدأ محادثة جديدة مع الفريق</div></div>';
+      return;
+    }
     var html = '';
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
-      html += '<div class="item">' +
-        '<div class="meta">' + escapeHtml(p.source || '?') + (p.owner ? ' · ' + escapeHtml(p.owner) : '') + '</div>' +
-        '<div class="body">الإجمالي: ' + Number(p.total || 0) + ' · مكتمل: ' + Number(p.completed || 0) + '</div>' +
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      var sender = m.sender || 'unknown';
+      var cls = sender === 'leader' ? 'leader' : (sender === 'aurora' ? 'aurora' : 'other');
+      var body = m.body || '';
+      var time = (m.createdAt || '').slice(11, 16) || '';
+      var attachHtml = '';
+      if (m.attachmentName) {
+        attachHtml = '<div class="attachment">📎 ' + escapeHtml(m.attachmentName) + '</div>';
+      }
+      var displayName = sender === 'leader' ? 'أنت' : sender;
+      html += '<div class="msg ' + cls + '">' +
+        '<div class="msg-meta"><span>' + escapeHtml(displayName) + '</span><span>' + escapeHtml(time) + '</span></div>' +
+        escapeHtml(body) + attachHtml +
         '</div>';
     }
-    openModal('📁 المشاريع (' + list.length + ')', html);
-  };
+    $area.innerHTML = html;
+    setTimeout(function () { $area.scrollTop = $area.scrollHeight; }, 50);
+  }
 
-  window.__showTasks = function (filter) {
-    var title = filter === 'pending' ? '⏳ المهام المعلقة' : '✅ المهام المكتملة';
-    openModal(title, '<div class="empty">جاري التحميل...</div>');
-    fetchJson('/api/team/tasks').then(function (data) {
-      var tasks = data.tasks || [];
-      var pendingStates = ['discovered', 'planned', 'drafted', 'needs_revision'];
-      var doneStates = ['submitted', 'delivered', 'paid'];
-      var wanted = filter === 'pending' ? pendingStates : doneStates;
-      var filtered = tasks.filter(function (t) { return wanted.indexOf(String(t.status)) >= 0; });
-      if (!filtered.length) { openModal(title, '<div class="empty">لا مهام</div>'); return; }
-      var html = filtered.map(function (t) {
-        return '<div class="item"><div class="meta">#' + escapeHtml(t.id) + ' · ' + escapeHtml(t.status || '') + '</div>' +
-               '<div class="body">' + escapeHtml(t.title || '(بدون عنوان)') + '</div></div>';
-      }).join('');
-      openModal(title + ' (' + filtered.length + ')', html);
-    }).catch(function (e) {
-      openModal(title, '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>');
-    });
-  };
-
-  // ⬇️ السجل الكامل: يعرض الجلسات أولاً
-  window.__showFullHistory = function () {
-    var html =
-      '<div style="margin-bottom:12px;">' +
-        '<input id="history-search" placeholder="ابحث في كل الرسائل..." style="width:100%;padding:10px;background:#0f172a;color:#e0e7ff;border:1px solid #334155;border-radius:10px;font-size:13px;font-family:inherit;" />' +
-      '</div>' +
-      '<div id="history-content"><div class="empty">جاري التحميل...</div></div>';
-    openModal('📜 السجل الكامل', html);
-
-    var searchInput = document.getElementById('history-search');
-    var contentEl = document.getElementById('history-content');
-    if (!contentEl) return;
-
-    var searchTimer = null;
-    var searchQuery = '';
-
-    // عرض قائمة الجلسات
-    function showSessions() {
-      contentEl.innerHTML = '<div class="empty">جاري التحميل...</div>';
-      fetchJson('/api/team/sessions').then(function (data) {
-        var sessions = data.sessions || [];
-        if (!sessions.length) { contentEl.innerHTML = '<div class="empty">لا محادثات بعد</div>'; return; }
-        var out = [];
-        for (var i = 0; i < sessions.length; i++) {
-          var s = sessions[i];
-          out.push(
-            '<div class="live-item" style="cursor:pointer;border-right-color:#a78bfa;" onclick="window.__openSession(\'' +
-              escapeHtml(String(s.session_id).replace(/'/g, "\\'")) + '\')">' +
-              '<div class="live-meta" style="color:#a78bfa;display:flex;justify-content:space-between;">' +
-                '<span>' + escapeHtml(sessionLabel(s.session_id)) + '</span>' +
-                '<span style="color:#94a3b8;font-weight:400;">' + Number(s.cnt || 0) + ' رسالة</span>' +
-              '</div>' +
-              '<div class="live-body" style="color:#94a3b8;font-size:12px;">آخر نشاط: ' + escapeHtml(s.last_at || '') + '</div>' +
-            '</div>'
-          );
+  function loadMessages() {
+    return api('/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=200')
+      .then(function (data) {
+        var msgs = data.messages || [];
+        renderMessages(msgs);
+        if (msgs.length) {
+          lastMessageId = Number(msgs[msgs.length - 1].id) || 0;
+        } else {
+          lastMessageId = 0;
         }
-        contentEl.innerHTML = out.join('');
-      }).catch(function (e) {
-        contentEl.innerHTML = '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>';
-      });
-    }
+        return msgs;
+      })
+      .catch(function (e) { console.error('load failed', e); });
+  }
 
-    if (searchInput) {
-      searchInput.oninput = function () {
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(function () {
-          searchQuery = searchInput.value.trim();
-          if (searchQuery) showSearchResults(searchQuery);
-          else showSessions();
-        }, 400);
-      };
-    }
-
-    // عرض نتائج البحث
-    function showSearchResults(q) {
-      contentEl.innerHTML = '<div class="empty">جاري البحث...</div>';
-      fetchJson('/api/team/history?limit=100&q=' + encodeURIComponent(q)).then(function (data) {
-        var messages = (data.messages || []).slice().reverse();
-        if (!messages.length) { contentEl.innerHTML = '<div class="empty">لا نتائج</div>'; return; }
-        var out = [];
-        for (var i = 0; i < messages.length; i++) {
-          var m = messages[i];
-          var role = m.role || '?';
-          var color = role === 'leader' ? '#a78bfa' : (role === 'aurora' ? '#34d399' : '#60a5fa');
-          out.push(
-            '<div class="live-item" style="border-right-color:' + color + '">' +
-              '<div class="live-meta" style="color:' + color + '">' +
-                escapeHtml(role) + ' · ' + escapeHtml(sessionLabel(m.session_id)) + ' · ' + escapeHtml(m.created_at || '') +
-              '</div>' +
-              '<div class="live-body">' + escapeHtml(m.content || '') + '</div>' +
-            '</div>'
-          );
-        }
-        contentEl.innerHTML = out.join('');
-      }).catch(function (e) {
-        contentEl.innerHTML = '<div class="error">تعذر البحث: ' + escapeHtml(e.message) + '</div>';
-      });
-    }
-
-    // زر رجوع إلى الجلسات
-    window.__backToSessions = function () {
-      if (searchInput) searchInput.value = '';
-      searchQuery = '';
-      showSessions();
+  // ===== Sending =====
+  function sendMessage() {
+    var text = ($body.value || '').trim();
+    if (!text && !attachedFile) return;
+    $sendBtn.disabled = true;
+    var payload = {
+      sender: 'leader',
+      recipient: 'all',
+      body: text || '(مرفق)',
+      thread: currentChatId
     };
+    if (attachedFile) {
+      payload.attachment = { base64: attachedFile.base64, name: attachedFile.name, type: attachedFile.type };
+    }
+    api('/api/team/messages', { method: 'POST', body: JSON.stringify(payload) })
+      .then(function () {
+        $body.value = '';
+        $body.style.height = 'auto';
+        clearAttachment();
+        return loadMessages();
+      })
+      .then(function () {
+        startWorkingIndicator();
+        waitingForReply = true;
+      })
+      .catch(function (e) { showToast('فشل: ' + e.message, 3000); })
+      .finally(function () { $sendBtn.disabled = false; });
+  }
 
-    showSessions();
-  };
+  // ===== Working indicator =====
+  function startWorkingIndicator() {
+    workingStart = Date.now();
+    $statusPill.classList.add('visible');
+    updateWorkingText();
+    if (workingTimer) clearInterval(workingTimer);
+    workingTimer = setInterval(updateWorkingText, 1000);
+  }
 
-  // ⬇️ فتح جلسة معينة
-  window.__openSession = function (sessionId) {
-    var title = sessionLabel(sessionId);
-    openModal('💬 ' + title, '<div class="empty">جاري التحميل...</div>');
-    var url = '/api/team/history?limit=200&session=' + encodeURIComponent(sessionId);
-    fetchJson(url).then(function (data) {
-      var messages = (data.messages || []).slice().reverse();
-      var header = '<div style="margin-bottom:12px;">' +
-        '<button onclick="window.__showFullHistory()" class="btn-secondary" style="font-size:12px;">← رجوع للجلسات</button>' +
-        '</div>';
-      if (!messages.length) {
-        openModal('💬 ' + title, header + '<div class="empty">لا رسائل</div>');
-        return;
-      }
-      var out = [header];
-      for (var i = 0; i < messages.length; i++) {
-        var m = messages[i];
-        var role = m.role || '?';
-        var color = role === 'leader' ? '#a78bfa' : (role === 'aurora' ? '#34d399' : '#60a5fa');
-        out.push(
-          '<div class="live-item" style="border-right-color:' + color + '">' +
-            '<div class="live-meta" style="color:' + color + '">' +
-              escapeHtml(role) + ' · ' + escapeHtml(m.created_at || '') +
-            '</div>' +
-            '<div class="live-body">' + escapeHtml(m.content || '') + '</div>' +
-          '</div>'
-        );
-      }
-      openModal('💬 ' + title, out.join(''));
-    }).catch(function (e) {
-      openModal('💬 ' + title, '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>');
+  function stopWorkingIndicator() {
+    if (workingTimer) { clearInterval(workingTimer); workingTimer = null; }
+    $statusPill.classList.remove('visible');
+    waitingForReply = false;
+  }
+
+  function updateWorkingText() {
+    var elapsed = Math.floor((Date.now() - workingStart) / 1000);
+    var h = Math.floor(elapsed / 3600);
+    var m = Math.floor((elapsed % 3600) / 60);
+    var s = elapsed % 60;
+    var parts = [];
+    if (h > 0) parts.push(h + ' س');
+    if (m > 0 || h > 0) parts.push(m + ' د');
+    parts.push(s + ' ث');
+    $statusText.textContent = 'الفريق يعمل... ' + parts.join(' ');
+  }
+
+  // ===== Polling =====
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(function () {
+      api('/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=200')
+        .then(function (data) {
+          var msgs = data.messages || [];
+          if (!msgs.length) return;
+          var newLast = Number(msgs[msgs.length - 1].id) || 0;
+          if (newLast !== lastMessageId) {
+            lastMessageId = newLast;
+            renderMessages(msgs);
+            if (waitingForReply && msgs.length > 1) {
+              var last = msgs[msgs.length - 1];
+              if (last.sender === 'aurora') {
+                stopWorkingIndicator();
+              }
+            }
+          }
+        })
+        .catch(function () {});
+    }, POLL_INTERVAL);
+  }
+
+  // ===== Sidebar / sessions =====
+  function loadSessions() {
+    return api('/api/team/sessions').then(function (data) {
+      sessions = data.sessions || [];
+      renderSessions();
+      return sessions;
+    }).catch(function () {
+      $chatsListInner.innerHTML = '<div class="empty-state">تعذر التحميل</div>';
     });
-  };
+  }
 
-  // ============ Tabs ============
-  function initTabs() {
-    var tabs = document.querySelectorAll('.tab');
+  function renderSessions() {
+    if (!sessions.length) {
+      $chatsListInner.innerHTML = '<div class="empty-state">لا محادثات</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < sessions.length; i++) {
+      var s = sessions[i];
+      var isActive = s.id === currentChatId;
+      html += '<div class="chat-item' + (isActive ? ' active' : '') + '" data-id="' + escapeHtml(s.id) + '">' +
+        '<div class="chat-info">' +
+          '<div class="chat-title">' + escapeHtml(s.title || s.id) + '</div>' +
+          '<div class="chat-sub">' + Number(s.cnt || 0) + ' رسالة · ' + escapeHtml((s.last_at || '').slice(0, 16)) + '</div>' +
+        '</div>' +
+        '<button class="menu-btn" data-menu="' + escapeHtml(s.id) + '">⋮</button>' +
+        '</div>';
+    }
+    $chatsListInner.innerHTML = html;
+
+    var items = $chatsListInner.querySelectorAll('.chat-item');
+    for (var j = 0; j < items.length; j++) {
+      (function (el) {
+        el.addEventListener('click', function (ev) {
+          if (ev.target.closest('.menu-btn')) return;
+          openChat(el.getAttribute('data-id'));
+        });
+      })(items[j]);
+    }
+    var menus = $chatsListInner.querySelectorAll('.menu-btn');
+    for (var k = 0; k < menus.length; k++) {
+      (function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          openChatMenu(btn.getAttribute('data-menu'));
+        });
+      })(menus[k]);
+    }
+  }
+
+  function openChat(id) {
+    currentChatId = id;
+    localStorage.setItem(STORAGE_KEY, id);
+    var found = null;
+    for (var i = 0; i < sessions.length; i++) if (sessions[i].id === id) found = sessions[i];
+    currentChatTitle = (found && found.title) || id;
+    $currentTitle.textContent = currentChatTitle;
+    closeSidebar();
+    lastMessageId = 0;
+    stopWorkingIndicator();
+    loadMessages();
+  }
+
+  function openChatMenu(id) {
+    showModal([
+      { label: '✏️ إعادة تسمية', action: function () { promptRename(id); } },
+      { label: '🗑️ حذف', danger: true, action: function () { confirmDelete(id); } },
+      { label: 'إلغاء', cancel: true }
+    ]);
+  }
+
+  function promptRename(id) {
+    var current = '';
+    for (var i = 0; i < sessions.length; i++) if (sessions[i].id === id) current = sessions[i].title || id;
+    showPrompt('إعادة تسمية المحادثة', current, function (newTitle) {
+      api('/api/team/sessions/rename', { method: 'POST', body: JSON.stringify({ session_id: id, title: newTitle }) })
+        .then(function () {
+          showToast('تم التحديث');
+          if (id === currentChatId) { currentChatTitle = newTitle; $currentTitle.textContent = newTitle; }
+          loadSessions();
+        })
+        .catch(function (e) { showToast('فشل: ' + e.message, 2500); });
+    });
+  }
+
+  function confirmDelete(id) {
+    showModal([
+      { label: 'تأكيد حذف المحادثة نهائياً؟', danger: true, action: function () {
+        api('/api/team/sessions/delete', { method: 'POST', body: JSON.stringify({ session_id: id }) })
+          .then(function () {
+            showToast('تم الحذف');
+            if (id === currentChatId) {
+              currentChatId = 'team';
+              localStorage.setItem(STORAGE_KEY, 'team');
+              currentChatTitle = 'غرفة الفريق';
+              $currentTitle.textContent = currentChatTitle;
+              lastMessageId = 0;
+              loadMessages();
+            }
+            loadSessions();
+          })
+          .catch(function (e) { showToast('فشل: ' + e.message, 2500); });
+      }},
+      { label: 'إلغاء', cancel: true }
+    ]);
+  }
+
+  function createNewChat() {
+    api('/api/team/sessions/new', { method: 'POST', body: JSON.stringify({ title: 'محادثة ' + new Date().toLocaleString('ar-EG') }) })
+      .then(function (data) {
+        currentChatId = data.session_id;
+        localStorage.setItem(STORAGE_KEY, currentChatId);
+        currentChatTitle = data.title;
+        $currentTitle.textContent = currentChatTitle;
+        $area.innerHTML = '<div class="empty-state"><div class="big">💬</div><div>محادثة جديدة</div></div>';
+        closeSidebar();
+        loadSessions();
+        setTimeout(function () { $body.focus(); }, 100);
+      })
+      .catch(function (e) { showToast('فشل: ' + e.message, 2500); });
+  }
+
+  // ===== Sidebar open/close =====
+  function openSidebar() {
+    $sidebar.classList.add('open');
+    $sidebarOverlay.classList.add('open');
+    loadSessions();
+  }
+  function closeSidebar() {
+    $sidebar.classList.remove('open');
+    $sidebarOverlay.classList.remove('open');
+  }
+
+  // ===== Top-left icon (inside chat) =====
+  function openChatOptions() {
+    showModal([
+      { label: '📋 نسخ المحادثة', action: copyChat },
+      { label: '📤 مشاركة', action: shareChat },
+      { label: '🗑️ حذف كل الرسائل', danger: true, action: deleteChatMessages },
+      { label: 'إلغاء', cancel: true }
+    ]);
+  }
+
+  function copyChat() {
+    api('/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=500')
+      .then(function (data) {
+        var msgs = data.messages || [];
+        var text = msgs.map(function (m) {
+          return '[' + (m.sender === 'leader' ? 'أنا' : m.sender) + ']: ' + (m.body || '');
+        }).join('\n\n');
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(text).then(function () { showToast('تم النسخ'); });
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); showToast('تم النسخ'); } catch (e) { showToast('تعذر النسخ'); }
+          document.body.removeChild(ta);
+        }
+      });
+  }
+
+  function shareChat() {
+    var url = location.origin + '/?chat=' + encodeURIComponent(currentChatId);
+    if (navigator.share) {
+      navigator.share({ title: currentChatTitle, url: url }).catch(function () {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(function () { showToast('تم نسخ الرابط'); });
+    } else {
+      showToast(url, 3000);
+    }
+  }
+
+  function deleteChatMessages() {
+    showModal([
+      { label: 'حذف كل رسائل هذه المحادثة؟', danger: true, action: function () {
+        api('/api/team/sessions/delete', { method: 'POST', body: JSON.stringify({ session_id: currentChatId }) })
+          .then(function () {
+            $area.innerHTML = '<div class="empty-state"><div class="big">💬</div><div>تم الحذف</div></div>';
+            lastMessageId = 0;
+            showToast('تم الحذف');
+            loadSessions();
+          })
+          .catch(function (e) { showToast('فشل: ' + e.message, 2500); });
+      }},
+      { label: 'إلغاء', cancel: true }
+    ]);
+  }
+
+  // ===== Modal =====
+  function showModal(items) {
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var cls = 'modal-item' + (it.danger ? ' danger' : '') + (it.cancel ? ' cancel' : '');
+      html += '<div class="' + cls + '" data-idx="' + i + '">' + escapeHtml(it.label) + '</div>';
+    }
+    $modalSheet.innerHTML = html;
+    $modal.classList.add('open');
+    var nodes = $modalSheet.querySelectorAll('.modal-item');
+    for (var j = 0; j < nodes.length; j++) {
+      (function (node) {
+        node.addEventListener('click', function () {
+          closeModal();
+          var idx = Number(node.getAttribute('data-idx'));
+          var item = items[idx];
+          if (item && typeof item.action === 'function') setTimeout(item.action, 100);
+        });
+      })(nodes[j]);
+    }
+    var handler = function (ev) {
+      if (ev.target === $modal) {
+        closeModal();
+        $modal.removeEventListener('click', handler);
+      }
+    };
+    $modal.addEventListener('click', handler);
+  }
+
+  function closeModal() { $modal.classList.remove('open'); }
+
+  function showPrompt(title, defaultValue, onOk) {
+    $modalSheet.innerHTML =
+      '<div style="padding:16px 20px 8px;color:#a78bfa;font-weight:600;">' + escapeHtml(title) + '</div>' +
+      '<div class="modal-input-wrap"><input id="prompt-input" value="' + escapeHtml(defaultValue || '') + '" /></div>' +
+      '<div class="modal-item" id="prompt-ok" style="color:#34d399;justify-content:center;font-weight:600;">حفظ</div>' +
+      '<div class="modal-item cancel" id="prompt-cancel">إلغاء</div>';
+    $modal.classList.add('open');
+    var input = document.getElementById('prompt-input');
+    setTimeout(function () { if (input) { input.focus(); input.select(); } }, 100);
+    document.getElementById('prompt-ok').addEventListener('click', function () {
+      var v = (input.value || '').trim();
+      closeModal();
+      if (v) onOk(v);
+    });
+    document.getElementById('prompt-cancel').addEventListener('click', closeModal);
+  }
+
+  // ===== Attachments =====
+  function handleFile(ev) {
+    var f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { showToast('الحد الأقصى 5 ميغا', 2500); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var dataUrl = reader.result;
+      var base64 = String(dataUrl).split(',')[1];
+      attachedFile = { base64: base64, name: f.name, type: f.type || 'application/octet-stream' };
+      $attachName.textContent = f.name;
+      $attachPreview.classList.add('visible');
+    };
+    reader.readAsDataURL(f);
+    ev.target.value = '';
+  }
+
+  function clearAttachment() {
+    attachedFile = null;
+    $attachPreview.classList.remove('visible');
+    $attachName.textContent = '';
+  }
+
+  // ===== Sidebar tabs (open panels) =====
+  function openPanel(tab) {
+    closeSidebar();
+    if (tab === 'main') { showDashboardPanel(); return; }
+    if (tab === 'tasks') { showTasksPanel(); return; }
+    if (tab === 'notifications') { showNotificationsPanel(); return; }
+    if (tab === 'wallets') { location.href = '/wallets.html'; return; }
+    if (tab === 'ai-usage') { location.href = '/ai-usage'; return; }
+    if (tab === 'observability') { location.href = '/observability'; return; }
+  }
+
+  function closePanel() { $panelOverlay.classList.remove('open'); }
+
+  function statBox(label, value) {
+    return '<div style="padding:12px;background:#0f172a;border-radius:10px;border:1px solid #334155;"><div style="color:#94a3b8;font-size:11px;margin-bottom:4px;">' + escapeHtml(label) + '</div><div style="color:#e0e7ff;font-weight:600;">' + escapeHtml(value) + '</div></div>';
+  }
+
+  function showDashboardPanel() {
+    $panelSheet.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
+    $panelOverlay.classList.add('open');
+    var h = function (ev) { if (ev.target === $panelOverlay) { closePanel(); $panelOverlay.removeEventListener('click', h); } };
+    $panelOverlay.addEventListener('click', h);
+    api('/api/dashboard').then(function (d) {
+      var fin = d.finance || {};
+      var agents = d.agents || [];
+      var html = '<div style="padding:16px;">';
+      html += '<h3 style="color:#a78bfa;margin-bottom:12px;">📊 حالة النظام</h3>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">';
+      html += statBox('الحالة', 'نشط');
+      html += statBox('الرصيد', 'USD ' + (fin.earned || 0));
+      html += statBox('Pipeline', 'USD ' + (fin.pipeline || 0));
+      html += statBox('مهام مكتملة', String(fin.completedTasks || 0));
+      html += '</div>';
+      html += '<h3 style="color:#a78bfa;margin-bottom:12px;">👥 الوكلاء</h3>';
+      for (var i = 0; i < agents.length; i++) {
+        html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #334155;"><span>' + escapeHtml(agents[i].name) + '</span><span style="color:#34d399;">' + escapeHtml(agents[i].status || 'idle') + '</span></div>';
+      }
+      html += '</div>';
+      $panelSheet.innerHTML = html;
+    }).catch(function () { $panelSheet.innerHTML = '<div class="empty-state">تعذر التحميل</div>'; });
+  }
+
+  function showTasksPanel() {
+    $panelSheet.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
+    $panelOverlay.classList.add('open');
+    var h = function (ev) { if (ev.target === $panelOverlay) { closePanel(); $panelOverlay.removeEventListener('click', h); } };
+    $panelOverlay.addEventListener('click', h);
+    api('/api/team/tasks').then(function (d) {
+      var tasks = d.tasks || [];
+      var html = '<div style="padding:16px;"><h3 style="color:#a78bfa;margin-bottom:12px;">📋 المهام</h3>';
+      if (!tasks.length) html += '<div class="empty-state">لا مهام</div>';
+      for (var i = 0; i < tasks.length && i < 50; i++) {
+        var t = tasks[i];
+        html += '<div style="padding:10px;background:#0f172a;border-radius:8px;margin-bottom:8px;"><div style="color:#a78bfa;font-size:11px;">#' + escapeHtml(t.id) + ' · ' + escapeHtml(t.status) + '</div><div>' + escapeHtml(t.title || '') + '</div></div>';
+      }
+      html += '</div>';
+      $panelSheet.innerHTML = html;
+    });
+  }
+
+  function showNotificationsPanel() {
+    $panelSheet.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
+    $panelOverlay.classList.add('open');
+    var h = function (ev) { if (ev.target === $panelOverlay) { closePanel(); $panelOverlay.removeEventListener('click', h); } };
+    $panelOverlay.addEventListener('click', h);
+    api('/api/notifications').then(function (d) {
+      var items = d.notifications || [];
+      var html = '<div style="padding:16px;"><h3 style="color:#a78bfa;margin-bottom:12px;">🔔 الإشعارات</h3>';
+      if (!items.length) html += '<div class="empty-state">لا إشعارات</div>';
+      for (var i = 0; i < items.length && i < 50; i++) {
+        var n = items[i];
+        html += '<div style="padding:10px;background:#0f172a;border-radius:8px;margin-bottom:8px;"><div style="color:#a78bfa;font-size:11px;">' + escapeHtml(n.kind || '') + '</div><div>' + escapeHtml(n.title || '') + '</div></div>';
+      }
+      html += '</div>';
+      $panelSheet.innerHTML = html;
+    });
+  }
+
+  // ===== Init =====
+  function init() {
+    $area = $('chat-area');
+    $body = $('msg-body');
+    $sendBtn = $('send-btn');
+    $attachBtn = $('attach-btn');
+    $fileInput = $('file-input');
+    $sidebar = $('sidebar');
+    $sidebarOverlay = $('sidebar-overlay');
+    $chatsListInner = $('chats-list-inner');
+    $currentTitle = $('current-chat-title');
+    $statusPill = $('status-pill');
+    $statusText = $('status-text');
+    $toast = $('toast');
+    $modal = $('modal-overlay');
+    $modalSheet = $('modal-sheet');
+    $panelOverlay = $('panel-overlay');
+    $panelSheet = $('panel-sheet');
+    $attachPreview = $('attachment-preview');
+    $attachName = $('attachment-name');
+    $attachRemove = $('attachment-remove');
+
+    var listBtn = $('chats-list-btn');
+    if (listBtn) listBtn.addEventListener('click', openSidebar);
+    var sideClose = $('sidebar-close');
+    if (sideClose) sideClose.addEventListener('click', closeSidebar);
+    if ($sidebarOverlay) $sidebarOverlay.addEventListener('click', closeSidebar);
+    var newBtn = $('new-chat-btn');
+    if (newBtn) newBtn.addEventListener('click', createNewChat);
+    var menuBtn = $('chat-menu-btn');
+    if (menuBtn) menuBtn.addEventListener('click', openChatOptions);
+    if ($sendBtn) $sendBtn.addEventListener('click', sendMessage);
+    if ($attachBtn) $attachBtn.addEventListener('click', function () { $fileInput.click(); });
+    if ($fileInput) $fileInput.addEventListener('change', handleFile);
+    if ($attachRemove) $attachRemove.addEventListener('click', clearAttachment);
+
+    if ($body) {
+      $body.addEventListener('input', function () {
+        $body.style.height = 'auto';
+        $body.style.height = Math.min($body.scrollHeight, 120) + 'px';
+      });
+      $body.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          sendMessage();
+        }
+      });
+    }
+
+    var tabs = document.querySelectorAll('#sidebar-tabs .tab');
     for (var i = 0; i < tabs.length; i++) {
-      (function (tab) {
-        tab.onclick = function () {
-          try {
-            var allTabs = document.querySelectorAll('.tab');
-            var allPanels = document.querySelectorAll('.panel');
-            for (var j = 0; j < allTabs.length; j++) allTabs[j].classList.remove('active');
-            for (var k = 0; k < allPanels.length; k++) allPanels[k].classList.remove('active');
-            tab.classList.add('active');
-            var name = tab.getAttribute('data-tab');
-            var p = document.getElementById('panel-' + name);
-            if (p) p.classList.add('active');
-            loadTabContent(name);
-          } catch (e) { /* silent */ }
-        };
+      (function (t) {
+        t.addEventListener('click', function () { openPanel(t.getAttribute('data-tab')); });
       })(tabs[i]);
     }
-  }
 
-  function loadTabContent(name) {
-    try {
-      if (name === 'team') loadLive();
-      if (name === 'tasks') loadTasks();
-      if (name === 'notifications') loadNotifications();
-      if (name === 'main') { loadSystem(); loadAgents(); }
-      if (name === 'wallets') loadWallets();
-      if (name === 'ai-usage') loadAiUsage();
-      if (name === 'observability') loadObservability();
-    } catch (e) { /* silent */ }
-  }
-
-  function loadSystem() {
-    return fetchJson('/api/dashboard').then(function (data) {
-      window.__lastDashboard = data;
-      var fin = data.finance || {};
-      var el = document.getElementById('system-stats');
-      if (!el) return;
-
-      var projectsList = Array.isArray(data.projects) ? data.projects : [];
-      var totalProjects = 0;
-      for (var i = 0; i < projectsList.length; i++) {
-        totalProjects += Number(projectsList[i].total || 0);
-      }
-      var tasksDone = (fin.completedTasks != null ? fin.completedTasks : 0);
-      var tasksPending = (fin.pendingTasks != null ? fin.pendingTasks : 0);
-
-      el.innerHTML =
-        '<div class="stat"><span class="label">الحالة</span><span class="value">نشط</span></div>' +
-        '<div class="stat clickable" onclick="window.__showProjects()"><span class="label">المشاريع</span><span class="value">' + totalProjects + '</span></div>' +
-        '<div class="stat"><span class="label">الرصيد</span><span class="value">USD ' + (fin.earned || 0) + '</span></div>' +
-        '<div class="stat"><span class="label">Pipeline</span><span class="value">USD ' + (fin.pipeline || 0) + '</span></div>' +
-        '<div class="stat clickable" onclick="window.__showTasks(\'done\')"><span class="label">مهام مكتملة</span><span class="value">' + tasksDone + '</span></div>' +
-        '<div class="stat clickable" onclick="window.__showTasks(\'pending\')"><span class="label">مهام معلقة</span><span class="value">' + tasksPending + '</span></div>';
-    }).catch(function (e) {
-      var el = document.getElementById('system-stats');
-      if (el) el.innerHTML = '<div class="error">' + escapeHtml(e.message) + '</div>';
-    });
-  }
-
-  function loadAgents() {
-    return fetchJson('/api/dashboard').then(function (data) {
-      var el = document.getElementById('agents-list');
-      if (!el) return;
-      var agents = data.agents || [];
-      if (!agents.length) { el.innerHTML = '<div class="empty">لا وكلاء</div>'; return; }
-      el.innerHTML = agents.map(function (a) {
-        return '<div class="stat"><span class="label">' + escapeHtml(a.name || a.id) + '</span><span class="value">' + escapeHtml(a.status || 'idle') + '</span></div>';
-      }).join('');
-    }).catch(function () {});
-  }
-
-  var liveTimer = null;
-  function loadLive() {
-    var el = document.getElementById('live-log');
-    if (!el) return;
-    fetchJson('/api/team/messages?limit=30').then(function (data) {
-      var msgs = (data.messages || []).slice().reverse();
-      if (!msgs.length) { el.innerHTML = '<div class="empty">لا رسائل بعد</div>'; return; }
-      var out = [];
-      for (var i = 0; i < msgs.length; i++) {
-        var m = msgs[i];
-        var color = m.sender === 'leader' ? '#a78bfa' : (m.sender === 'aurora' ? '#34d399' : '#60a5fa');
-        var body = escapeHtml(String(m.body || '').slice(0, 800));
-        out.push('<div class="live-item" style="border-right-color:' + color + '">' +
-          '<div class="live-meta" style="color:' + color + '">' + escapeHtml(m.sender || '?') + ' · ' + escapeHtml(m.createdAt || '') + '</div>' +
-          '<div class="live-body">' + body + '</div></div>');
-      }
-      el.innerHTML = out.join('');
-    }).catch(function (e) {
-      el.innerHTML = '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>';
-    });
-    if (liveTimer) clearInterval(liveTimer);
-    liveTimer = setInterval(function () {
-      try {
-        var p = document.getElementById('panel-team');
-        if (p && p.classList.contains('active')) loadLive();
-      } catch (e) {}
-    }, 8000);
-  }
-
-  function loadTasks() {
-    return fetchJson('/api/team/tasks').then(function (data) {
-      var el = document.getElementById('tasks-list');
-      if (!el) return;
-      var tasks = data.tasks || [];
-      if (!tasks.length) { el.innerHTML = '<div class="empty">لا مهام</div>'; return; }
-      el.innerHTML = tasks.slice(0, 30).map(function (t) {
-        return '<div class="item"><div class="meta">#' + escapeHtml(t.id) + ' · ' + escapeHtml(t.status) + '</div><div class="body">' + escapeHtml(t.title || '') + '</div></div>';
-      }).join('');
-    }).catch(function () {});
-  }
-
-  function loadNotifications() {
-    return fetchJson('/api/notifications').then(function (data) {
-      var el = document.getElementById('notifications-list');
-      if (!el) return;
-      var items = data.notifications || [];
-      if (!items.length) { el.innerHTML = '<div class="empty">لا إشعارات</div>'; return; }
-      el.innerHTML = items.slice(0, 30).map(function (n) {
-        return '<div class="item"><div class="meta">' + escapeHtml(n.kind || '') + '</div><div class="body">' + escapeHtml(n.title || '') + '</div></div>';
-      }).join('');
-    }).catch(function () {});
-  }
-
-  function loadWallets() {
-    var el = document.getElementById('wallets-content');
-    if (!el) return;
-    el.innerHTML = '<div class="empty">جاري التحميل...</div>';
-    fetch('/api/wallets/balances', { cache: 'no-store', headers: headers })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var ton = null, base = null, list = [];
-        if (Array.isArray(data)) list = data;
-        else if (data && data.wallets) list = data.wallets;
-        for (var i = 0; i < list.length; i++) {
-          var net = String(list[i].network || list[i].chain || '').toLowerCase();
-          if (net.indexOf('ton') >= 0) ton = list[i];
-          if (net.indexOf('base') >= 0) base = list[i];
-        }
-        var html = '<div style="text-align:center;padding:20px"><h3>المحافظ</h3>';
-        if (ton) { html += '<p>USDT/TON: ' + (ton.balance || ton.amount || '—') + '</p>'; }
-        if (base) { html += '<p>USDC/Base: ' + (base.balance || base.amount || '—') + '</p>'; }
-        if (!ton && !base) html += '<p>لا محافظ</p>';
-        html += '</div>';
-        el.innerHTML = html;
-      })
-      .catch(function (e) { el.innerHTML = '<div class="error">' + escapeHtml(e.message) + '</div>'; });
-  }
-
-  function loadAiUsage() {
-    var el = document.getElementById('ai-usage-content');
-    if (!el) return;
-    el.innerHTML = '<div class="empty">جاري التحميل...</div>';
-    fetch('/ai-usage', { cache: 'no-store', headers: headers })
-      .then(function (r) { return r.text(); })
-      .then(function (html) {
-        var doc = new DOMParser().parseFromString(html, 'text/html');
-        el.innerHTML = doc.body ? doc.body.innerHTML : html;
-      })
-      .catch(function (e) { el.innerHTML = '<div class="error">' + escapeHtml(e.message) + '</div>'; });
-  }
-
-  function loadObservability() {
-    var el = document.getElementById('observability-content');
-    if (!el) return;
-    el.innerHTML = '<div class="empty">جاري التحميل...</div>';
-    fetch('/observability', { cache: 'no-store', headers: headers })
-      .then(function (r) { return r.text(); })
-      .then(function (html) {
-        var doc = new DOMParser().parseFromString(html, 'text/html');
-        el.innerHTML = doc.body ? doc.body.innerHTML : html;
-      })
-      .catch(function (e) { el.innerHTML = '<div class="error">' + escapeHtml(e.message) + '</div>'; });
-  }
-
-  function initSend() {
-    var btn = document.getElementById('send-btn');
-    if (!btn) return;
-    btn.onclick = function () {
-      try {
-        var bodyEl = document.getElementById('msg-body');
-        var recipientEl = document.getElementById('msg-recipient');
-        var status = document.getElementById('send-status');
-        if (!bodyEl || !status) return;
-        var body = bodyEl.value.trim();
-        var recipient = recipientEl ? recipientEl.value : 'all';
-        if (!body) { status.textContent = 'اكتب نصاً'; return; }
-        status.textContent = 'جاري الإرسال...';
-        fetchJson('/api/team/messages', {
-          method: 'POST',
-          body: JSON.stringify({ sender: 'leader', recipient: recipient, body: body, thread: 'team' })
-        }).then(function () {
-          status.textContent = 'تم الإرسال';
-          bodyEl.value = '';
-          setTimeout(function () { status.textContent = ''; }, 5000);
-          setTimeout(loadLive, 2000);
-        }).catch(function (e) { status.textContent = 'فشل: ' + escapeHtml(e.message); });
-      } catch (e) { /* silent */ }
-    };
-  }
-
-  function initHistoryButton() {
-    var btn = document.getElementById('open-history-btn');
-    if (!btn) return;
-    btn.onclick = function () { window.__showFullHistory(); };
-  }
-
-  function init() {
-    try { initModal(); } catch (e) {}
-    try { initTabs(); } catch (e) {}
-    try { initSend(); } catch (e) {}
-    try { initHistoryButton(); } catch (e) {}
-    try { loadSystem(); } catch (e) {}
-    try { loadAgents(); } catch (e) {}
-    try { loadTasks(); } catch (e) {}
-    try { loadNotifications(); } catch (e) {}
-    try { loadLive(); } catch (e) {}
-    setInterval(function () {
-      try {
-        var p = document.getElementById('panel-main');
-        if (p && p.classList.contains('active')) loadSystem();
-      } catch (e) {}
-    }, 30000);
+    $currentTitle.textContent = currentChatTitle;
+    loadMessages();
+    loadSessions();
+    startPolling();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
