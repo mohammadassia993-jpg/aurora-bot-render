@@ -81,7 +81,7 @@
     });
   };
 
-  // ⬇️ جديد: عرض السجل الكامل من Turso
+  // ⬇️ جديد: عرض السجل الكامل من Turso (بالمفتاح في الرابط)
   window.__showFullHistory = function () {
     var html =
       '<div style="margin-bottom:12px;">' +
@@ -119,7 +119,7 @@
 
     function load(reset) {
       if (reset) { allMessages = []; currentOffset = 0; }
-      var url = '/api/team/history?limit=50&offset=' + currentOffset;
+      var url = '/api/team/history?limit=50&offset=' + currentOffset + '&key=' + encodeURIComponent(TEAM_KEY);
       if (currentSearch) url += '&q=' + encodeURIComponent(currentSearch);
       listEl.innerHTML = '<div class="empty">جاري التحميل...</div>';
       fetchJson(url).then(function (data) {
@@ -352,7 +352,6 @@
     };
   }
 
-  // ⬇️ جديد: ربط زر السجل الكامل
   function initHistoryButton() {
     var btn = document.getElementById('open-history-btn');
     if (!btn) return;
