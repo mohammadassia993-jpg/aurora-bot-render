@@ -1,4 +1,4 @@
-// dashboard.js — bulletproof, escape-safe, cache-proof, with clickable stats
+// dashboard.js — bulletproof, escape-safe, cache-proof, with clickable stats + full history
 (function () {
   'use strict';
 
@@ -81,6 +81,73 @@
     });
   };
 
+  // ⬇️ جديد: عرض السجل الكامل من Turso
+  window.__showFullHistory = function () {
+    var html =
+      '<div style="margin-bottom:12px;">' +
+        '<input id="history-search" placeholder="ابحث في المحادثات..." style="width:100%;padding:10px;background:#0f172a;color:#e0e7ff;border:1px solid #334155;border-radius:10px;font-size:13px;font-family:inherit;" />' +
+      '</div>' +
+      '<div id="history-list"><div class="empty">جاري التحميل...</div></div>' +
+      '<div style="text-align:center;margin-top:12px;">' +
+        '<button id="history-more" class="btn-secondary" style="display:none;">تحميل المزيد</button>' +
+      '</div>';
+    openModal('📜 السجل الكامل', html);
+
+    var searchInput = document.getElementById('history-search');
+    var listEl = document.getElementById('history-list');
+    var moreBtn = document.getElementById('history-more');
+    if (!listEl) return;
+
+    var currentOffset = 0;
+    var currentSearch = '';
+    var allMessages = [];
+    var searchTimer = null;
+
+    function render() {
+      if (!allMessages.length) { listEl.innerHTML = '<div class="empty">لا رسائل</div>'; return; }
+      var out = [];
+      for (var i = 0; i < allMessages.length; i++) {
+        var m = allMessages[i];
+        var role = m.role || m.session_id || '?';
+        var color = role === 'leader' ? '#a78bfa' : (role === 'aurora' ? '#34d399' : '#60a5fa');
+        out.push('<div class="live-item" style="border-right-color:' + color + '">' +
+          '<div class="live-meta" style="color:' + color + '">' + escapeHtml(role) + ' · ' + escapeHtml(m.created_at || '') + '</div>' +
+          '<div class="live-body">' + escapeHtml(m.content || '') + '</div></div>');
+      }
+      listEl.innerHTML = out.join('');
+    }
+
+    function load(reset) {
+      if (reset) { allMessages = []; currentOffset = 0; }
+      var url = '/api/team/history?limit=50&offset=' + currentOffset;
+      if (currentSearch) url += '&q=' + encodeURIComponent(currentSearch);
+      listEl.innerHTML = '<div class="empty">جاري التحميل...</div>';
+      fetchJson(url).then(function (data) {
+        var messages = (data.messages || []).slice().reverse();
+        allMessages = allMessages.concat(messages);
+        render();
+        currentOffset += messages.length;
+        if (data.hasMore) moreBtn.style.display = 'inline-block';
+        else moreBtn.style.display = 'none';
+      }).catch(function (e) {
+        listEl.innerHTML = '<div class="error">تعذر التحميل: ' + escapeHtml(e.message) + '</div>';
+      });
+    }
+
+    if (searchInput) {
+      searchInput.oninput = function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () {
+          currentSearch = searchInput.value.trim();
+          load(true);
+        }, 400);
+      };
+    }
+    if (moreBtn) moreBtn.onclick = function () { load(false); };
+
+    load(true);
+  };
+
   // ============ Tabs ============
   function initTabs() {
     var tabs = document.querySelectorAll('.tab');
@@ -117,7 +184,7 @@
 
   function loadSystem() {
     return fetchJson('/api/dashboard').then(function (data) {
-      window.__lastDashboard = data; // نحفظ للاستخدام في Modal
+      window.__lastDashboard = data;
       var fin = data.finance || {};
       var el = document.getElementById('system-stats');
       if (!el) return;
@@ -285,10 +352,18 @@
     };
   }
 
+  // ⬇️ جديد: ربط زر السجل الكامل
+  function initHistoryButton() {
+    var btn = document.getElementById('open-history-btn');
+    if (!btn) return;
+    btn.onclick = function () { window.__showFullHistory(); };
+  }
+
   function init() {
     try { initModal(); } catch (e) {}
     try { initTabs(); } catch (e) {}
     try { initSend(); } catch (e) {}
+    try { initHistoryButton(); } catch (e) {}
     try { loadSystem(); } catch (e) {}
     try { loadAgents(); } catch (e) {}
     try { loadTasks(); } catch (e) {}
