@@ -99,7 +99,6 @@ export async function getMessages(sessionId, limit = 50) {
   }
 }
 
-// ⬇️ محدّث: يدعم البحث + فلترة الجلسة + استبعاد الاختبارات
 export async function listAllMessages(limit = 100, offset = 0, search = '', session = '') {
   if (!enabled) return { messages: [], hasMore: false };
   try {
@@ -126,14 +125,14 @@ export async function listAllMessages(limit = 100, offset = 0, search = '', sess
   }
 }
 
-// ⬇️ محدّث: يستبعد الجلسات الداخلية (__self_test__)
+// ⬇️ إصلاح: استخدام substr بدلاً من LIKE لاستبعاد الجلسات الداخلية
 export async function listSessions(limit = 50) {
   if (!enabled) return [];
   try {
     const data = await tursoExec(
       `SELECT session_id, COUNT(*) as cnt, MAX(created_at) as last_at
        FROM chat_messages
-       WHERE session_id NOT LIKE '__%'
+       WHERE substr(session_id, 1, 2) != '__'
        GROUP BY session_id
        ORDER BY last_at DESC
        LIMIT ?`,
