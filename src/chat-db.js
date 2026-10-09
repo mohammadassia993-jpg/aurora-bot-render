@@ -28,7 +28,6 @@ export async function tursoExec(sql, args = []) {
   return JSON.parse(raw);
 }
 
-// ⬇️ تصحيح: استخراج .value من كل خلية
 function extractValue(cell) {
   if (cell == null) return null;
   if (typeof cell === 'object' && 'value' in cell) return cell.value;
@@ -100,34 +99,44 @@ export async function getMessages(sessionId, limit = 50) {
   }
 }
 
-export async function listAllMessages(limit = 100, offset = 0, search = '') {
-  if (!enabled) return { messages: [], total: 0, hasMore: false };
+// ⬇️ محدّث: يدعم البحث + فلترة الجلسة + استبعاد الاختبارات
+export async function listAllMessages(limit = 100, offset = 0, search = '', session = '') {
+  if (!enabled) return { messages: [], hasMore: false };
   try {
     const safeLimit = Math.min(Number(limit) || 100, 500);
     const safeOffset = Math.max(Number(offset) || 0, 0);
     const q = String(search || '').trim();
-    let sql, args;
-    if (q) {
-      sql = `SELECT id, session_id, role, content, meta, created_at FROM chat_messages WHERE content LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?`;
-      args = ['%' + q + '%', String(safeLimit), String(safeOffset)];
-    } else {
-      sql = `SELECT id, session_id, role, content, meta, created_at FROM chat_messages ORDER BY id DESC LIMIT ? OFFSET ?`;
-      args = [String(safeLimit), String(safeOffset)];
-    }
+    const s = String(session || '').trim();
+
+    let where = [];
+    let args = [];
+    if (s) { where.push('session_id = ?'); args.push(s); }
+    if (q) { where.push('content LIKE ?'); args.push('%' + q + '%'); }
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    const sql = `SELECT id, session_id, role, content, meta, created_at FROM chat_messages ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`;
+    args.push(String(safeLimit), String(safeOffset));
+
     const data = await tursoExec(sql, args);
     const messages = rowsToObjects(data);
     return { messages, hasMore: messages.length >= safeLimit };
   } catch (e) {
     console.error('[chat-db] listAllMessages failed:', e.message);
-    return { messages: [], total: 0, hasMore: false, error: e.message };
+    return { messages: [], hasMore: false, error: e.message };
   }
 }
 
-export async function listSessions(limit = 30) {
+// ⬇️ محدّث: يستبعد الجلسات الداخلية (__self_test__)
+export async function listSessions(limit = 50) {
   if (!enabled) return [];
   try {
     const data = await tursoExec(
-      'SELECT session_id, COUNT(*) as cnt, MAX(created_at) as last_at FROM chat_messages GROUP BY session_id ORDER BY last_at DESC LIMIT ?',
+      `SELECT session_id, COUNT(*) as cnt, MAX(created_at) as last_at
+       FROM chat_messages
+       WHERE session_id NOT LIKE '__%'
+       GROUP BY session_id
+       ORDER BY last_at DESC
+       LIMIT ?`,
       [String(limit)]
     );
     return rowsToObjects(data);
