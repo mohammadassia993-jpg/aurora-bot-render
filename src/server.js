@@ -17,11 +17,18 @@ import { audit } from './audit.js';
 import { backupDatabase, recordError } from './db.js';
 import { dashboardData } from './dashboard.js';
 import { performancePlan } from './performance.js';
-import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from './team.js';
+import { AGENTS, listMessages, listMessagesByThread, createMessage, attachmentFile, teamEvents } from './team.js';
 import { getAllWallets } from './wallets.js';
 import { formatReport as formatAiUsage } from './cost-governor.js';
 import { getFullReport } from './observability.js';
-import { listAllMessages, listSessions } from './chat-db.js';
+import {
+  listAllMessages,
+  listSessions,
+  createSession,
+  renameSession,
+  deleteSession,
+  generateSessionId
+} from './chat-db.js';
 
 const FALLBACK_TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
@@ -317,16 +324,17 @@ export async function startServer() {
         return json(response, 201, { ok: true, id: Number(result.lastInsertRowid) });
       }
 
-      // ── AUTH CHECK: only for non-public, non-GET-public routes ──
+      // ── AUTH CHECK ──
       const isPublicGet = request.method === 'GET' && (
         PUBLIC_GET_PATHS.has(url.pathname) ||
         url.pathname.startsWith('/icons/') ||
         url.pathname.startsWith('/uploads/')
       );
       const isTeamMessagePost = url.pathname === '/api/team/messages' && request.method === 'POST';
+      const isSessionAction = url.pathname.startsWith('/api/team/sessions') && request.method === 'POST';
       const localReport = url.pathname === '/report' && isLoopback(request);
 
-      if (!isPublicGet && !isTeamMessagePost && !localReport && !authorized(request, url)) {
+      if (!isPublicGet && !isTeamMessagePost && !isSessionAction && !localReport && !authorized(request, url)) {
         return json(response, 401, { error: 'team key required' });
       }
 
@@ -406,6 +414,10 @@ export async function startServer() {
       }
 
       if (url.pathname === '/api/team/messages' && request.method === 'GET') {
+        const thread = url.searchParams.get('thread');
+        if (thread) {
+          return json(response, 200, { messages: listMessagesByThread(thread, url.searchParams.get('limit') || 200) });
+        }
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
 
@@ -419,7 +431,46 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ محدّث: يدعم فلترة حسب الجلسة
+      // ⬇️ جديد: إنشاء جلسة
+      if (url.pathname === '/api/team/sessions/new' && request.method === 'POST') {
+        try {
+          const body = await readBody(request);
+          const sessionId = body.session_id || generateSessionId();
+          const title = body.title || 'محادثة جديدة';
+          await createSession(sessionId, title);
+          return json(response, 201, { ok: true, session_id: sessionId, title });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      // ⬇️ جديد: إعادة تسمية جلسة
+      if (url.pathname === '/api/team/sessions/rename' && request.method === 'POST') {
+        try {
+          const body = await readBody(request);
+          const sessionId = String(body.session_id || '').slice(0, 100);
+          const newTitle = String(body.title || '').slice(0, 200);
+          if (!sessionId || !newTitle) return json(response, 400, { ok: false, error: 'session_id and title required' });
+          await renameSession(sessionId, newTitle);
+          return json(response, 200, { ok: true });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
+      // ⬇️ جديد: حذف جلسة
+      if (url.pathname === '/api/team/sessions/delete' && request.method === 'POST') {
+        try {
+          const body = await readBody(request);
+          const sessionId = String(body.session_id || '').slice(0, 100);
+          if (!sessionId) return json(response, 400, { ok: false, error: 'session_id required' });
+          await deleteSession(sessionId);
+          return json(response, 200, { ok: true });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
       if (url.pathname === '/api/team/history' && request.method === 'GET') {
         try {
           const limit = Number(url.searchParams.get('limit') || 100);
