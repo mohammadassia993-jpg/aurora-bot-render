@@ -9,6 +9,8 @@ import { notify } from './notifications.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 import { buildRagContext } from './rag.js';
 import { getAgentContextWindow, recordLesson, formatRelevantLessons } from './memory.js';
+// ⬇️ إضافة: تخزين دائم في Turso (لا يكسر أي شيء إذا فشل)
+import { saveMessage as saveToTurso } from './chat-db.js';
 
 export const AGENTS = [
   { id: 'aurora', name: 'أورورا', role: 'Supervisor', icon: '/icons/aurora.svg', color: '#a78bfa' },
@@ -28,6 +30,16 @@ const MAX_FINAL_WORDS = 120;
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ⬇️ إضافة: دالة حفظ آمنة في Turso (لا تكسر أي شيء)
+function persistToTurso(sessionId, role, content, meta) {
+  try {
+    saveToTurso(String(sessionId || 'team'), String(role || 'unknown'), String(content || ''), String(meta || ''))
+      .catch(e => console.warn('[team] turso persist failed: ' + e.message));
+  } catch (e) {
+    console.warn('[team] turso persist error: ' + e.message);
+  }
+}
 
 function normalizeParams(tool, params) {
   if (!params || typeof params !== 'object') return {};
@@ -376,6 +388,15 @@ export async function createMessage(input) {
   const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body,attachment_name,attachment_type,attachment_size,attachment_path) VALUES (?,?,?,?,?,?,?,?)`).run(input.thread || 'team', input.sender || 'leader', input.recipient || 'all', String(input.body || '').slice(0, 20000), attachment.name, attachment.type, attachment.size, attachment.path);
   const messageId = Number(result.lastInsertRowid);
   const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
+
+  // ⬇️ إضافة: حفظ في Turso (للمدى الطويل) — لا يكسر أي شيء
+  persistToTurso('team', input.sender || 'leader', String(input.body || ''), JSON.stringify({
+    recipient: input.recipient || 'all',
+    thread: input.thread || 'team',
+    messageId,
+    attachment: attachment.name || ''
+  }));
+
   teamEvents.emit('message', { type: 'created', messageId });
   generateAgentReplies(message).catch(err => console.error('[team] failed: ' + err?.message));
   return message;
@@ -398,7 +419,17 @@ async function generateAgentReplies(message) {
 
 function insertAgentMessage(agent, body) {
   const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body) VALUES ('team',?,'leader',?)`).run(agent, String(body).slice(0, 20000));
-  teamEvents.emit('message', { type: 'agent-reply', messageId: Number(result.lastInsertRowid), agent });
+  const messageId = Number(result.lastInsertRowid);
+
+  // ⬇️ إضافة: حفظ رد الوكيل في Turso
+  persistToTurso('team', String(agent || 'aurora'), String(body || ''), JSON.stringify({
+    recipient: 'leader',
+    thread: 'team',
+    messageId,
+    type: 'agent-reply'
+  }));
+
+  teamEvents.emit('message', { type: 'agent-reply', messageId, agent });
 }
 
 export async function attachmentFile(relativePath) {
