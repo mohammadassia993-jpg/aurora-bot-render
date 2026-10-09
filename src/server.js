@@ -21,6 +21,8 @@ import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from 
 import { getAllWallets } from './wallets.js';
 import { formatReport as formatAiUsage } from './cost-governor.js';
 import { getFullReport } from './observability.js';
+// ⬇️ إضافة: قراءة السجل الدائم من Turso
+import { listAllMessages } from './chat-db.js';
 
 const FALLBACK_TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
 
@@ -406,6 +408,25 @@ export async function startServer() {
 
       if (url.pathname === '/api/team/messages' && request.method === 'GET') {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
+      }
+
+      // ⬇️ جديد: endpoint السجل الدائم من Turso
+      if (url.pathname === '/api/team/history' && request.method === 'GET') {
+        try {
+          const limit = Number(url.searchParams.get('limit') || 100);
+          const offset = Number(url.searchParams.get('offset') || 0);
+          const q = url.searchParams.get('q') || '';
+          const result = await listAllMessages(limit, offset, q);
+          return json(response, 200, {
+            ok: true,
+            messages: result.messages || [],
+            hasMore: result.hasMore || false,
+            query: q,
+            offset
+          });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
       }
 
       if (url.pathname === '/api/team/messages' && request.method === 'POST') {
