@@ -51,6 +51,24 @@
     setTimeout(function () { $toast.classList.remove('visible'); }, ms || 2000);
   }
 
+  // ⬇️ تحويل رسائل Turso إلى الشكل الموحد
+  function normalizeTursoMessages(msgs) {
+    var out = [];
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      out.push({
+        id: m.id,
+        sender: m.role || 'unknown',
+        body: m.content || '',
+        createdAt: m.created_at || '',
+        attachmentName: '',
+        attachmentPath: '',
+        attachmentType: ''
+      });
+    }
+    return out;
+  }
+
   // ===== Chat rendering =====
   function renderMessages(msgs) {
     if (!msgs || !msgs.length) {
@@ -84,19 +102,50 @@
     setTimeout(function () { $area.scrollTop = $area.scrollHeight; }, 50);
   }
 
+  // ⬇️ معدّل: يجلب من Turso + SQLite معاً ويدمج
   function loadMessages() {
-    return api('/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=200')
-      .then(function (data) {
-        var msgs = data.messages || [];
-        renderMessages(msgs);
-        if (msgs.length) {
-          lastMessageId = Number(msgs[msgs.length - 1].id) || 0;
-        } else {
-          lastMessageId = 0;
+    var tursoUrl = '/api/team/history?session=' + encodeURIComponent(currentChatId) + '&limit=500';
+    var sqliteUrl = '/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=500';
+
+    return Promise.all([
+      api(tursoUrl).catch(function () { return { messages: [] }; }),
+      api(sqliteUrl).catch(function () { return { messages: [] }; })
+    ]).then(function (results) {
+      var tursoMsgs = normalizeTursoMessages(results[0].messages || []);
+      var sqliteMsgs = results[1].messages || [];
+
+      // دمج حسب ID (Turso يخزن id من SQLite الأصلي)
+      var seen = {};
+      var merged = [];
+      // SQLite أولاً (يحوي بيانات كاملة كالمرفقات)
+      for (var i = 0; i < sqliteMsgs.length; i++) {
+        var s = sqliteMsgs[i];
+        var key = 'sql-' + s.id;
+        seen[key] = true;
+        merged.push(s);
+      }
+      // Turso ثانياً (لتغطية ما حُذف محلياً)
+      for (var j = 0; j < tursoMsgs.length; j++) {
+        var t = tursoMsgs[j];
+        var k = 'sql-' + t.id;
+        if (!seen[k]) {
+          merged.push(t);
+          seen[k] = true;
         }
-        return msgs;
-      })
-      .catch(function (e) { console.error('load failed', e); });
+      }
+      // ترتيب حسب الوقت
+      merged.sort(function (a, b) {
+        return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      });
+
+      renderMessages(merged);
+      if (merged.length) {
+        lastMessageId = Number(merged[merged.length - 1].id) || 0;
+      } else {
+        lastMessageId = 0;
+      }
+      return merged;
+    }).catch(function (e) { console.error('load failed', e); });
   }
 
   // ===== Sending =====
@@ -155,27 +204,29 @@
     $statusText.textContent = 'الفريق يعمل... ' + parts.join(' ');
   }
 
-  // ===== Polling =====
+  // ⬇️ معدّل: يستخدم loadMessages عند تغير الرسائل
   function startPolling() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function () {
-      api('/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=200')
-        .then(function (data) {
-          var msgs = data.messages || [];
-          if (!msgs.length) return;
-          var newLast = Number(msgs[msgs.length - 1].id) || 0;
-          if (newLast !== lastMessageId) {
-            lastMessageId = newLast;
-            renderMessages(msgs);
-            if (waitingForReply && msgs.length > 1) {
-              var last = msgs[msgs.length - 1];
+      var url = '/api/team/history?session=' + encodeURIComponent(currentChatId) + '&limit=500';
+      api(url).then(function (data) {
+        var tursoMsgs = normalizeTursoMessages(data.messages || []);
+        if (!tursoMsgs.length) return;
+        tursoMsgs.sort(function (a, b) {
+          return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+        });
+        var newLast = Number(tursoMsgs[tursoMsgs.length - 1].id) || 0;
+        if (newLast !== lastMessageId) {
+          loadMessages().then(function () {
+            if (waitingForReply && tursoMsgs.length > 1) {
+              var last = tursoMsgs[tursoMsgs.length - 1];
               if (last.sender === 'aurora') {
                 stopWorkingIndicator();
               }
             }
-          }
-        })
-        .catch(function () {});
+          });
+        }
+      }).catch(function () {});
     }, POLL_INTERVAL);
   }
 
@@ -239,6 +290,7 @@
     closeSidebar();
     lastMessageId = 0;
     stopWorkingIndicator();
+    $area.innerHTML = '<div class="empty-state"><div class="big">💬</div><div>جاري التحميل...</div></div>';
     loadMessages();
   }
 
@@ -323,21 +375,22 @@
   }
 
   function copyChat() {
-    api('/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=500')
-      .then(function (data) {
-        var msgs = data.messages || [];
-        var text = msgs.map(function (m) {
-          return '[' + (m.sender === 'leader' ? 'أنا' : m.sender) + ']: ' + (m.body || '');
-        }).join('\n\n');
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(text).then(function () { showToast('تم النسخ'); });
-        } else {
-          var ta = document.createElement('textarea');
-          ta.value = text; document.body.appendChild(ta); ta.select();
-          try { document.execCommand('copy'); showToast('تم النسخ'); } catch (e) { showToast('تعذر النسخ'); }
-          document.body.removeChild(ta);
-        }
-      });
+    var url = '/api/team/history?session=' + encodeURIComponent(currentChatId) + '&limit=500';
+    api(url).then(function (data) {
+      var msgs = normalizeTursoMessages(data.messages || []);
+      msgs.reverse();
+      var text = msgs.map(function (m) {
+        return '[' + (m.sender === 'leader' ? 'أنا' : m.sender) + ']: ' + (m.body || '');
+      }).join('\n\n');
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function () { showToast('تم النسخ'); });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); showToast('تم النسخ'); } catch (e) { showToast('تعذر النسخ'); }
+        document.body.removeChild(ta);
+      }
+    });
   }
 
   function shareChat() {
@@ -409,7 +462,7 @@
     document.getElementById('prompt-cancel').addEventListener('click', closeModal);
   }
 
-  // ===== Attachments (with menu) =====
+  // ===== Attachments =====
   function openAttachMenu() {
     showModal([
       { label: '🖼️ الصور', action: function () { openFilePicker('image/*'); } },
@@ -448,7 +501,7 @@
     $attachName.textContent = '';
   }
 
-  // ===== Panels (with back-button support) =====
+  // ===== Panels =====
   function openPanel(tab) {
     closeSidebar();
     if (tab === 'main') { showDashboardPanel(); return; }
@@ -583,7 +636,6 @@
       })(tabs[i]);
     }
 
-    // Back-button handling
     window.addEventListener('popstate', function () {
       if ($panelOverlay && $panelOverlay.classList.contains('open')) {
         panelHistoryPushed = false;
@@ -600,7 +652,6 @@
       }
     });
 
-    // Click on panel overlay → close (with history)
     if ($panelOverlay) {
       $panelOverlay.addEventListener('click', function (ev) {
         if (ev.target === $panelOverlay) closePanel(true);
