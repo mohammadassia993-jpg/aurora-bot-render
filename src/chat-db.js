@@ -28,6 +28,13 @@ export async function tursoExec(sql, args = []) {
   return JSON.parse(raw);
 }
 
+// ⬇️ تصحيح: استخراج .value من كل خلية
+function extractValue(cell) {
+  if (cell == null) return null;
+  if (typeof cell === 'object' && 'value' in cell) return cell.value;
+  return cell;
+}
+
 function rowsToObjects(data) {
   try {
     const result = data && data.results && data.results[0] && data.results[0].response && data.results[0].response.result;
@@ -36,7 +43,7 @@ function rowsToObjects(data) {
     const rows = result.rows || [];
     return rows.map(row => {
       const obj = {};
-      for (let i = 0; i < cols.length; i++) obj[cols[i]] = row[i];
+      for (let i = 0; i < cols.length; i++) obj[cols[i]] = extractValue(row[i]);
       return obj;
     });
   } catch (e) { return []; }
@@ -93,7 +100,6 @@ export async function getMessages(sessionId, limit = 50) {
   }
 }
 
-// ⬇️ جديد: قراءة كل الرسائل مع بحث وترقيم صفحات
 export async function listAllMessages(limit = 100, offset = 0, search = '') {
   if (!enabled) return { messages: [], total: 0, hasMore: false };
   try {
