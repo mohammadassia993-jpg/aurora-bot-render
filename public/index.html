@@ -32,6 +32,8 @@
   #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
   .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
   .btn-primary:active { background: #4338ca; }
+  .btn-secondary { display: inline-block; padding: 8px 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .btn-secondary:active { background: #2563eb; }
   .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
   .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
   .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
@@ -92,7 +94,10 @@
     <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
   </div>
   <div class="card">
-    <h2>📺 السجل الحي</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h2 style="margin:0;">📺 السجل الحي</h2>
+      <button id="open-history-btn" class="btn-secondary">📜 السجل الكامل</button>
+    </div>
     <div id="live-log">جاري التحميل...</div>
   </div>
 </div>
@@ -132,7 +137,6 @@
   </div>
 </div>
 
-<!-- Modal للتفاصيل -->
 <div id="modal-overlay">
   <div id="modal-panel">
     <div id="modal-header">
