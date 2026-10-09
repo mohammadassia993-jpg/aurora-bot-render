@@ -9,7 +9,6 @@ import { notify } from './notifications.js';
 import { executeTool, AVAILABLE_TOOLS } from './tool-executor.js';
 import { buildRagContext } from './rag.js';
 import { getAgentContextWindow, recordLesson, formatRelevantLessons } from './memory.js';
-// ⬇️ إضافة: تخزين دائم في Turso (لا يكسر أي شيء إذا فشل)
 import { saveMessage as saveToTurso } from './chat-db.js';
 
 export const AGENTS = [
@@ -31,7 +30,6 @@ const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ⬇️ إضافة: دالة حفظ آمنة في Turso (لا تكسر أي شيء)
 function persistToTurso(sessionId, role, content, meta) {
   try {
     saveToTurso(String(sessionId || 'team'), String(role || 'unknown'), String(content || ''), String(meta || ''))
@@ -382,28 +380,35 @@ export function listMessages(limit = 100) {
   return rows.map(r => ({ ...r, body: sanitizeStoredBody(r.body) }));
 }
 
+export function listMessagesByThread(thread, limit = 200) {
+  const rows = db.prepare(`SELECT id, thread, sender, recipient, body, attachment_name AS attachmentName, attachment_type AS attachmentType, attachment_size AS attachmentSize, attachment_path AS attachmentPath, created_at AS createdAt FROM messages WHERE thread = ? ORDER BY id DESC LIMIT ?`).all(String(thread), Math.min(Number(limit) || 200, 500)).reverse();
+  return rows.map(r => ({ ...r, body: sanitizeStoredBody(r.body) }));
+}
+
 export async function createMessage(input) {
+  // ⬇️ التعديل: استخدام thread القادم من الواجهة بدل 'team' الثابت
+  const sessionId = String(input.thread || input.session_id || 'team').slice(0, 100);
   let attachment = { name: '', type: '', size: 0, path: '' };
   if (input.attachment?.base64) attachment = await saveAttachment(input.attachment);
-  const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body,attachment_name,attachment_type,attachment_size,attachment_path) VALUES (?,?,?,?,?,?,?,?)`).run(input.thread || 'team', input.sender || 'leader', input.recipient || 'all', String(input.body || '').slice(0, 20000), attachment.name, attachment.type, attachment.size, attachment.path);
+  const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body,attachment_name,attachment_type,attachment_size,attachment_path) VALUES (?,?,?,?,?,?,?,?)`).run(sessionId, input.sender || 'leader', input.recipient || 'all', String(input.body || '').slice(0, 20000), attachment.name, attachment.type, attachment.size, attachment.path);
   const messageId = Number(result.lastInsertRowid);
   const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
 
-  // ⬇️ إضافة: حفظ في Turso (للمدى الطويل) — لا يكسر أي شيء
-  persistToTurso('team', input.sender || 'leader', String(input.body || ''), JSON.stringify({
+  // حفظ في Turso تحت نفس الجلسة
+  persistToTurso(sessionId, input.sender || 'leader', String(input.body || ''), JSON.stringify({
     recipient: input.recipient || 'all',
-    thread: input.thread || 'team',
+    thread: sessionId,
     messageId,
     attachment: attachment.name || ''
   }));
 
-  teamEvents.emit('message', { type: 'created', messageId });
-  generateAgentReplies(message).catch(err => console.error('[team] failed: ' + err?.message));
+  teamEvents.emit('message', { type: 'created', messageId, thread: sessionId });
+  generateAgentReplies(message, sessionId).catch(err => console.error('[team] failed: ' + err?.message));
   return message;
 }
 
-async function generateAgentReplies(message) {
-  console.log('[team] === agent ===');
+async function generateAgentReplies(message, sessionId) {
+  console.log('[team] === agent === session=' + sessionId);
   const ctx = collectSystemSnapshot();
   let reply = await runAgentLoop(message.body, ctx);
   if (!reply) {
@@ -412,24 +417,24 @@ async function generateAgentReplies(message) {
   } else {
     try { recordLesson('aurora', null, 'success_pattern', 'reply_ok:' + message.body.slice(0, 30), 'نجح: ' + message.body.slice(0, 100), 0.8); } catch {}
   }
-  insertAgentMessage('aurora', reply);
+  insertAgentMessage('aurora', reply, sessionId);
   await sendTelegramSafe('💬 <b>أورورا</b>\n\n' + reply);
   await notify('team_message', 'رد أورورا', message.body.slice(0, 500));
 }
 
-function insertAgentMessage(agent, body) {
-  const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body) VALUES ('team',?,'leader',?)`).run(agent, String(body).slice(0, 20000));
+function insertAgentMessage(agent, body, sessionId) {
+  const sid = String(sessionId || 'team');
+  const result = db.prepare(`INSERT INTO messages(thread,sender,recipient,body) VALUES (?,?,'leader',?)`).run(sid, agent, String(body).slice(0, 20000));
   const messageId = Number(result.lastInsertRowid);
 
-  // ⬇️ إضافة: حفظ رد الوكيل في Turso
-  persistToTurso('team', String(agent || 'aurora'), String(body || ''), JSON.stringify({
+  persistToTurso(sid, String(agent || 'aurora'), String(body || ''), JSON.stringify({
     recipient: 'leader',
-    thread: 'team',
+    thread: sid,
     messageId,
     type: 'agent-reply'
   }));
 
-  teamEvents.emit('message', { type: 'agent-reply', messageId, agent });
+  teamEvents.emit('message', { type: 'agent-reply', messageId, agent, thread: sid });
 }
 
 export async function attachmentFile(relativePath) {
