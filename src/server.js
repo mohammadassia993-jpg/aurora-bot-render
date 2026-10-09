@@ -37,7 +37,7 @@ const mimeTypes = {
 
 const PUBLIC_GET_PATHS = new Set([
   '/', '/dashboard', '/app',
-  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages',
+  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/team/history',
   '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability',
   '/api/wallets/balances', '/api/status',
   '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive'
