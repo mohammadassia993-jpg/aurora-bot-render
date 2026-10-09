@@ -2,149 +2,341 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>عمالقة الصمت — لوحة التحكم</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>عمالقة الصمت</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #0a1020; color: #e8ecf5; min-height: 100vh; padding: 16px; }
-  header { text-align: center; margin-bottom: 20px; padding: 12px; }
-  header h1 { font-size: 22px; color: #a78bfa; margin-bottom: 6px; }
-  header p { color: #94a3b8; font-size: 12px; }
-  .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; flex-wrap: wrap; }
-  .tab { padding: 8px 14px; background: #1e293b; border-radius: 10px; color: #cbd5e1; cursor: pointer; border: 2px solid transparent; font-size: 13px; font-weight: 500; }
-  .tab.active { background: #312e81; color: #e0e7ff; border-color: #a78bfa; }
-  .panel { display: none; }
-  .panel.active { display: block; }
-  .card { background: #1e293b; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #334155; }
-  .card h2 { color: #a78bfa; font-size: 15px; margin-bottom: 10px; }
-  .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; font-size: 13px; }
-  .stat:last-child { border-bottom: none; }
-  .stat .label { color: #94a3b8; }
-  .stat .value { color: #e0e7ff; font-weight: 600; }
-  .stat.clickable { cursor: pointer; padding: 10px 8px; border-radius: 8px; transition: background 0.2s; }
-  .stat.clickable:active { background: #312e81; }
-  .stat.clickable .value::after { content: ' ›'; color: #a78bfa; font-weight: 400; }
-  .item { padding: 10px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; }
-  .item .meta { color: #a78bfa; font-size: 11px; margin-bottom: 4px; }
-  .item .body { color: #e0e7ff; font-size: 13px; line-height: 1.5; }
-  .empty { text-align: center; padding: 20px; color: #64748b; font-size: 13px; }
-  .error { background: #7f1d1d; padding: 12px; border-radius: 10px; color: #fecaca; margin-bottom: 12px; font-size: 12px; }
-  #msg-body { width: 100%; min-height: 200px; padding: 14px; background: #0f172a; color: #e0e7ff; border: 2px solid #334155; border-radius: 12px; font-size: 15px; font-family: inherit; resize: vertical; line-height: 1.6; }
-  .btn-primary { display: block; width: 100%; padding: 14px; background: #312e81; color: #e0e7ff; border: none; border-radius: 12px; font-size: 15px; cursor: pointer; margin-top: 10px; font-weight: 600; }
-  .btn-primary:active { background: #4338ca; }
-  .btn-secondary { display: inline-block; padding: 8px 14px; background: #1e40af; color: #e0e7ff; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 600; }
-  .btn-secondary:active { background: #2563eb; }
-  .live-item { padding: 10px 12px; background: #0f172a; border-radius: 10px; margin-bottom: 8px; border-right: 3px solid #a78bfa; }
-  .live-meta { font-size: 11px; margin-bottom: 4px; font-weight: 600; }
-  .live-body { color: #e0e7ff; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Tahoma, sans-serif;
+    background: #0a1020; color: #e8ecf5;
+    display: flex; flex-direction: column;
+  }
 
-  /* Modal */
-  #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; padding: 16px; overflow-y: auto; }
-  #modal-overlay.open { display: block; }
-  #modal-panel { max-width: 600px; margin: 40px auto; background: #1e293b; border-radius: 14px; padding: 20px; border: 1px solid #334155; }
-  #modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #334155; padding-bottom: 12px; }
-  #modal-title { color: #a78bfa; font-size: 16px; font-weight: 600; }
-  #modal-close { background: none; border: none; color: #94a3b8; font-size: 28px; cursor: pointer; line-height: 1; padding: 0 4px; }
-  #modal-close:active { color: #e0e7ff; }
-  #modal-body { color: #e0e7ff; font-size: 14px; max-height: 70vh; overflow-y: auto; }
+  /* ===== Top bar ===== */
+  .topbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    flex-shrink: 0;
+  }
+  .topbar .icon-btn {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: transparent; border: none; color: #cbd5e1;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .topbar .icon-btn:active { background: #1e293b; }
+  .topbar .title {
+    flex: 1; text-align: center;
+    color: #e0e7ff; font-size: 15px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ===== Chat area ===== */
+  .chat-area {
+    flex: 1; overflow-y: auto;
+    padding: 16px 12px 100px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .chat-area::-webkit-scrollbar { width: 4px; }
+  .chat-area::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+  .msg {
+    max-width: 88%; padding: 10px 14px;
+    border-radius: 16px; font-size: 14px; line-height: 1.6;
+    word-wrap: break-word; white-space: pre-wrap;
+    position: relative;
+  }
+  .msg.leader {
+    background: #312e81; color: #e0e7ff;
+    align-self: flex-start; border-bottom-left-radius: 4px;
+  }
+  .msg.aurora {
+    background: #1e293b; color: #e8ecf5;
+    align-self: flex-end; border-bottom-right-radius: 4px;
+    border-right: 3px solid #34d399;
+  }
+  .msg.other {
+    background: #1e293b; color: #e8ecf5;
+    align-self: flex-end; border-bottom-right-radius: 4px;
+    border-right: 3px solid #60a5fa;
+  }
+  .msg .msg-meta {
+    font-size: 10px; opacity: 0.65; margin-bottom: 4px;
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  .msg .attachment {
+    margin-top: 8px; padding: 6px 10px;
+    background: rgba(0,0,0,0.25); border-radius: 8px;
+    font-size: 12px; color: #a78bfa;
+  }
+
+  /* ===== Status pill (Team working) ===== */
+  .status-pill {
+    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #a78bfa;
+    padding: 8px 16px; border-radius: 20px;
+    font-size: 13px; font-weight: 600;
+    display: none; align-items: center; gap: 8px;
+    z-index: 50; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    border: 1px solid #a78bfa33;
+  }
+  .status-pill.visible { display: flex; }
+  .status-pill .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #a78bfa;
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+  }
+
+  /* ===== Input bar ===== */
+  .input-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #0f172a; border-top: 1px solid #1e293b;
+    padding: 10px 12px; display: flex; align-items: flex-end; gap: 8px;
+    z-index: 100;
+  }
+  .input-bar .icon-btn {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: #1e293b; border: none; color: #a78bfa;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .input-bar .icon-btn:active { background: #312e81; }
+  .input-bar textarea {
+    flex: 1; min-height: 42px; max-height: 120px;
+    padding: 11px 14px; background: #1e293b; color: #e0e7ff;
+    border: 1px solid #334155; border-radius: 12px;
+    font-size: 14px; font-family: inherit; resize: none;
+    line-height: 1.4; outline: none;
+  }
+  .input-bar textarea:focus { border-color: #a78bfa; }
+  .input-bar .send-btn {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: #312e81; border: none; color: #e0e7ff;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: background 0.15s;
+  }
+  .input-bar .send-btn:active { background: #4338ca; }
+  .input-bar .send-btn:disabled { opacity: 0.5; }
+
+  /* ===== Attachment preview ===== */
+  .attachment-preview {
+    position: fixed; bottom: 70px; left: 12px; right: 12px;
+    background: #1e293b; border-radius: 12px;
+    padding: 10px 14px; display: none; align-items: center; gap: 10px;
+    border: 1px solid #334155; z-index: 99;
+  }
+  .attachment-preview.visible { display: flex; }
+  .attachment-preview .name { flex: 1; color: #e0e7ff; font-size: 13px; }
+  .attachment-preview .remove {
+    background: none; border: none; color: #f87171;
+    font-size: 20px; cursor: pointer; padding: 0 4px;
+  }
+
+  /* ===== Sidebar (chat list) ===== */
+  .sidebar-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 200; display: none;
+  }
+  .sidebar-overlay.open { display: block; }
+  .sidebar {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 85%; max-width: 340px; background: #0f172a;
+    z-index: 201; transform: translateX(100%);
+    transition: transform 0.25s ease;
+    display: flex; flex-direction: column;
+    border-left: 1px solid #1e293b;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-header {
+    padding: 16px; border-bottom: 1px solid #1e293b;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sidebar-header h2 { color: #a78bfa; font-size: 16px; }
+  .sidebar-header .icon-btn {
+    background: none; border: none; color: #94a3b8;
+    font-size: 24px; cursor: pointer; padding: 4px 8px;
+  }
+  .sidebar-tabs {
+    display: flex; gap: 4px; padding: 10px 12px;
+    overflow-x: auto; flex-shrink: 0;
+    border-bottom: 1px solid #1e293b;
+  }
+  .sidebar-tabs::-webkit-scrollbar { display: none; }
+  .sidebar-tabs .tab {
+    padding: 7px 12px; background: #1e293b; border-radius: 8px;
+    color: #cbd5e1; font-size: 12px; cursor: pointer;
+    border: 1px solid transparent; white-space: nowrap;
+    font-weight: 500;
+  }
+  .sidebar-tabs .tab.active {
+    background: #312e81; color: #e0e7ff; border-color: #a78bfa;
+  }
+  .sidebar-chats {
+    flex: 1; overflow-y: auto; padding: 12px;
+  }
+  .sidebar-chats .new-chat {
+    width: 100%; padding: 12px; background: #312e81; color: #e0e7ff;
+    border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
+    cursor: pointer; margin-bottom: 12px;
+  }
+  .sidebar-chats .new-chat:active { background: #4338ca; }
+  .chat-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px; background: #1e293b; border-radius: 10px;
+    margin-bottom: 8px; cursor: pointer;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+  }
+  .chat-item.active { border-color: #a78bfa; background: #312e81; }
+  .chat-item .chat-info { flex: 1; min-width: 0; }
+  .chat-item .chat-title {
+    color: #e0e7ff; font-size: 13px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chat-item .chat-sub {
+    color: #94a3b8; font-size: 11px; margin-top: 3px;
+  }
+  .chat-item .menu-btn {
+    background: none; border: none; color: #94a3b8;
+    font-size: 18px; cursor: pointer; padding: 4px 6px;
+    border-radius: 6px;
+  }
+  .chat-item .menu-btn:active { background: #0a1020; color: #e0e7ff; }
+
+  /* ===== Modal ===== */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+    z-index: 300; display: none; padding: 16px;
+    align-items: flex-end;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-sheet {
+    width: 100%; max-width: 480px; margin: 0 auto;
+    background: #1e293b; border-radius: 16px; padding: 8px 0;
+    animation: slideUp 0.2s ease;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .modal-item {
+    padding: 14px 20px; color: #e0e7ff; font-size: 15px;
+    cursor: pointer; display: flex; align-items: center; gap: 12px;
+  }
+  .modal-item:active { background: #334155; }
+  .modal-item.danger { color: #f87171; }
+  .modal-item.cancel {
+    color: #94a3b8; border-top: 1px solid #334155;
+    justify-content: center; font-weight: 600;
+  }
+  .modal-input-wrap { padding: 16px; }
+  .modal-input-wrap input {
+    width: 100%; padding: 12px; background: #0f172a;
+    color: #e0e7ff; border: 1px solid #334155;
+    border-radius: 10px; font-size: 14px; font-family: inherit;
+  }
+
+  /* ===== Empty / Loading ===== */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #64748b; font-size: 14px; gap: 10px;
+    padding: 40px 20px; text-align: center;
+  }
+  .empty-state .big { font-size: 48px; opacity: 0.4; }
+
+  /* ===== Toast ===== */
+  .toast {
+    position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #e0e7ff; padding: 10px 18px;
+    border-radius: 20px; font-size: 13px; font-weight: 600;
+    z-index: 400; opacity: 0; transition: opacity 0.25s;
+    pointer-events: none; border: 1px solid #334155;
+  }
+  .toast.visible { opacity: 1; }
 </style>
 </head>
 <body>
-<header>
-  <h1>⚡ عمالقة الصمت</h1>
-  <p>لوحة تحكم الفريق — Silent Giants</p>
-</header>
 
-<div id="error" class="error" style="display:none"></div>
-
-<div class="tabs">
-  <div class="tab active" data-tab="main">الرئيسية</div>
-  <div class="tab" data-tab="team">غرفة الفريق</div>
-  <div class="tab" data-tab="tasks">المهام</div>
-  <div class="tab" data-tab="notifications">الإشعارات</div>
-  <div class="tab" data-tab="wallets">💰 المحافظ</div>
-  <div class="tab" data-tab="ai-usage">🤖 استهلاك AI</div>
-  <div class="tab" data-tab="observability">📊 المراقبة</div>
+<!-- Top bar -->
+<div class="topbar">
+  <button class="icon-btn" id="chat-menu-btn" title="خيارات">☰</button>
+  <div class="title" id="current-chat-title">غرفة الفريق</div>
+  <button class="icon-btn" id="chats-list-btn" title="الدردشات">💬</button>
 </div>
 
-<div class="panel active" id="panel-main">
-  <div class="card">
-    <h2>📊 حالة النظام</h2>
-    <div id="system-stats">جاري التحميل...</div>
-  </div>
-  <div class="card">
-    <h2>👥 الوكلاء</h2>
-    <div id="agents-list">جاري التحميل...</div>
+<!-- Chat area -->
+<div class="chat-area" id="chat-area">
+  <div class="empty-state">
+    <div class="big">💬</div>
+    <div>ابدأ محادثة جديدة مع الفريق</div>
   </div>
 </div>
 
-<div class="panel" id="panel-team">
-  <div class="card">
-    <h2>📤 إرسال أمر للفريق</h2>
-    <select id="msg-recipient" style="width:100%; padding:10px; background:#0f172a; color:#e0e7ff; border:1px solid #334155; border-radius:10px; font-size:14px; margin-bottom:10px;">
-      <option value="all">الفريق الكامل</option>
-      <option value="aurora">أورورا</option>
-      <option value="planner">المخطط</option>
-      <option value="executor">المنفذ</option>
-      <option value="reviewer">المراجع</option>
-      <option value="scout">المستخبر</option>
-    </select>
-    <textarea id="msg-body" placeholder="اكتب الأمر بالتفصيل..."></textarea>
-    <button id="send-btn" class="btn-primary">📤 إرسال الأمر للفريق</button>
-    <div id="send-status" style="text-align:center; margin-top:10px; font-size:13px; color:#94a3b8;"></div>
+<!-- Status pill (Team working) -->
+<div class="status-pill" id="status-pill">
+  <span class="dot"></span>
+  <span id="status-text">الفريق يعمل...</span>
+</div>
+
+<!-- Attachment preview -->
+<div class="attachment-preview" id="attachment-preview">
+  <span>📎</span>
+  <span class="name" id="attachment-name"></span>
+  <button class="remove" id="attachment-remove">×</button>
+</div>
+
+<!-- Input bar -->
+<div class="input-bar">
+  <button class="icon-btn" id="attach-btn" title="إرفاق">📎</button>
+  <textarea id="msg-body" placeholder="اكتب رسالة..." rows="1"></textarea>
+  <button class="send-btn" id="send-btn" title="إرسال">➤</button>
+</div>
+<input type="file" id="file-input" style="display:none" />
+
+<!-- Sidebar (chats list) -->
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h2>💬 الدردشات</h2>
+    <button class="icon-btn" id="sidebar-close">×</button>
   </div>
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <h2 style="margin:0;">📺 السجل الحي</h2>
-      <button id="open-history-btn" class="btn-secondary">📜 السجل الكامل</button>
+  <div class="sidebar-tabs" id="sidebar-tabs">
+    <div class="tab" data-tab="main">الرئيسية</div>
+    <div class="tab" data-tab="tasks">المهام</div>
+    <div class="tab" data-tab="notifications">الإشعارات</div>
+    <div class="tab" data-tab="wallets">💰 المحافظ</div>
+    <div class="tab" data-tab="ai-usage">🤖 AI</div>
+    <div class="tab" data-tab="observability">📊 المراقبة</div>
+  </div>
+  <div class="sidebar-chats" id="sidebar-chats">
+    <button class="new-chat" id="new-chat-btn">+ محادثة جديدة</button>
+    <div id="chats-list-inner">
+      <div class="empty-state">جاري التحميل...</div>
     </div>
-    <div id="live-log">جاري التحميل...</div>
   </div>
 </div>
 
-<div class="panel" id="panel-tasks">
-  <div class="card">
-    <h2>📋 المهام النشطة</h2>
-    <div id="tasks-list">جاري التحميل...</div>
-  </div>
+<!-- Modal (options) -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-sheet" id="modal-sheet"></div>
 </div>
 
-<div class="panel" id="panel-notifications">
-  <div class="card">
-    <h2>🔔 الإشعارات</h2>
-    <div id="notifications-list">جاري التحميل...</div>
-  </div>
-</div>
+<!-- Toast -->
+<div class="toast" id="toast"></div>
 
-<div class="panel" id="panel-wallets">
-  <div class="card">
-    <h2>💰 المحافظ</h2>
-    <div id="wallets-content">جاري التحميل...</div>
-  </div>
-</div>
-
-<div class="panel" id="panel-ai-usage">
-  <div class="card">
-    <h2>🤖 استهلاك AI</h2>
-    <div id="ai-usage-content">جاري التحميل...</div>
-  </div>
-</div>
-
-<div class="panel" id="panel-observability">
-  <div class="card">
-    <h2>📊 المراقبة</h2>
-    <div id="observability-content">جاري التحميل...</div>
-  </div>
-</div>
-
-<div id="modal-overlay">
-  <div id="modal-panel">
-    <div id="modal-header">
-      <div id="modal-title"></div>
-      <button id="modal-close" aria-label="إغلاق">×</button>
-    </div>
-    <div id="modal-body"></div>
-  </div>
+<!-- Secondary panel (for tabs) -->
+<div class="modal-overlay" id="panel-overlay">
+  <div class="modal-sheet" style="max-height:80vh;overflow-y:auto;" id="panel-sheet"></div>
 </div>
 
 <script>
@@ -153,8 +345,7 @@
     s.src = '/dashboard.js?v=' + Date.now();
     s.async = false;
     s.onerror = function() {
-      var el = document.getElementById('error');
-      if (el) { el.textContent = 'فشل تحميل dashboard.js'; el.style.display = 'block'; }
+      document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#f87171">فشل تحميل dashboard.js</div>';
     };
     document.head.appendChild(s);
   })();
