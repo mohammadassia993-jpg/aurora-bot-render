@@ -62,6 +62,13 @@ export async function initChatTable() {
       meta TEXT DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`);
+    // ⬇️ جديد: جدول الجلسات (للعنوان والتسمية)
+    await tursoExec(`CREATE TABLE IF NOT EXISTS chat_sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`);
     enabled = true;
     console.log('[chat-db] ✅ Turso initialized — persistent chat enabled');
     return true;
@@ -78,6 +85,13 @@ export async function saveMessage(sessionId, role, content, meta = '') {
       'INSERT INTO chat_messages (session_id, role, content, meta) VALUES (?, ?, ?, ?)',
       [String(sessionId), String(role), String(content), String(meta).slice(0, 500)]
     );
+    // تحديث updated_at للجلسة (إن وُجدت)
+    try {
+      await tursoExec(
+        'UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [String(sessionId)]
+      );
+    } catch (e) { /* silent */ }
     return true;
   } catch (e) {
     console.error('[chat-db] saveMessage failed:', e.message);
@@ -125,15 +139,20 @@ export async function listAllMessages(limit = 100, offset = 0, search = '', sess
   }
 }
 
-// ⬇️ إصلاح: استخدام substr بدلاً من LIKE لاستبعاد الجلسات الداخلية
+// ⬇️ محدّث: يجمع الجلسات مع عناوينها من chat_sessions
 export async function listSessions(limit = 50) {
   if (!enabled) return [];
   try {
     const data = await tursoExec(
-      `SELECT session_id, COUNT(*) as cnt, MAX(created_at) as last_at
-       FROM chat_messages
-       WHERE substr(session_id, 1, 2) != '__'
-       GROUP BY session_id
+      `SELECT m.session_id as id,
+              COALESCE(s.title, m.session_id) as title,
+              COUNT(m.id) as cnt,
+              MAX(m.created_at) as last_at,
+              s.created_at as created_at
+       FROM chat_messages m
+       LEFT JOIN chat_sessions s ON s.id = m.session_id
+       WHERE substr(m.session_id, 1, 2) != '__'
+       GROUP BY m.session_id
        ORDER BY last_at DESC
        LIMIT ?`,
       [String(limit)]
@@ -143,6 +162,70 @@ export async function listSessions(limit = 50) {
     console.error('[chat-db] listSessions failed:', e.message);
     return [];
   }
+}
+
+// ⬇️ جديد: إنشاء جلسة جديدة
+export async function createSession(sessionId, title) {
+  if (!enabled) return false;
+  try {
+    const sid = String(sessionId).slice(0, 100);
+    const t = String(title || 'محادثة جديدة').slice(0, 200);
+    await tursoExec(
+      'INSERT INTO chat_sessions (id, title) VALUES (?, ?)',
+      [sid, t]
+    );
+    return true;
+  } catch (e) {
+    console.error('[chat-db] createSession failed:', e.message);
+    return false;
+  }
+}
+
+// ⬇️ جديد: إعادة تسمية جلسة
+export async function renameSession(sessionId, newTitle) {
+  if (!enabled) return false;
+  try {
+    const sid = String(sessionId).slice(0, 100);
+    const t = String(newTitle || '').slice(0, 200);
+    if (!t) return false;
+    // جرب التحديث أولاً
+    const res = await tursoExec(
+      'UPDATE chat_sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [t, sid]
+    );
+    // إذا لم تكن الجلسة موجودة، أنشئها
+    try {
+      await tursoExec(
+        'INSERT OR IGNORE INTO chat_sessions (id, title) VALUES (?, ?)',
+        [sid, t]
+      );
+    } catch (e) { /* silent */ }
+    return true;
+  } catch (e) {
+    console.error('[chat-db] renameSession failed:', e.message);
+    return false;
+  }
+}
+
+// ⬇️ جديد: حذف جلسة (مع كل رسائلها)
+export async function deleteSession(sessionId) {
+  if (!enabled) return false;
+  try {
+    const sid = String(sessionId).slice(0, 100);
+    await tursoExec('DELETE FROM chat_messages WHERE session_id = ?', [sid]);
+    await tursoExec('DELETE FROM chat_sessions WHERE id = ?', [sid]);
+    return true;
+  } catch (e) {
+    console.error('[chat-db] deleteSession failed:', e.message);
+    return false;
+  }
+}
+
+// ⬇️ جديد: توليد معرّف جلسة جديد
+export function generateSessionId() {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return 'chat-' + ts + '-' + rand;
 }
 
 // ============ اختبار تلقائي عند التشغيل ============
