@@ -21,7 +21,6 @@ import { AGENTS, listMessages, createMessage, attachmentFile, teamEvents } from 
 import { getAllWallets } from './wallets.js';
 import { formatReport as formatAiUsage } from './cost-governor.js';
 import { getFullReport } from './observability.js';
-// ⬇️ إضافة: قراءة السجل الدائم من Turso
 import { listAllMessages } from './chat-db.js';
 
 const FALLBACK_TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
@@ -37,7 +36,7 @@ const mimeTypes = {
 
 const PUBLIC_GET_PATHS = new Set([
   '/', '/dashboard', '/app',
-  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/team/history',
+  '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages',
   '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability',
   '/api/wallets/balances', '/api/status',
   '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive'
@@ -410,7 +409,7 @@ export async function startServer() {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
 
-      // ⬇️ جديد: endpoint السجل الدائم من Turso
+      // ⬇️ endpoint السجل الدائم (محمي بالمفتاح الآن)
       if (url.pathname === '/api/team/history' && request.method === 'GET') {
         try {
           const limit = Number(url.searchParams.get('limit') || 100);
