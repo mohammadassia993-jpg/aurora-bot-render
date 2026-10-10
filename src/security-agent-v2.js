@@ -8,13 +8,14 @@ import { db } from './db.js';
 const ROOT = config.root;
 const SECRET = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|MNEMONIC|SEED)/i;
 const PLACEHOLDER = /^(your_|xxx|example|placeholder)/i;
-// ⬇️ محدّث: إضافة مسارات الجلسات والسجل
+// ⬇️ محدّث: إضافة مسار reset-pipeline
 const SAFE_PUBLIC_POST = new Set([
   '/api/notifications/read',
   '/api/team/messages',
   '/api/team/sessions/new',
   '/api/team/sessions/rename',
-  '/api/team/sessions/delete'
+  '/api/team/sessions/delete',
+  '/api/admin/reset-pipeline'
 ]);
 
 function runCmd(cmd, args, timeout) {
@@ -122,7 +123,6 @@ export async function auditApiAuth() {
     while ((m = re.exec(serverCode)) !== null) {
       if (m[1].startsWith('/api/')) routes.push(m[1]);
     }
-    // ⬇️ محدّث: إضافة مسارات الجلسات والسجل
     const publicSet = new Set([
       '/api/ai-usage', '/api/observability', '/api/wallets/balances',
       '/api/team/messages', '/api/team/history', '/api/team/sessions',
