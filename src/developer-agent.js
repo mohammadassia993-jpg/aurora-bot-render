@@ -1,10 +1,11 @@
-// developer-agent.js — Autonomous developer & AI news scout
+// developer-agent.js — Autonomous developer & AI news scout (Directed)
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { db } from './db.js';
 import { config } from './config.js';
 import { callModel } from './ai.js';
 import { info, warn, error } from './logger.js';
+import { KNOWN_PROBLEMS } from './known-problems.js';
 
 const SCAN_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const DAILY_REPORT_HOUR = 11;
@@ -35,7 +36,7 @@ async function sendToTelegram(text) {
 }
 
 export function startDeveloperAgent() {
-  info('developer', 'Starting 12h scans, daily report at ' + DAILY_REPORT_HOUR + ':00, alerts at score>=' + ALERT_MIN_SCORE);
+  info('developer', 'Starting 12h scans (directed), daily report at ' + DAILY_REPORT_HOUR + ':00, alerts at score>=' + ALERT_MIN_SCORE);
   setTimeout(function() {
     tick().catch(function(e) { error('developer', e.message); });
     setInterval(function() { tick().catch(function(e) { error('developer', e.message); }); }, SCAN_INTERVAL_MS).unref();
@@ -54,29 +55,86 @@ async function tick() {
 export async function runNow() { return await runDevScan(); }
 export async function sendReportNow() { return await sendDevReport(); }
 
+// ⬇️ البحث الموجه: لكل مشكلة، ابحث بكلماتها
+async function fetchDirectedFindings() {
+  info('developer', 'Starting directed search for ' + KNOWN_PROBLEMS.length + ' problems...');
+  const all = [];
+  for (const problem of KNOWN_PROBLEMS) {
+    try {
+      const keyword = problem.keywords[0] || problem.title;
+      // بحث HN المباشر بالكلمات
+      const hnResults = await searchHN(keyword);
+      for (const r of hnResults) {
+        r.problemId = problem.id;
+        r.problemTitle = problem.title;
+        r.category = 'solution-attempt';
+        all.push(r);
+      }
+      info('developer', 'Problem "' + problem.title + '": ' + hnResults.length + ' HN results');
+      // تأخير بسيط بين كل بحث
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    } catch (e) {
+      warn('developer', 'Directed search for ' + problem.id + ' failed: ' + e.message);
+    }
+  }
+  return all;
+}
+
+// البحث في HN بكلمة محددة
+async function searchHN(query) {
+  try {
+    const encoded = encodeURIComponent(query);
+    const url = 'https://hn.algolia.com/api/v1/search?query=' + encoded + '&tags=story&hitsPerPage=5';
+    const res = await fetch(url, { headers: { 'User-Agent': 'SilentGiants/1.0' } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const hits = (data && data.hits) || [];
+    return hits.map(function(h) {
+      return {
+        source: 'HN Search',
+        title: h.title || h.story_title || '',
+        url: h.url || ('https://news.ycombinator.com/item?id=' + h.objectID),
+        description: 'points:' + (h.points || 0) + ' | comments:' + (h.num_comments || 0) + ' | query:' + query
+      };
+    }).filter(function(x) { return x.title; });
+  } catch (e) { return []; }
+}
+
 async function runDevScan() {
   info('developer', 'Starting dev scan...');
-  const all = [];
+
+  // ⬇️ المرحلة 1: البحث الموجه (أهم من الأخبار العامة)
+  const directed = [];
+  try {
+    const r = await fetchDirectedFindings();
+    info('developer', 'Directed search: ' + r.length + ' items');
+    if (r.length) directed.push.apply(directed, r);
+  } catch (e) { warn('developer', 'directed search failed: ' + e.message); }
+
+  // ⬇️ المرحلة 2: الأخبار العامة (كما كان)
+  const general = [];
   const sources = [
-    { name: 'Reddit r/MachineLearning', fn: () => fetchReddit('MachineLearning') },
-    { name: 'Reddit r/LocalLLaMA', fn: () => fetchReddit('LocalLLaMA') },
-    { name: 'Reddit r/singularity', fn: () => fetchReddit('singularity') },
     { name: 'Hacker News', fn: fetchHN },
-    { name: 'Dev.to AI', fn: fetchDevTo },
-    { name: 'ArXiv AI', fn: fetchArxiv }
+    { name: 'Dev.to AI', fn: fetchDevTo }
   ];
   for (const s of sources) {
     try {
       const r = await s.fn();
       info('developer', s.name + ' returned ' + r.length + ' items');
-      if (r.length) all.push.apply(all, r);
+      if (r.length) general.push.apply(general, r);
     } catch (e) { warn('developer', s.name + ' failed: ' + e.message); }
   }
+
+  // نعالج الموجه أولاً (أعلى أهمية)
+  const all = directed.concat(general);
+
   if (all.length === 0) return { added: 0, alerts: 0 };
+
   let added = 0;
   let alerts = 0;
   const alertQueue = [];
-  for (let i = 0; i < Math.min(all.length, 12); i++) {
+
+  for (let i = 0; i < Math.min(all.length, 15); i++) {
     const f = all[i];
     try {
       const exists = db.prepare('SELECT id FROM developer_findings WHERE title = ? LIMIT 1').get(f.title);
@@ -85,11 +143,21 @@ async function runDevScan() {
       db.prepare('INSERT INTO developer_findings(category,source,title,url,description,relevance_score,relevance_reason,actionable) VALUES (?,?,?,?,?,?,?,?)')
         .run(f.category || 'ai-news', f.source, String(f.title).slice(0, 300), f.url || '', String(f.description || '').slice(0, 500), analysis.score, String(analysis.reason).slice(0, 500), analysis.actionable ? 1 : 0);
       added++;
-      if (analysis.score >= ALERT_MIN_SCORE) {
-        alertQueue.push({ source: f.source, title: f.title, url: f.url, description: f.description, score: analysis.score, reason: analysis.reason, actionable: analysis.actionable });
+      if (analysis.score >= ALERT_MIN_SCORE && analysis.actionable) {
+        alertQueue.push({
+          source: f.source,
+          title: f.title,
+          url: f.url,
+          description: f.description,
+          score: analysis.score,
+          reason: analysis.reason,
+          actionable: analysis.actionable,
+          problemTitle: f.problemTitle || ''
+        });
       }
     } catch (e) { warn('developer', 'insert failed: ' + e.message); }
   }
+
   if (alertQueue.length > 0) {
     await sendAlert(alertQueue);
     alerts = alertQueue.length;
@@ -101,20 +169,19 @@ async function runDevScan() {
 async function sendAlert(items) {
   try {
     const lines = [
-      '🚨 اكتشاف مهم من وكيل المطور',
+      '🎯 حلول لمشاكلنا الفعلية',
       '━━━━━━━━━━━━━━━━━━━',
-      'عدد الاكتشافات المهمة: ' + items.length,
+      'عدد الحلول المقترحة: ' + items.length,
       ''
     ];
     for (let i = 0; i < items.length; i++) {
       const f = items[i];
-      const icon = f.actionable ? '🎯 قابل للتطبيق' : '📌 للمعلومة';
-      lines.push((i + 1) + '. ' + icon + ' — أهمية ' + f.score + '/10');
+      lines.push((i + 1) + '. أهمية ' + f.score + '/10');
+      if (f.problemTitle) lines.push('   🎯 يخص: ' + String(f.problemTitle).slice(0, 100));
       lines.push('   المصدر: ' + f.source);
       lines.push('   العنوان: ' + String(f.title).slice(0, 200));
       if (f.url) lines.push('   🔗 ' + f.url);
       if (f.reason) lines.push('   السبب: ' + String(f.reason).slice(0, 200));
-      if (f.description) lines.push('   التفاصيل: ' + String(f.description).slice(0, 200));
       lines.push('');
     }
     await sendToTelegram(lines.join('\n'));
@@ -124,20 +191,6 @@ async function sendAlert(items) {
     error('developer', 'alert failed: ' + e.message);
     return false;
   }
-}
-
-async function fetchReddit(subreddit) {
-  try {
-    const url = 'https://www.reddit.com/r/' + subreddit + '/hot.json?limit=8';
-    const res = await fetch(url, { headers: { 'User-Agent': 'SilentGiants/1.0 (research bot)' } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const posts = (data && data.data && data.data.children) || [];
-    return posts.map(function(p) {
-      const d = p.data || {};
-      return { category: 'reddit', source: 'r/' + subreddit, title: d.title || '', url: 'https://reddit.com' + (d.permalink || ''), description: 'upvotes:' + (d.ups || 0) + ' | comments:' + (d.num_comments || 0) };
-    }).filter(function(x) { return x.title; });
-  } catch (e) { return []; }
 }
 
 async function fetchHN() {
@@ -169,30 +222,40 @@ async function fetchDevTo() {
   } catch (e) { return []; }
 }
 
-async function fetchArxiv() {
-  try {
-    const res = await fetch('http://export.arxiv.org/api/query?search_query=cat:cs.AI+OR+cat:cs.CL&sortBy=submittedDate&sortOrder=descending&max_results=8', { headers: { 'User-Agent': 'SilentGiants/1.0' } });
-    if (!res.ok) return [];
-    const xml = await res.text();
-    const entries = xml.split('<entry>').slice(1);
-    const out = [];
-    for (const e of entries) {
-      const titleM = e.match(/<title>([\s\S]*?)<\/title>/);
-      const idM = e.match(/<id>([\s\S]*?)<\/id>/);
-      const sumM = e.match(/<summary>([\s\S]*?)<\/summary>/);
-      if (titleM) out.push({ category: 'arxiv', source: 'ArXiv', title: titleM[1].replace(/\s+/g, ' ').trim(), url: idM ? idM[1].trim() : '', description: (sumM ? sumM[1].replace(/\s+/g, ' ').trim().slice(0, 250) : '') });
-    }
-    return out;
-  } catch (e) { return []; }
-}
-
 async function analyzeRelevance(finding) {
   try {
-    const prompt = 'قيّم هذا الاكتشاف للذكاء الاصطناعي لمشروع "عمالقة الصمت" (بوت Node.js، 5 وكلاء، يستخدم Z.ai + LLM7 + HF).\n\nالعنوان: ' + finding.title + '\nالوصف: ' + finding.description + '\n\nأجب بصيغة JSON فقط: {"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n0-3 غير مفيد، 4-6 مثير، 7-10 مفيد مباشرة (أداة/مكتبة/API يمكن دمجها).';
+    // ⬇️ إذا كان الاكتشاف من البحث الموجه (له مشكلة معروفة)
+    const isDirected = finding.category === 'solution-attempt';
+    let prompt;
+
+    if (isDirected) {
+      prompt = 'قيّم هذا الحل المحتمل لمشكلة معروفة في مشروع "عمالقة الصمت".\n\n' +
+        '🎯 المشكلة: ' + (finding.problemTitle || '') + '\n' +
+        'العنوان: ' + finding.title + '\n' +
+        'الوصف: ' + finding.description + '\n\n' +
+        'أجب بصيغة JSON فقط:\n' +
+        '{"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n' +
+        'معايير التقييم:\n' +
+        '- هل يحل المشكلة فعلاً؟ (4 نقاط)\n' +
+        '- هل هو مجاني/مفتوح المصدر؟ (3 نقاط)\n' +
+        '- هل يعمل بدون تسجيل/KYC؟ (3 نقاط)\n\n' +
+        'actionable=true فقط إذا كان قابلاً للتطبيق مباشرة.';
+    } else {
+      prompt = 'قيّم هذا الاكتشاف للذكاء الاصطناعي لمشروع "عمالقة الصمت" (بوت Node.js، 5 وكلاء، يستخدم Z.ai + Cloudflare + Pollinations).\n\n' +
+        'العنوان: ' + finding.title + '\n' +
+        'الوصف: ' + finding.description + '\n\n' +
+        'أجب بصيغة JSON فقط: {"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n' +
+        '0-3 غير مفيد، 4-6 مثير، 7-10 مفيد مباشرة (أداة/مكتبة/API يمكن دمجها).';
+    }
+
     const raw = await callModel('developer', prompt, { noJsonMode: false, maxTokens: 200 });
     const parsed = parseJson(raw);
     if (!parsed) return { score: 3, reason: 'فشل التحليل', actionable: false };
-    return { score: Math.min(10, Math.max(0, Number(parsed.score) || 0)), reason: String(parsed.reason || ''), actionable: Boolean(parsed.actionable) };
+    return {
+      score: Math.min(10, Math.max(0, Number(parsed.score) || 0)),
+      reason: String(parsed.reason || ''),
+      actionable: Boolean(parsed.actionable)
+    };
   } catch (e) { return { score: 3, reason: 'خطأ التحليل', actionable: false }; }
 }
 
