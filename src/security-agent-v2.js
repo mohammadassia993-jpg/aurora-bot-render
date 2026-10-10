@@ -8,7 +8,14 @@ import { db } from './db.js';
 const ROOT = config.root;
 const SECRET = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|MNEMONIC|SEED)/i;
 const PLACEHOLDER = /^(your_|xxx|example|placeholder)/i;
-const SAFE_PUBLIC_POST = new Set(['/api/notifications/read', '/api/team/messages']);
+// ⬇️ محدّث: إضافة مسارات الجلسات والسجل
+const SAFE_PUBLIC_POST = new Set([
+  '/api/notifications/read',
+  '/api/team/messages',
+  '/api/team/sessions/new',
+  '/api/team/sessions/rename',
+  '/api/team/sessions/delete'
+]);
 
 function runCmd(cmd, args, timeout) {
   timeout = timeout || 30000;
@@ -115,7 +122,13 @@ export async function auditApiAuth() {
     while ((m = re.exec(serverCode)) !== null) {
       if (m[1].startsWith('/api/')) routes.push(m[1]);
     }
-    const publicSet = new Set(['/api/ai-usage', '/api/observability', '/api/wallets/balances', '/api/team/messages', '/api/live', '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/notifications', '/api/status']);
+    // ⬇️ محدّث: إضافة مسارات الجلسات والسجل
+    const publicSet = new Set([
+      '/api/ai-usage', '/api/observability', '/api/wallets/balances',
+      '/api/team/messages', '/api/team/history', '/api/team/sessions',
+      '/api/live', '/api/dashboard', '/api/team/agents', '/api/team/tasks',
+      '/api/notifications', '/api/status'
+    ]);
     const unprotected = [];
     for (const r of routes) {
       if (publicSet.has(r)) continue;
