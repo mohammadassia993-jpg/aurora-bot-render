@@ -1,4 +1,4 @@
-// developer-agent.js — Autonomous developer & AI news scout (Directed)
+// developer-agent.js — Autonomous developer & AI scout (GitHub-directed)
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { db } from './db.js';
@@ -10,7 +10,8 @@ import { KNOWN_PROBLEMS } from './known-problems.js';
 const SCAN_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const DAILY_REPORT_HOUR = 11;
 const INITIAL_DELAY_MS = 10 * 60 * 1000;
-const ALERT_MIN_SCORE = 7;
+const ALERT_MIN_SCORE = 8;
+const MIN_STARS = 30;
 const ROOT = config.root;
 
 let lastDailyReportDay = null;
@@ -36,7 +37,7 @@ async function sendToTelegram(text) {
 }
 
 export function startDeveloperAgent() {
-  info('developer', 'Starting 12h scans (directed), daily report at ' + DAILY_REPORT_HOUR + ':00, alerts at score>=' + ALERT_MIN_SCORE);
+  info('developer', 'Starting 12h scans (GitHub-directed), daily report at ' + DAILY_REPORT_HOUR + ':00, alerts at score>=' + ALERT_MIN_SCORE);
   setTimeout(function() {
     tick().catch(function(e) { error('developer', e.message); });
     setInterval(function() { tick().catch(function(e) { error('developer', e.message); }); }, SCAN_INTERVAL_MS).unref();
@@ -55,78 +56,75 @@ async function tick() {
 export async function runNow() { return await runDevScan(); }
 export async function sendReportNow() { return await sendDevReport(); }
 
-// ⬇️ البحث الموجه: لكل مشكلة، ابحث بكلماتها
+// ⬇️ البحث الموجه في GitHub
 async function fetchDirectedFindings() {
-  info('developer', 'Starting directed search for ' + KNOWN_PROBLEMS.length + ' problems...');
+  info('developer', 'Starting GitHub directed search for ' + KNOWN_PROBLEMS.length + ' problems...');
   const all = [];
   for (const problem of KNOWN_PROBLEMS) {
     try {
-      const keyword = problem.keywords[0] || problem.title;
-      // بحث HN المباشر بالكلمات
-      const hnResults = await searchHN(keyword);
-      for (const r of hnResults) {
+      const results = await searchGitHub(problem.githubQuery);
+      for (const r of results) {
         r.problemId = problem.id;
         r.problemTitle = problem.title;
         r.category = 'solution-attempt';
         all.push(r);
       }
-      info('developer', 'Problem "' + problem.title + '": ' + hnResults.length + ' HN results');
-      // تأخير بسيط بين كل بحث
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      info('developer', 'Problem "' + problem.title + '": ' + results.length + ' GitHub repos');
+      // تأخير بين كل بحث (GitHub rate limit: 30/min authenticated)
+      await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (e) {
-      warn('developer', 'Directed search for ' + problem.id + ' failed: ' + e.message);
+      warn('developer', 'GitHub search for ' + problem.id + ' failed: ' + e.message);
     }
   }
   return all;
 }
 
-// البحث في HN بكلمة محددة
-async function searchHN(query) {
+// البحث في GitHub
+async function searchGitHub(query) {
   try {
-    const encoded = encodeURIComponent(query);
-    const url = 'https://hn.algolia.com/api/v1/search?query=' + encoded + '&tags=story&hitsPerPage=5';
-    const res = await fetch(url, { headers: { 'User-Agent': 'SilentGiants/1.0' } });
-    if (!res.ok) return [];
+    const token = process.env.GITHUB_TOKEN || '';
+    const url = 'https://api.github.com/search/repositories?q=' + encodeURIComponent(query) + '&sort=stars&order=desc&per_page=5';
+    const headers = {
+      'User-Agent': 'SilentGiants/1.0',
+      'Accept': 'application/vnd.github+json'
+    };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      warn('developer', 'GitHub API ' + res.status);
+      return [];
+    }
     const data = await res.json();
-    const hits = (data && data.hits) || [];
-    return hits.map(function(h) {
-      return {
-        source: 'HN Search',
-        title: h.title || h.story_title || '',
-        url: h.url || ('https://news.ycombinator.com/item?id=' + h.objectID),
-        description: 'points:' + (h.points || 0) + ' | comments:' + (h.num_comments || 0) + ' | query:' + query
-      };
-    }).filter(function(x) { return x.title; });
+    const items = (data && data.items) || [];
+    return items
+      .filter(function(i) { return i && i.stargazers_count >= MIN_STARS && i.description; })
+      .map(function(i) {
+        return {
+          source: 'GitHub',
+          title: i.full_name + ' — ' + (i.description || '').slice(0, 80),
+          url: i.html_url,
+          description: (i.description || '').slice(0, 200) +
+                       ' | ⭐' + i.stargazers_count +
+                       ' | ' + (i.language || 'n/a') +
+                       ' | updated:' + String(i.updated_at || '').slice(0, 10)
+        };
+      });
   } catch (e) { return []; }
 }
 
 async function runDevScan() {
   info('developer', 'Starting dev scan...');
 
-  // ⬇️ المرحلة 1: البحث الموجه (أهم من الأخبار العامة)
+  // ⬇️ البحث الموجه في GitHub
   const directed = [];
   try {
     const r = await fetchDirectedFindings();
-    info('developer', 'Directed search: ' + r.length + ' items');
+    info('developer', 'GitHub directed search: ' + r.length + ' items');
     if (r.length) directed.push.apply(directed, r);
   } catch (e) { warn('developer', 'directed search failed: ' + e.message); }
 
-  // ⬇️ المرحلة 2: الأخبار العامة (كما كان)
-  const general = [];
-  const sources = [
-    { name: 'Hacker News', fn: fetchHN },
-    { name: 'Dev.to AI', fn: fetchDevTo }
-  ];
-  for (const s of sources) {
-    try {
-      const r = await s.fn();
-      info('developer', s.name + ' returned ' + r.length + ' items');
-      if (r.length) general.push.apply(general, r);
-    } catch (e) { warn('developer', s.name + ' failed: ' + e.message); }
-  }
-
-  // نعالج الموجه أولاً (أعلى أهمية)
-  const all = directed.concat(general);
+  const all = directed;
 
   if (all.length === 0) return { added: 0, alerts: 0 };
 
@@ -141,8 +139,9 @@ async function runDevScan() {
       if (exists) continue;
       const analysis = await analyzeRelevance(f);
       db.prepare('INSERT INTO developer_findings(category,source,title,url,description,relevance_score,relevance_reason,actionable) VALUES (?,?,?,?,?,?,?,?)')
-        .run(f.category || 'ai-news', f.source, String(f.title).slice(0, 300), f.url || '', String(f.description || '').slice(0, 500), analysis.score, String(analysis.reason).slice(0, 500), analysis.actionable ? 1 : 0);
+        .run(f.category || 'solution-attempt', f.source, String(f.title).slice(0, 300), f.url || '', String(f.description || '').slice(0, 500), analysis.score, String(analysis.reason).slice(0, 500), analysis.actionable ? 1 : 0);
       added++;
+      // ⬇️ الشرط الأصعب: score >= 8 AND actionable
       if (analysis.score >= ALERT_MIN_SCORE && analysis.actionable) {
         alertQueue.push({
           source: f.source,
@@ -169,7 +168,7 @@ async function runDevScan() {
 async function sendAlert(items) {
   try {
     const lines = [
-      '🎯 حلول لمشاكلنا الفعلية',
+      '🎯 حلول مفتوحة المصدر لمشاكلنا',
       '━━━━━━━━━━━━━━━━━━━',
       'عدد الحلول المقترحة: ' + items.length,
       ''
@@ -193,60 +192,23 @@ async function sendAlert(items) {
   }
 }
 
-async function fetchHN() {
-  try {
-    const res = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
-    if (!res.ok) return [];
-    const ids = await res.json();
-    const out = [];
-    for (let i = 0; i < Math.min(ids.length, 8); i++) {
-      try {
-        const itemRes = await fetch('https://hacker-news.firebaseio.com/v0/item/' + ids[i] + '.json');
-        if (!itemRes.ok) continue;
-        const item = await itemRes.json();
-        if (item && item.title) out.push({ category: 'hn', source: 'HackerNews', title: item.title, url: item.url || ('https://news.ycombinator.com/item?id=' + item.id), description: 'score:' + (item.score || 0) + ' | comments:' + (item.descendants || 0) });
-      } catch (e) {}
-    }
-    return out;
-  } catch (e) { return []; }
-}
-
-async function fetchDevTo() {
-  try {
-    const res = await fetch('https://dev.to/api/articles?tag=ai&top=1&per_page=8', { headers: { 'User-Agent': 'SilentGiants/1.0' } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data || []).map(function(a) {
-      return { category: 'devto', source: 'Dev.to', title: a.title || '', url: a.url || '', description: (a.description || '').slice(0, 200) + ' | reactions:' + (a.public_reactions_count || 0) };
-    }).filter(function(x) { return x.title; });
-  } catch (e) { return []; }
-}
-
 async function analyzeRelevance(finding) {
   try {
-    // ⬇️ إذا كان الاكتشاف من البحث الموجه (له مشكلة معروفة)
-    const isDirected = finding.category === 'solution-attempt';
-    let prompt;
-
-    if (isDirected) {
-      prompt = 'قيّم هذا الحل المحتمل لمشكلة معروفة في مشروع "عمالقة الصمت".\n\n' +
-        '🎯 المشكلة: ' + (finding.problemTitle || '') + '\n' +
-        'العنوان: ' + finding.title + '\n' +
-        'الوصف: ' + finding.description + '\n\n' +
-        'أجب بصيغة JSON فقط:\n' +
-        '{"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n' +
-        'معايير التقييم:\n' +
-        '- هل يحل المشكلة فعلاً؟ (4 نقاط)\n' +
-        '- هل هو مجاني/مفتوح المصدر؟ (3 نقاط)\n' +
-        '- هل يعمل بدون تسجيل/KYC؟ (3 نقاط)\n\n' +
-        'actionable=true فقط إذا كان قابلاً للتطبيق مباشرة.';
-    } else {
-      prompt = 'قيّم هذا الاكتشاف للذكاء الاصطناعي لمشروع "عمالقة الصمت" (بوت Node.js، 5 وكلاء، يستخدم Z.ai + Cloudflare + Pollinations).\n\n' +
-        'العنوان: ' + finding.title + '\n' +
-        'الوصف: ' + finding.description + '\n\n' +
-        'أجب بصيغة JSON فقط: {"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n' +
-        '0-3 غير مفيد، 4-6 مثير، 7-10 مفيد مباشرة (أداة/مكتبة/API يمكن دمجها).';
-    }
+    const prompt = 'قيّم هذا المستودع (GitHub Repo) هل يمكن أن يحل مشكلة فعلية في مشروع "عمالقة الصمت"؟\n\n' +
+      '🎯 المشكلة: ' + (finding.problemTitle || '') + '\n' +
+      'المستودع: ' + finding.title + '\n' +
+      'الوصف: ' + finding.description + '\n\n' +
+      'أجب بصيغة JSON فقط:\n' +
+      '{"score": 0-10, "reason": "سبب قصير بالعربية", "actionable": true|false}\n\n' +
+      'معايير التقييم الصارمة:\n' +
+      '- هل هو مكتبة/أداة قابلة للاستخدام فوراً (npm/pip)؟ (4 نقاط)\n' +
+      '- هل مفتوح المصدر ومجاني بالكامل؟ (3 نقاط)\n' +
+      '- هل يمكن استخدامه من Node.js أو عبر HTTP؟ (3 نقاط)\n\n' +
+      'actionable=true فقط إذا كان:\n' +
+      '1. قابلاً للتثبيت (npm install / pip install)\n' +
+      '2. يحل المشكلة المذكورة فعلاً\n' +
+      '3. لا يحتاج KYC أو دفع\n\n' +
+      'لا تُعطِ score عالياً لمقالات أو أدوات غير ذات صلة.';
 
     const raw = await callModel('developer', prompt, { noJsonMode: false, maxTokens: 200 });
     const parsed = parseJson(raw);
