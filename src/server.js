@@ -332,9 +332,10 @@ export async function startServer() {
       );
       const isTeamMessagePost = url.pathname === '/api/team/messages' && request.method === 'POST';
       const isSessionAction = url.pathname.startsWith('/api/team/sessions') && request.method === 'POST';
+      const isResetPipeline = url.pathname === '/api/admin/reset-pipeline' && request.method === 'POST';
       const localReport = url.pathname === '/report' && isLoopback(request);
 
-      if (!isPublicGet && !isTeamMessagePost && !isSessionAction && !localReport && !authorized(request, url)) {
+      if (!isPublicGet && !isTeamMessagePost && !isSessionAction && !isResetPipeline && !localReport && !authorized(request, url)) {
         return json(response, 401, { error: 'team key required' });
       }
 
@@ -408,6 +409,16 @@ export async function startServer() {
 
       if (url.pathname === '/api/team/agents') return json(response, 200, { agents: (await dashboardData()).agents });
 
+      // ⬇️ جديد: إعادة تعيين Pipeline إلى 0
+      if (url.pathname === '/api/admin/reset-pipeline' && request.method === 'POST') {
+        try {
+          db.prepare("UPDATE tasks SET reward = 0 WHERE status NOT IN ('paid','delivered')").run();
+          return json(response, 200, { ok: true, message: 'تم إعادة تعيين Pipeline' });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+
       if (url.pathname === '/api/team/tasks') {
         const tasks = db.prepare(`SELECT id, source, title, status, reward, currency, assigned_agent AS assignedAgent, fit_score AS fitScore, updated_at AS updatedAt FROM tasks ORDER BY updated_at DESC, id DESC LIMIT 100`).all();
         return json(response, 200, { tasks });
@@ -421,7 +432,7 @@ export async function startServer() {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
 
-      // ⬇️ جديد: قائمة الجلسات
+      // ⬇️ قائمة الجلسات
       if (url.pathname === '/api/team/sessions' && request.method === 'GET') {
         try {
           const sessions = await listSessions(50);
@@ -431,7 +442,7 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ جديد: إنشاء جلسة
+      // ⬇️ إنشاء جلسة
       if (url.pathname === '/api/team/sessions/new' && request.method === 'POST') {
         try {
           const body = await readBody(request);
@@ -444,7 +455,7 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ جديد: إعادة تسمية جلسة
+      // ⬇️ إعادة تسمية جلسة
       if (url.pathname === '/api/team/sessions/rename' && request.method === 'POST') {
         try {
           const body = await readBody(request);
@@ -458,7 +469,7 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ جديد: حذف جلسة
+      // ⬇️ حذف جلسة
       if (url.pathname === '/api/team/sessions/delete' && request.method === 'POST') {
         try {
           const body = await readBody(request);
