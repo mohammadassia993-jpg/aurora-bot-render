@@ -1,15 +1,18 @@
-// dashboard.js — Chat-first UI with sessions, working indicator, options
+// dashboard.js — Chat-first UI with copy, timers, reset pipeline
 (function () {
   'use strict';
 
   var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
   var STORAGE_KEY = 'sg_current_chat';
   var POLL_INTERVAL = 3000;
+  var TIMER_INTERVAL = 1000;
 
   var currentChatId = localStorage.getItem(STORAGE_KEY) || 'team';
   var currentChatTitle = 'غرفة الفريق';
   var lastMessageId = 0;
   var pollTimer = null;
+  var timerTicker = null;
+  var cachedMessages = [];
   var workingTimer = null;
   var workingStart = 0;
   var waitingForReply = false;
@@ -51,7 +54,6 @@
     setTimeout(function () { $toast.classList.remove('visible'); }, ms || 2000);
   }
 
-  // ⬇️ تحويل رسائل Turso إلى الشكل الموحد
   function normalizeTursoMessages(msgs) {
     var out = [];
     for (var i = 0; i < msgs.length; i++) {
@@ -69,8 +71,29 @@
     return out;
   }
 
-  // ===== Chat rendering =====
+  function formatDuration(ms) {
+    if (ms < 0) ms = 0;
+    var s = Math.floor(ms / 1000);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  function parseTime(iso) {
+    if (!iso) return 0;
+    var t = String(iso).trim();
+    if (t.indexOf('T') === -1 && t.indexOf(' ') !== -1) {
+      t = t.replace(' ', 'T') + 'Z';
+    }
+    var d = new Date(t);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+
+  // ===== Chat rendering with copy button + timer =====
   function renderMessages(msgs) {
+    cachedMessages = msgs || [];
     if (!msgs || !msgs.length) {
       $area.innerHTML = '<div class="empty-state"><div class="big">💬</div><div>ابدأ محادثة جديدة مع الفريق</div></div>';
       return;
@@ -92,17 +115,81 @@
           attachHtml = '<div class="attachment"><a href="' + escapeHtml(url) + '" target="_blank" style="color:#a78bfa;text-decoration:none;">📎 ' + escapeHtml(m.attachmentName) + '</a></div>';
         }
       }
+
+      // ⬇️ العداد الزمني (فقط لرسائل leader)
+      var timerHtml = '';
+      if (sender === 'leader') {
+        var startTs = parseTime(m.createdAt);
+        var endTs = null;
+        for (var j = i + 1; j < msgs.length; j++) {
+          if (msgs[j].sender === 'aurora') {
+            endTs = parseTime(msgs[j].createdAt);
+            break;
+          }
+        }
+        if (endTs) {
+          timerHtml = '<div class="msg-timer" data-start="' + startTs + '" data-end="' + endTs + '">⏱ ' + formatDuration(endTs - startTs) + ' (منتهي)</div>';
+        } else if (startTs) {
+          timerHtml = '<div class="msg-timer live" data-start="' + startTs + '" data-end="">⏱ <span class="timer-val">0:00</span> <span style="color:#a78bfa;">(يعمل...)</span></div>';
+        }
+      }
+
       var displayName = sender === 'leader' ? 'أنت' : sender;
       html += '<div class="msg ' + cls + '">' +
         '<div class="msg-meta"><span>' + escapeHtml(displayName) + '</span><span>' + escapeHtml(time) + '</span></div>' +
         escapeHtml(body) + attachHtml +
+        timerHtml +
+        '<div class="msg-actions">' +
+          '<button class="msg-copy-btn" data-idx="' + i + '" title="نسخ الرسالة">📋 نسخ</button>' +
+        '</div>' +
         '</div>';
     }
     $area.innerHTML = html;
     setTimeout(function () { $area.scrollTop = $area.scrollHeight; }, 50);
+    bindMessageButtons();
+    updateTimers();
   }
 
-  // ⬇️ معدّل: يجلب من Turso + SQLite معاً ويدمج
+  function bindMessageButtons() {
+    var btns = $area.querySelectorAll('.msg-copy-btn');
+    for (var i = 0; i < btns.length; i++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          var idx = Number(btn.getAttribute('data-idx'));
+          var m = cachedMessages[idx];
+          if (!m) return;
+          var text = (m.body || '');
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () { showToast('تم النسخ'); });
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); showToast('تم النسخ'); } catch (e) {}
+            document.body.removeChild(ta);
+          }
+        });
+      })(btns[i]);
+    }
+  }
+
+  function updateTimers() {
+    var timers = $area.querySelectorAll('.msg-timer.live');
+    for (var i = 0; i < timers.length; i++) {
+      var el = timers[i];
+      var start = Number(el.getAttribute('data-start'));
+      var end = Number(el.getAttribute('data-end'));
+      var span = el.querySelector('.timer-val');
+      if (!span || !start) continue;
+      var elapsed = (end || Date.now()) - start;
+      span.textContent = formatDuration(elapsed);
+    }
+  }
+
+  function startTimerTicker() {
+    if (timerTicker) clearInterval(timerTicker);
+    timerTicker = setInterval(updateTimers, TIMER_INTERVAL);
+  }
+
   function loadMessages() {
     var tursoUrl = '/api/team/history?session=' + encodeURIComponent(currentChatId) + '&limit=500';
     var sqliteUrl = '/api/team/messages?thread=' + encodeURIComponent(currentChatId) + '&limit=500';
@@ -114,26 +201,20 @@
       var tursoMsgs = normalizeTursoMessages(results[0].messages || []);
       var sqliteMsgs = results[1].messages || [];
 
-      // دمج حسب ID (Turso يخزن id من SQLite الأصلي)
       var seen = {};
       var merged = [];
-      // SQLite أولاً (يحوي بيانات كاملة كالمرفقات)
       for (var i = 0; i < sqliteMsgs.length; i++) {
         var s = sqliteMsgs[i];
-        var key = 'sql-' + s.id;
-        seen[key] = true;
+        seen['sql-' + s.id] = true;
         merged.push(s);
       }
-      // Turso ثانياً (لتغطية ما حُذف محلياً)
       for (var j = 0; j < tursoMsgs.length; j++) {
         var t = tursoMsgs[j];
-        var k = 'sql-' + t.id;
-        if (!seen[k]) {
+        if (!seen['sql-' + t.id]) {
           merged.push(t);
-          seen[k] = true;
+          seen['sql-' + t.id] = true;
         }
       }
-      // ترتيب حسب الوقت
       merged.sort(function (a, b) {
         return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
       });
@@ -144,11 +225,16 @@
       } else {
         lastMessageId = 0;
       }
+      if (waitingForReply && merged.length > 1) {
+        var last = merged[merged.length - 1];
+        if (last.sender === 'aurora') {
+          stopWorkingIndicator();
+        }
+      }
       return merged;
     }).catch(function (e) { console.error('load failed', e); });
   }
 
-  // ===== Sending =====
   function sendMessage() {
     var text = ($body.value || '').trim();
     if (!text && !attachedFile) return;
@@ -177,7 +263,6 @@
       .finally(function () { $sendBtn.disabled = false; });
   }
 
-  // ===== Working indicator =====
   function startWorkingIndicator() {
     workingStart = Date.now();
     $statusPill.classList.add('visible');
@@ -193,18 +278,10 @@
   }
 
   function updateWorkingText() {
-    var elapsed = Math.floor((Date.now() - workingStart) / 1000);
-    var h = Math.floor(elapsed / 3600);
-    var m = Math.floor((elapsed % 3600) / 60);
-    var s = elapsed % 60;
-    var parts = [];
-    if (h > 0) parts.push(h + ' س');
-    if (m > 0 || h > 0) parts.push(m + ' د');
-    parts.push(s + ' ث');
-    $statusText.textContent = 'الفريق يعمل... ' + parts.join(' ');
+    var elapsed = Date.now() - workingStart;
+    $statusText.textContent = 'الفريق يعمل... ' + formatDuration(elapsed);
   }
 
-  // ⬇️ معدّل: يستخدم loadMessages عند تغير الرسائل
   function startPolling() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function () {
@@ -220,9 +297,7 @@
           loadMessages().then(function () {
             if (waitingForReply && tursoMsgs.length > 1) {
               var last = tursoMsgs[tursoMsgs.length - 1];
-              if (last.sender === 'aurora') {
-                stopWorkingIndicator();
-              }
+              if (last.sender === 'aurora') stopWorkingIndicator();
             }
           });
         }
@@ -230,7 +305,6 @@
     }, POLL_INTERVAL);
   }
 
-  // ===== Sidebar / sessions =====
   function loadSessions() {
     return api('/api/team/sessions').then(function (data) {
       sessions = data.sessions || [];
@@ -353,7 +427,6 @@
       .catch(function (e) { showToast('فشل: ' + e.message, 2500); });
   }
 
-  // ===== Sidebar open/close =====
   function openSidebar() {
     $sidebar.classList.add('open');
     $sidebarOverlay.classList.add('open');
@@ -364,7 +437,6 @@
     $sidebarOverlay.classList.remove('open');
   }
 
-  // ===== Top-left icon (inside chat) =====
   function openChatOptions() {
     showModal([
       { label: '📋 نسخ المحادثة', action: copyChat },
@@ -387,7 +459,7 @@
       } else {
         var ta = document.createElement('textarea');
         ta.value = text; document.body.appendChild(ta); ta.select();
-        try { document.execCommand('copy'); showToast('تم النسخ'); } catch (e) { showToast('تعذر النسخ'); }
+        try { document.execCommand('copy'); showToast('تم النسخ'); } catch (e) {}
         document.body.removeChild(ta);
       }
     });
@@ -420,7 +492,6 @@
     ]);
   }
 
-  // ===== Modal =====
   function showModal(items) {
     var html = '';
     for (var i = 0; i < items.length; i++) {
@@ -462,7 +533,6 @@
     document.getElementById('prompt-cancel').addEventListener('click', closeModal);
   }
 
-  // ===== Attachments =====
   function openAttachMenu() {
     showModal([
       { label: '🖼️ الصور', action: function () { openFilePicker('image/*'); } },
@@ -501,7 +571,6 @@
     $attachName.textContent = '';
   }
 
-  // ===== Panels =====
   function openPanel(tab) {
     closeSidebar();
     if (tab === 'main') { showDashboardPanel(); return; }
@@ -545,6 +614,7 @@
     var c = document.getElementById('panel-content');
     if (t) t.textContent = '📊 حالة النظام';
     if (c) c.innerHTML = '<div class="empty-state">جاري التحميل...</div>';
+
     api('/api/dashboard').then(function (d) {
       var fin = d.finance || {};
       var agents = d.agents || [];
@@ -554,11 +624,25 @@
       html += statBox('Pipeline', 'USD ' + (fin.pipeline || 0));
       html += statBox('مهام مكتملة', String(fin.completedTasks || 0));
       html += '</div>';
+      html += '<button id="reset-pipeline-btn" style="width:100%;padding:10px;background:#7f1d1d;color:#fecaca;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:16px;">🔄 إعادة تعيين Pipeline إلى 0</button>';
       html += '<h3 style="color:#a78bfa;margin-bottom:12px;">👥 الوكلاء</h3>';
       for (var i = 0; i < agents.length; i++) {
         html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #334155;"><span>' + escapeHtml(agents[i].name) + '</span><span style="color:#34d399;">' + escapeHtml(agents[i].status || 'idle') + '</span></div>';
       }
       if (c) c.innerHTML = html;
+
+      var resetBtn = document.getElementById('reset-pipeline-btn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', function () {
+          if (!confirm('سيتم تصفير قيمة Pipeline (لن تُحذف أي مهام). متابعة؟')) return;
+          api('/api/admin/reset-pipeline', { method: 'POST' })
+            .then(function () {
+              showToast('تم إعادة التعيين ✅');
+              setTimeout(showDashboardPanel, 800);
+            })
+            .catch(function (e) { showToast('فشل: ' + e.message, 3000); });
+        });
+      }
     }).catch(function () { if (c) c.innerHTML = '<div class="empty-state">تعذر التحميل</div>'; });
   }
 
@@ -580,7 +664,6 @@
     });
   }
 
-  // ===== Init =====
   function init() {
     $area = $('chat-area');
     $body = $('msg-body');
@@ -642,14 +725,8 @@
         $panelOverlay.classList.remove('open');
         return;
       }
-      if ($sidebar && $sidebar.classList.contains('open')) {
-        closeSidebar();
-        return;
-      }
-      if ($modal && $modal.classList.contains('open')) {
-        closeModal();
-        return;
-      }
+      if ($sidebar && $sidebar.classList.contains('open')) { closeSidebar(); return; }
+      if ($modal && $modal.classList.contains('open')) { closeModal(); return; }
     });
 
     if ($panelOverlay) {
@@ -662,6 +739,7 @@
     loadMessages();
     loadSessions();
     startPolling();
+    startTimerTicker();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
