@@ -1,41 +1,53 @@
 // known-problems.js — قائمة المشاكل الفعلية لمنظومة عمالقة الصمت
-// يتم تحديثها يدوياً. وكيل المطور يبحث عن حلول لها.
+// كلمات البحث مُحسّنة لـ GitHub Search API (star-based)
 
 export const KNOWN_PROBLEMS = [
   {
     id: 'chunked-write',
     title: 'Chunked Write لا يعمل',
-    keywords: ['chunked file write llm', 'multi-step file edit agent', 'large file generation llm'],
+    githubQuery: 'llm agent file writer streaming stars:>100',
     category: 'ai-agent'
   },
   {
     id: 'json-complex',
     title: 'JSON معقد يفشل مع النماذج الضعيفة',
-    keywords: ['robust json output llm', 'structured output fallback', 'json repair llm'],
+    githubQuery: 'llm structured output json validation stars:>100',
     category: 'ai-agent'
   },
   {
     id: 'free-providers-syria',
     title: 'نحتاج مزودي AI يعملون من سوريا',
-    keywords: ['free llm api no signup', 'open source llm api free', 'llm api no credit card'],
+    githubQuery: 'llm api proxy free openai compatible stars:>50',
     category: 'ai-provider'
   },
   {
     id: 'sqlite-cloud',
     title: 'قاعدة بيانات دائمة مجانية',
-    keywords: ['free sqlite cloud', 'serverless database free tier', 'sqlite over http free'],
+    githubQuery: 'sqlite cloud serverless edge stars:>50',
     category: 'database'
   },
   {
     id: 'long-context-memory',
     title: 'ذاكرة طويلة للمحادثات بدون هلوسة',
-    keywords: ['long context memory llm', 'conversation summarization agent', 'rag memory chat'],
+    githubQuery: 'llm long term memory rag agent stars:>200',
     category: 'memory'
   },
   {
     id: 'multi-provider-fallback',
     title: 'نظام تبديل ذكي بين مزودي AI',
-    keywords: ['llm provider fallback router', 'multi provider load balancing llm'],
+    githubQuery: 'llm multi provider router fallback stars:>50',
+    category: 'ai-agent'
+  },
+  {
+    id: 'telegram-bot-framework',
+    title: 'تحسين بوت تيليجرام',
+    githubQuery: 'telegram bot nodejs framework stars:>200',
+    category: 'telegram'
+  },
+  {
+    id: 'agent-orchestration',
+    title: 'تحسين تنسيق الوكلاء',
+    githubQuery: 'multi agent orchestration framework stars:>500',
     category: 'ai-agent'
   }
 ];
