@@ -2,7 +2,6 @@
 (function () {
   'use strict';
 
-  // ⬇️ حماية من التحميل المزدوج
   if (window.__sgDashboardLoaded) return;
   window.__sgDashboardLoaded = true;
 
@@ -23,7 +22,6 @@
   var sessions = [];
   var attachedFile = null;
   var panelHistoryPushed = false;
-  // ⬇️ قفل الإرسال
   var sendingInProgress = false;
   var lastSendTime = 0;
 
@@ -96,6 +94,13 @@
     }
     var d = new Date(t);
     return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+
+  // ⬇️ مفتاح تفريد بالمحتوى (بدلاً من ID)
+  function messageKey(m) {
+    return String(m.sender || '') + '|' +
+           String(m.body || '').slice(0, 200) + '|' +
+           String(m.createdAt || '').slice(0, 16);
   }
 
   function renderMessages(msgs) {
@@ -206,20 +211,27 @@
       var tursoMsgs = normalizeTursoMessages(results[0].messages || []);
       var sqliteMsgs = results[1].messages || [];
 
+      // ⬇️ الدمج بمفتاح المحتوى (sender|body|time)
       var seen = {};
       var merged = [];
-      for (var i = 0; i < sqliteMsgs.length; i++) {
-        var s = sqliteMsgs[i];
-        seen['sql-' + s.id] = true;
-        merged.push(s);
-      }
+
+      // Turso أولاً (أحدث البيانات)
       for (var j = 0; j < tursoMsgs.length; j++) {
         var t = tursoMsgs[j];
-        if (!seen['sql-' + t.id]) {
-          merged.push(t);
-          seen['sql-' + t.id] = true;
-        }
+        var key = messageKey(t);
+        if (seen[key]) continue;
+        seen[key] = true;
+        merged.push(t);
       }
+      // SQLite ثانياً (يحتوي على المرفقات الكاملة)
+      for (var i = 0; i < sqliteMsgs.length; i++) {
+        var s = sqliteMsgs[i];
+        var k = messageKey(s);
+        if (seen[k]) continue;
+        seen[k] = true;
+        merged.push(s);
+      }
+
       merged.sort(function (a, b) {
         return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
       });
@@ -240,11 +252,10 @@
     }).catch(function (e) { console.error('load failed', e); });
   }
 
-  // ⬇️ معدّل: حماية من الإرسال المزدوج
   function sendMessage() {
     if (sendingInProgress) return;
     var now = Date.now();
-    if (now - lastSendTime < 2000) return; // حماية إضافية
+    if (now - lastSendTime < 2000) return;
     var text = ($body.value || '').trim();
     if (!text && !attachedFile) return;
 
@@ -681,7 +692,6 @@
   }
 
   function init() {
-    // ⬇️ حماية إضافية: لا تُسجّل المستمعين مرتين
     if (window.__sgDashboardInited) return;
     window.__sgDashboardInited = true;
 
