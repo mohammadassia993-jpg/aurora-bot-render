@@ -1,6 +1,10 @@
-// dashboard.js — Chat-first UI with copy, timers, reset pipeline
+// dashboard.js — Chat-first UI with copy, timers, reset pipeline (anti double-send)
 (function () {
   'use strict';
+
+  // ⬇️ حماية من التحميل المزدوج
+  if (window.__sgDashboardLoaded) return;
+  window.__sgDashboardLoaded = true;
 
   var TEAM_KEY = '8cdQ7WY9SvAGxe6SfFPlngj0_UbX6Cr';
   var STORAGE_KEY = 'sg_current_chat';
@@ -19,6 +23,9 @@
   var sessions = [];
   var attachedFile = null;
   var panelHistoryPushed = false;
+  // ⬇️ قفل الإرسال
+  var sendingInProgress = false;
+  var lastSendTime = 0;
 
   var $area, $body, $sendBtn, $attachBtn, $fileInput, $sidebar, $sidebarOverlay,
       $chatsListInner, $currentTitle, $statusPill, $statusText, $toast,
@@ -91,7 +98,6 @@
     return isNaN(d.getTime()) ? 0 : d.getTime();
   }
 
-  // ===== Chat rendering with copy button + timer =====
   function renderMessages(msgs) {
     cachedMessages = msgs || [];
     if (!msgs || !msgs.length) {
@@ -116,7 +122,6 @@
         }
       }
 
-      // ⬇️ العداد الزمني (فقط لرسائل leader)
       var timerHtml = '';
       if (sender === 'leader') {
         var startTs = parseTime(m.createdAt);
@@ -235,10 +240,18 @@
     }).catch(function (e) { console.error('load failed', e); });
   }
 
+  // ⬇️ معدّل: حماية من الإرسال المزدوج
   function sendMessage() {
+    if (sendingInProgress) return;
+    var now = Date.now();
+    if (now - lastSendTime < 2000) return; // حماية إضافية
     var text = ($body.value || '').trim();
     if (!text && !attachedFile) return;
+
+    sendingInProgress = true;
+    lastSendTime = now;
     $sendBtn.disabled = true;
+
     var payload = {
       sender: 'leader',
       recipient: 'all',
@@ -260,7 +273,10 @@
         waitingForReply = true;
       })
       .catch(function (e) { showToast('فشل: ' + e.message, 3000); })
-      .finally(function () { $sendBtn.disabled = false; });
+      .finally(function () {
+        $sendBtn.disabled = false;
+        setTimeout(function () { sendingInProgress = false; }, 2500);
+      });
   }
 
   function startWorkingIndicator() {
@@ -665,6 +681,10 @@
   }
 
   function init() {
+    // ⬇️ حماية إضافية: لا تُسجّل المستمعين مرتين
+    if (window.__sgDashboardInited) return;
+    window.__sgDashboardInited = true;
+
     $area = $('chat-area');
     $body = $('msg-body');
     $sendBtn = $('send-btn');
