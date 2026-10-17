@@ -1,11 +1,10 @@
-// ai.js — Pollinations (primary, no key) + Z.ai + NagaAI + Cloudflare + HF
-// Env vars: ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN
+// ai.js — Pollinations (primary) + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
+// Env vars: ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN, OPENROUTER_API_KEY
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
-// ============ Pollinations (GET endpoint — لا يحتاج مفتاحاً) ============
-const POLL_BASE = 'https://text.pollinations.ai';
+const POLL_URL = 'https://text.pollinations.ai/openai';
 const POLL_MODEL = 'openai';
 
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
@@ -20,6 +19,11 @@ const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
+// ⬇️ جديد: OpenRouter
+const OR_KEY = process.env.OPENROUTER_API_KEY || '';
+const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OR_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
 const HF_MODELS = ['meta-llama/Llama-3.3-70B-Instruct'];
@@ -30,7 +34,7 @@ const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ============ Pollinations (GET) ============
+// ============ Pollinations ============
 async function callPollinations(messages, options = {}) {
   let system = '';
   let prompt = '';
@@ -47,7 +51,7 @@ async function callPollinations(messages, options = {}) {
   if (system) params.set('system', system);
   if (options.json) params.set('json', 'true');
 
-  const url = POLL_BASE + '/' + encodeURIComponent(prompt) + '?' + params.toString();
+  const url = POLL_URL + '/' + encodeURIComponent(prompt) + '?' + params.toString();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 120000);
   try {
@@ -104,6 +108,7 @@ async function callZAIWithFallback(messages, options) {
   throw lastErr || new Error('ZAI all attempts failed');
 }
 
+// ============ NAGAAI ============
 async function callNagaAI(messages, options = {}) {
   if (!NAGA_KEY) throw new Error('NAGAAI_API_KEY missing');
   const ctrl = new AbortController();
@@ -130,6 +135,7 @@ async function callNagaAI(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
+// ============ CLOUDFLARE ============
 async function callCF(messages, options = {}) {
   if (!CF_ACCOUNT || !CF_TOKEN) throw new Error('CF env missing');
   const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT + '/ai/run/' + CF_MODEL;
@@ -151,6 +157,40 @@ async function callCF(messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
+// ============ OPENROUTER ============
+async function callOpenRouter(messages, options = {}) {
+  if (!OR_KEY) throw new Error('OPENROUTER_API_KEY missing');
+  const body = {
+    model: options.model || OR_MODEL,
+    messages,
+    max_tokens: options.maxTokens || 4000,
+    temperature: options.temperature !== undefined ? options.temperature : 0.3
+  };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const res = await fetch(OR_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + OR_KEY,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://silent-giants-render-backup.onrender.com',
+        'X-Title': 'Silent Giants'
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    const raw = await res.text();
+    if (!res.ok) throw new Error('OpenRouter ' + res.status + ': ' + raw.slice(0, 250));
+    const data = JSON.parse(raw);
+    const message = data && data.choices && data.choices[0] && data.choices[0].message;
+    const text = message && (message.content || message.reasoning);
+    if (!text) throw new Error('OpenRouter empty');
+    return String(text);
+  } finally { clearTimeout(t); }
+}
+
+// ============ HUGGINGFACE ============
 async function callHF(model, messages, options = {}) {
   if (!HF_TOKEN) throw new Error('HF_TOKEN missing');
   const ctrl = new AbortController();
@@ -171,6 +211,7 @@ async function callHF(model, messages, options = {}) {
   } finally { clearTimeout(t); }
 }
 
+// ============ PUBLIC API ============
 export function selectModel() { return 'pollinations-router'; }
 
 export function availableModels() {
@@ -179,6 +220,7 @@ export function availableModels() {
     { name: 'zai', model: ZAI_MODEL, role: 'secondary' },
     { name: 'nagaai', model: NAGA_MODEL, role: 'tertiary' },
     { name: 'cloudflare', model: CF_MODEL, role: 'quaternary' },
+    { name: 'openrouter', model: OR_MODEL, role: 'quinary' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'last-resort' }))
   ];
 }
@@ -258,7 +300,22 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // 5. HuggingFace
+  // 5. OpenRouter (Nemotron)
+  if (OR_KEY) {
+    try {
+      const r = await callOpenRouter(messages, callOpts);
+      trackOk('openrouter'); recordUsage('openrouter', OR_MODEL, true);
+      console.log('[ai] OpenRouter success');
+      return r;
+    } catch (e) {
+      trackFail('openrouter', e.message);
+      recordUsage('openrouter', OR_MODEL, false, e.message);
+      errors.push('OpenRouter:' + String(e.message).slice(0,80));
+      console.error('[ai] OpenRouter failed:', e.message);
+    }
+  }
+
+  // 6. HuggingFace
   for (const model of HF_MODELS) {
     try {
       const r = await callHF(model, messages, callOpts);
