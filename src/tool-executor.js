@@ -49,7 +49,7 @@ function* walkFiles(dir, maxDepth = 5, currentDepth = 0) {
   }
 }
 
-// ⬇️ دالة مساعدة جديدة: إزالة وسوم HTML من النتائج
+// دالة مساعدة: إزالة وسوم HTML
 function stripHtml(s) {
   return String(s || '')
     .replace(/<[^>]*>/g, '')
@@ -321,9 +321,48 @@ async function securityAudit({}) {
 }
 
 async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' }) {
-  const mod = await import('./browser.js');
-  if (!mod.isEnabled()) throw new Error('Browserless not configured');
-  return await withTimeout(mod.browseUrl(url, { waitMs, waitUntil }), BROWSER_TIMEOUT_MS, 'browse_url');
+  // 1) جرّب Browserless أولاً
+  try {
+    const mod = await import('./browser.js');
+    if (mod.isEnabled()) {
+      const result = await withTimeout(mod.browseUrl(url, { waitMs, waitUntil }), BROWSER_TIMEOUT_MS, 'browse_url');
+      if (result && result.text && result.text.length > 100) {
+        return result;
+      }
+    }
+  } catch (e) {
+    console.warn('[browse_url] Browserless failed, falling back to fetch: ' + e.message);
+  }
+
+  // 2) احتياطي: fetch مباشر + استخراج نص
+  const res = await withTimeout(fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3'
+    }
+  }), TOOL_TIMEOUT_MS, 'browse_url_fetch');
+
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const html = await res.text();
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const title = titleMatch ? stripHtml(titleMatch[1]).slice(0, 200) : '';
+
+  let text = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ');
+
+  text = stripHtml(text);
+
+  return {
+    url: url,
+    title: title,
+    textLength: text.length,
+    text: text.slice(0, 12000)
+  };
 }
 
 async function browserSearch({ query, waitMs = 1500 }) {
@@ -474,13 +513,11 @@ async function listFiles({ dir = '.', max_depth = 2 }) {
   return { dir, count: items.length, items: items.slice(0, 200) };
 }
 
-// ⬇️ محرك بحث جديد ومحسّن
 async function webSearch({ query, max_results = 5 }) {
   if (!query || String(query).length < 2) throw new Error('query required');
   const q = String(query).trim();
   const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-  // Engine 1: DuckDuckGo HTML (بحث حقيقي)
   try {
     const res = await withTimeout(fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), {
       headers: {
@@ -493,13 +530,11 @@ async function webSearch({ query, max_results = 5 }) {
       const html = await res.text();
       const results = [];
       const snippets = [];
-      // استخراج المقاطع أولاً
       const snippetRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
       let sm;
       while ((sm = snippetRe.exec(html)) !== null) {
         snippets.push(stripHtml(sm[1]));
       }
-      // استخراج الروابط والعناوين
       const linkRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
       let lm;
       let idx = 0;
@@ -522,9 +557,8 @@ async function webSearch({ query, max_results = 5 }) {
         return { query: q, count: results.length, results, engine: 'duckduckgo-html' };
       }
     }
-  } catch (e) { /* المتابعة إلى المحرك التالي */ }
+  } catch (e) { }
 
-  // Engine 2: Wikipedia العربية (احتياطي للمعلومات العامة)
   try {
     const res = await withTimeout(fetch('https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
       headers: { 'User-Agent': UA }
@@ -544,9 +578,8 @@ async function webSearch({ query, max_results = 5 }) {
         return { query: q, count: results.length, results, engine: 'wikipedia-ar' };
       }
     }
-  } catch (e) { /* المتابعة إلى المحرك التالي */ }
+  } catch (e) { }
 
-  // Engine 3: Wikipedia English
   try {
     const res = await withTimeout(fetch('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
       headers: { 'User-Agent': UA }
@@ -566,7 +599,7 @@ async function webSearch({ query, max_results = 5 }) {
         return { query: q, count: results.length, results, engine: 'wikipedia-en' };
       }
     }
-  } catch (e) { /* انتهت المحاولات */ }
+  } catch (e) { }
 
   return { query: q, count: 0, results: [], error: 'no_results_all_engines' };
 }
