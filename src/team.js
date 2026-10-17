@@ -25,7 +25,7 @@ teamEvents.setMaxListeners(200);
 const MAX_AGENT_STEPS = 8;
 const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
-const MAX_FINAL_WORDS = 120;
+const MAX_FINAL_WORDS = 150;
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -91,9 +91,16 @@ function buildAgentPrompt(userMessage, ctx) {
 
   return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only.
 
+DEEP THINKING PROTOCOL (MANDATORY):
+Before you act, you MUST follow this internal reasoning loop:
+1. 🧠 THINK: Analyze the user's request deeply. What is the real goal? What are the hidden requirements?
+2. 📋 PLAN: Which tools do you need? What is the sequence of actions?
+3. ⚙️ ACT: Execute the tools one by one.
+4. 🔍 REFLECT: Look at the tool's output. Is it complete? Is it accurate? If not, adjust your plan.
+5. ✍️ WRITE: Synthesize the final answer based on facts, not assumptions.
+
 LANGUAGE RULE (CRITICAL):
 - Any "text" field in your JSON response MUST be in Arabic (العربية الفصحى).
-- Example: {"action":"final","text":"الملف يحتوي على 178 سطراً"}
 
 TOOLS:
 ${toolsList}
@@ -102,25 +109,27 @@ FORMAT:
 Tool: {"action":"tool","tool":"<name>","params":{...}}
 Final: {"action":"final","text":"<Arabic text>"}
 
-RULES (12):
+RULES (15):
 1. JSON only. No markdown.
 2. ONE action per response.
 3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words, in Arabic).
-4. Never repeat failed tool with same params.
-5. Final text must be in Arabic, concise. No greetings.
+4. Never repeat failed tool with same params. Reflect and try a DIFFERENT approach.
+5. Final text must be in Arabic, concise, and professional. No greetings.
 6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message. insert_at_line: path,line,content,message. replace_file: path,content,message. browse_url: url. browser_search: query.
-7. Never invent files.
-8. If info in RAG/memory → no tools.
+7. Never invent files or data. If you don't know, search for it.
+8. If info in RAG/memory → no tools, answer directly.
 9. Multi-part question → final asking for one point (in Arabic).
-10. On tool fail → try DIFFERENT approach.
-11. For REWRITING a full file (any size) → use github_replace_file with the complete new content in ONE call. Do NOT use file_rewrite_start/add/finish.
+10. On tool fail → analyze why it failed, then try DIFFERENT approach.
+11. For REWRITING a full file → use github_replace_file with the complete new content in ONE call. Do NOT use file_rewrite_start/add/finish.
 12. TO INSERT AT LINE: use github_insert_at_line.
+13. If the user asks for deep research or analysis, you MUST use at least one search/read tool before answering.
+14. Be extremely critical of your own work during the REFLECT phase.
+15. If the task is complex, do not rush to final; take multiple steps if needed.
 
 EXAMPLES:
 "اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
 "استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore"}}
 "أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New","message":"docs"}}
-"أدرج بعد السطر 47 في team.js" → {"action":"tool","tool":"github_insert_at_line","params":{"path":"src/team.js","line":48,"content":"...","message":"feat"}}
 "اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
 "افتح example.com" → {"action":"tool","tool":"browse_url","params":{"url":"https://example.com"}}
 "2+2" → {"action":"final","text":"4"}
@@ -309,7 +318,7 @@ async function runAgentLoop(userMessage, ctx) {
 
       const txt = JSON.stringify(toolResult).slice(0, 1500);
       const emoji = toolResult.ok ? '✅' : '❌';
-      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\nأكمل بـ JSON:';
+      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\nحلل النتيجة (Reflect) ثم أكمل بـ JSON:';
       continue;
     }
 
@@ -386,7 +395,6 @@ export function listMessagesByThread(thread, limit = 200) {
 }
 
 export async function createMessage(input) {
-  // ⬇️ التعديل: استخدام thread القادم من الواجهة بدل 'team' الثابت
   const sessionId = String(input.thread || input.session_id || 'team').slice(0, 100);
   let attachment = { name: '', type: '', size: 0, path: '' };
   if (input.attachment?.base64) attachment = await saveAttachment(input.attachment);
@@ -394,7 +402,6 @@ export async function createMessage(input) {
   const messageId = Number(result.lastInsertRowid);
   const message = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
 
-  // حفظ في Turso تحت نفس الجلسة
   persistToTurso(sessionId, input.sender || 'leader', String(input.body || ''), JSON.stringify({
     recipient: input.recipient || 'all',
     thread: sessionId,
