@@ -183,10 +183,10 @@ export async function startServer() {
           const key = process.env.OPENROUTER_API_KEY;
           if (!key) return json(response, 500, { ok: false, error: 'OPENROUTER_API_KEY missing' });
           const models = [
-            'deepseek/deepseek-v4-flash:free',
-            'deepseek/deepseek-chat-v3.1:free',
-            'qwen/qwen3.6-plus-preview:free',
-            'meta-llama/llama-3.3-70b-instruct:free'
+            'deepseek/deepseek-r1-0528:free',
+            'qwen/qwen3.6-plus:free',
+            'meta-llama/llama-3.3-70b-instruct:free',
+            'nvidia/nemotron-3-super-120b-a12b:free'
           ];
           const results = [];
           for (const model of models) {
