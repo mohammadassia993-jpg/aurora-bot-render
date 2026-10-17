@@ -182,12 +182,7 @@ export async function startServer() {
         try {
           const key = process.env.OPENROUTER_API_KEY;
           if (!key) return json(response, 500, { ok: false, error: 'OPENROUTER_API_KEY missing' });
-          const models = [
-            'deepseek/deepseek-r1-0528:free',
-            'qwen/qwen3.6-plus:free',
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'nvidia/nemotron-3-super-120b-a12b:free'
-          ];
+          const models = ['nvidia/nemotron-3-super-120b-a12b:free'];
           const results = [];
           for (const model of models) {
             try {
@@ -201,23 +196,23 @@ export async function startServer() {
                 },
                 body: JSON.stringify({
                   model: model,
-                  messages: [{ role: 'user', content: 'قل مرحبا' }],
-                  max_tokens: 30
+                  messages: [{ role: 'user', content: 'قل مرحبا فقط' }],
+                  max_tokens: 300
                 })
               });
               const data = await res.json();
-              const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+              const message = data && data.choices && data.choices[0] && data.choices[0].message;
+              const content = message && (message.content || message.reasoning);
               results.push({
                 model: model,
                 status: res.status,
                 ok: res.ok,
-                content: content ? String(content).slice(0, 100) : null,
-                error: data && data.error ? String(data.error.message || '').slice(0, 150) : null
+                content: content ? String(content).slice(0, 300) : null,
+                error: data && data.error ? String(data.error.message || '').slice(0, 200) : null
               });
             } catch (e) {
               results.push({ model: model, status: 0, ok: false, error: e.message });
             }
-            await new Promise(r => setTimeout(r, 800));
           }
           return json(response, 200, { tested: results.length, results });
         } catch (e) {
