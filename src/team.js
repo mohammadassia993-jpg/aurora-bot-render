@@ -22,10 +22,11 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 12;        // رُفع من 8 (يتيح بحثاً أعمق)
+const MAX_AGENT_STEPS = 12;
 const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
-const MAX_FINAL_WORDS = 250;       // رُفع من 150 (تحليل أعمق)
+const MAX_FINAL_WORDS = 250;
+const MIN_FINAL_WORDS = 20;
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -92,24 +93,21 @@ function buildAgentPrompt(userMessage, ctx) {
   return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only.
 
 DEEP THINKING PROTOCOL (MANDATORY):
-1. 🧠 THINK: Analyze the user's request. Is it SIMPLE (question) or RESEARCH (needs search/compare)?
-2. 📋 PLAN: For research, plan a multi-step flow.
+1. 🧠 THINK: Analyze the user's request. SIMPLE question or RESEARCH task?
+2. 📋 PLAN: For research, plan multi-step flow.
 3. ⚙️ ACT: Execute tools one by one.
 4. 🔍 REFLECT: Review results critically.
-5. ✍️ WRITE: Synthesize a rich answer with sources.
+5. ✍️ WRITE: Synthesize rich answer with sources.
 
-RESEARCH FLOW (STRICTLY FOLLOW FOR RESEARCH TASKS):
-If the user asks to "search", "find", "compare", "recommend", "analyze", or asks about multiple options:
-- Step A: call web_search with a clear query.
-- Step B: from the returned URLs, pick the top 2-3 and call browse_url OR browser_extract for each to get real content.
-- Step C: after you have read at least 2 pages, synthesize a detailed final answer.
-- NEVER finalize a research task with just a list of titles. You MUST have read actual content first.
+RESEARCH FLOW (STRICTLY ENFORCED BY CODE):
+- Step 1: call web_search.
+- Step 2: pick top 2 URLs from results and call browse_url for each.
+- Step 3: read the page content.
+- Step 4: synthesize final answer with real facts from the pages.
+- ⚠️ If you call web_search but don't browse 2 URLs, your "final" will be REJECTED by the system automatically. You will be forced to continue.
 
-SIMPLE TASK FLOW:
-If the user asks a direct question (e.g., "2+2", "what is X"), answer with final in one step.
-
-LANGUAGE RULE (CRITICAL):
-- Any "text" field in your JSON response MUST be in Arabic (العربية الفصحى).
+LANGUAGE RULE:
+- Any "text" field MUST be in Arabic (العربية الفصحى).
 
 TOOLS:
 ${toolsList}
@@ -121,29 +119,25 @@ Final: {"action":"final","text":"<Arabic text>"}
 RULES (16):
 1. JSON only. No markdown.
 2. ONE action per response.
-3. Simple questions → 1 tool → final. Research tasks → multi-step (search + browse + analyze).
-4. Never repeat failed tool with same params. Try a DIFFERENT approach.
-5. Final text must be in Arabic, detailed, and reference sources. No greetings.
-6. read: file_path. edit: path,search,replace,message. browse_url: url. web_search: query. browser_extract: url.
-7. Never invent files or data. If unsure, search.
-8. If info in RAG/memory → no tools, answer directly.
-9. On tool fail → analyze why, then try DIFFERENT approach.
-10. For REWRITING a full file → use github_replace_file with complete content in ONE call.
-11. TO INSERT AT LINE: use github_insert_at_line.
-12. For research, you MUST visit 2+ URLs from web_search results before finalizing.
-13. Do NOT output titles only. Real analysis requires reading content.
-14. For comparisons, structure the answer as a table or clear sections.
-15. Always cite URLs at the end of your final answer under a "المصادر:" section.
-16. Be extremely critical during REFLECT. If the tool result is insufficient, do another search.
+3. Simple question → final in one step.
+4. Research task → web_search + 2 browse_url + final.
+5. Never repeat failed tool with same params.
+6. Final must be in Arabic, detailed, with URLs under "المصادر:".
+7. Never invent data. If unsure, search.
+8. On tool fail → try DIFFERENT approach.
+9. For REWRITING files → use github_replace_file.
+10. TO INSERT AT LINE: use github_insert_at_line.
+11. For research, you MUST visit 2+ URLs before final.
+12. Do NOT output titles only. Analysis requires reading content.
+13. For comparisons, use tables or clear sections.
+14. Cite URLs at the end under "المصادر:".
+15. Be critical during REFLECT.
+16. If the tool result is insufficient, search again with a different query.
 
 EXAMPLES:
-"اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
-"اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
 "2+2" → {"action":"final","text":"4"}
-"ابحث عن X وحلله" → Step 1: {"action":"tool","tool":"web_search","params":{"query":"X"}}
-                    → Step 2: {"action":"tool","tool":"browse_url","params":{"url":"<url1>"}}
-                    → Step 3: {"action":"tool","tool":"browse_url","params":{"url":"<url2>"}}
-                    → Step 4: {"action":"final","text":"<تحليل مفصل مع مصادر>"}
+"ابحث عن X" → {"action":"tool","tool":"web_search","params":{"query":"X"}}
+"اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
 
 ${ragContext ? ragContext + '\n' : ''}${memoryContext}System: ${ctx.healthy}/${ctx.total} healthy
 User: ${userMessage}
@@ -220,7 +214,6 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'github_replace_file') return '✅ استبدال كامل لـ ' + data.path + ' (' + data.originalLines + ' → ' + data.newLines + ' سطر)\n' + (data.commitUrl || '');
   if (toolName === 'security_audit') return '🔒 تقرير أمني:\n' + String(data?.report || '').slice(0, 800);
 
-  // ⬇️ محسّن: نتائج البحث تعرض URLs + مقتطفات
   if (toolName === 'web_search' || toolName === 'browser_search') {
     if (!data?.results?.length) return '🌐 لا نتائج';
     const lines = ['🌐 ' + data.count + ' نتائج:'];
@@ -234,10 +227,9 @@ function formatToolResult(toolName, toolResult, originalParams) {
     return lines.join('\n');
   }
 
-  // ⬇️ محسّن: محتوى الصفحات يعرض كمية أكبر
   if (toolName === 'browse_url' || toolName === 'browser_extract') {
     if (!data?.title && !data?.text) return '🌐 فتح الصفحة (بدون نص)';
-    return '🌐 ' + (data.title || '') + '\nحجم النص: ' + (data.textLength || 0) + ' حرف\n' + String(data.text || '').slice(0, 2500);
+    return '🌐 ' + (data.title || '') + '\nحجم النص: ' + (data.textLength || 0) + ' حرف\n' + String(data.text || '').slice(0, 3000);
   }
 
   if (toolName === 'browser_screenshot') return '📸 ' + (data.bytes || 0) + ' بايت';
@@ -264,6 +256,11 @@ async function runAgentLoop(userMessage, ctx) {
   const executedOps = new Set();
   let lastCriticalTool = null;
   let pendingAutoVerify = null;
+
+  // عدّادات التحقق من البحث
+  let webSearchCount = 0;
+  let browseCount = 0;
+  let finalRejectedCount = 0;
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
@@ -314,6 +311,10 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: normalizedParams });
 
+      // عدّ الإجراءات البحثية
+      if (parsed.tool === 'web_search') webSearchCount++;
+      if (parsed.tool === 'browse_url' || parsed.tool === 'browser_extract') browseCount++;
+
       if (!toolResult.ok) {
         try { recordLesson('aurora', null, 'error', parsed.tool + '_fail', parsed.tool + ' فشل: ' + String(toolResult.error).slice(0, 100), 1.1); } catch {}
       }
@@ -336,10 +337,13 @@ async function runAgentLoop(userMessage, ctx) {
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
 
-      // ⬇️ رُفع من 1500 إلى 8000 حتى تصل النتائج كاملة للنموذج
       const txt = JSON.stringify(toolResult).slice(0, 8000);
       const emoji = toolResult.ok ? '✅' : '❌';
-      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\nحلل النتيجة (Reflect). إذا كانت المهمة بحثية، انتقل لزيارة الروابط. ثم أكمل بـ JSON:';
+      let nextInstruction = 'حلل النتيجة (Reflect) ثم أكمل بـ JSON:';
+      if (parsed.tool === 'web_search' && toolResult.ok && browseCount === 0) {
+        nextInstruction = '⚠️ الآن يجب عليك زيارة رابطين على الأقل من النتائج أعلاه باستخدام browse_url قبل الإجابة النهائية. اختر أفضل 2 روابط واطلب محتواها.';
+      }
+      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\n' + nextInstruction;
       continue;
     }
 
@@ -348,19 +352,24 @@ async function runAgentLoop(userMessage, ctx) {
       let summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
 
+      // إلزام: إذا استُخدم web_search ولم نزر 2 روابط → ارفض
+      if (webSearchCount > 0 && browseCount < 2 && finalRejectedCount < 2) {
+        finalRejectedCount++;
+        conversation += '\n\n🛑 تم رفض "final". السبب: استخدمت web_search (' + webSearchCount + ' مرة) لكنك زرت فقط ' + browseCount + ' رابط. \nيجب عليك الآن استخدام browse_url لزيارة رابطين على الأقل من نتائج البحث قبل إعطاء الإجابة النهائية.';
+        continue;
+      }
+
+      // إلزام: إذا استُخدمت أي أداة بحث، الإجابة يجب أن تكون 20 كلمة على الأقل
+      if (toolResults.length > 0 && countWords(summary) < MIN_FINAL_WORDS) {
+        conversation += '\n\n⚠️ إجابتك قصيرة جداً (' + countWords(summary) + ' كلمة). الحد الأدنى هو ' + MIN_FINAL_WORDS + ' كلمة. أعد صياغة تحليل مفصّل بالعربية.';
+        continue;
+      }
+
       if (countWords(summary) > MAX_FINAL_WORDS * 1.5) {
         summary = summary.split(/\s+/).slice(0, MAX_FINAL_WORDS).join(' ') + '...';
       }
 
-      // ⬇️ رفع الحد الأدنى: نطلب 15 كلمة على الأقل لأي مهمة تم فيها استخدام أداة
-      if (toolResults.length > 0) {
-        const minWords = 15;
-        const hasGoodSummary = summary && countWords(summary) >= minWords;
-        if (hasGoodSummary) return summary;
-        conversation += '\n\n⚠️ إجابتك قصيرة جداً. استخدمت ' + toolResults.length + ' أداة، لكنك لم تحلل النتائج. أعد المحاولة بـ final يحتوي على تحليل مفصل بالعربية.';
-        continue;
-      }
-      if (summary && summary.length > 3) return summary;
+      return summary;
     }
   }
 
