@@ -46,7 +46,8 @@ const PUBLIC_GET_PATHS = new Set([
   '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/team/history', '/api/team/sessions',
   '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability',
   '/api/wallets/balances', '/api/status',
-  '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive'
+  '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive',
+  '/api/admin/test-openrouter'
 ]);
 
 async function readBody(request) {
@@ -176,6 +177,33 @@ export async function startServer() {
       }
 
       if (url.pathname === '/keepalive') return json(response, 200, { ok: true, at: new Date().toISOString() });
+
+      // ⬇️ اختبار مؤقت لـ OpenRouter (سنحذفه بعد التأكد)
+      if (url.pathname === '/api/admin/test-openrouter' && request.method === 'GET') {
+        try {
+          const key = process.env.OPENROUTER_API_KEY;
+          if (!key) return json(response, 500, { ok: false, error: 'OPENROUTER_API_KEY missing' });
+          const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + key,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'https://silent-giants-render-backup.onrender.com',
+              'X-Title': 'Silent Giants'
+            },
+            body: JSON.stringify({
+              model: 'deepseek/deepseek-chat',
+              messages: [{ role: 'user', content: 'قل مرحبا بالعربية' }],
+              max_tokens: 50
+            })
+          });
+          const raw = await res.text();
+          return json(response, res.status, { status: res.status, ok: res.ok, response: raw.slice(0, 500) });
+        } catch (e) {
+          return json(response, 500, { ok: false, error: e.message });
+        }
+      }
+      // ⬆️ نهاية الاختبار
 
       if (url.pathname === '/status') {
         return json(response, 200, {
@@ -409,7 +437,6 @@ export async function startServer() {
 
       if (url.pathname === '/api/team/agents') return json(response, 200, { agents: (await dashboardData()).agents });
 
-      // ⬇️ جديد: إعادة تعيين Pipeline إلى 0
       if (url.pathname === '/api/admin/reset-pipeline' && request.method === 'POST') {
         try {
           db.prepare("UPDATE tasks SET reward = 0 WHERE status NOT IN ('paid','delivered')").run();
@@ -432,7 +459,6 @@ export async function startServer() {
         return json(response, 200, { messages: listMessages(url.searchParams.get('limit')) });
       }
 
-      // ⬇️ قائمة الجلسات
       if (url.pathname === '/api/team/sessions' && request.method === 'GET') {
         try {
           const sessions = await listSessions(50);
@@ -442,7 +468,6 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ إنشاء جلسة
       if (url.pathname === '/api/team/sessions/new' && request.method === 'POST') {
         try {
           const body = await readBody(request);
@@ -455,7 +480,6 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ إعادة تسمية جلسة
       if (url.pathname === '/api/team/sessions/rename' && request.method === 'POST') {
         try {
           const body = await readBody(request);
@@ -469,7 +493,6 @@ export async function startServer() {
         }
       }
 
-      // ⬇️ حذف جلسة
       if (url.pathname === '/api/team/sessions/delete' && request.method === 'POST') {
         try {
           const body = await readBody(request);
