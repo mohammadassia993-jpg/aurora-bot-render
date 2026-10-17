@@ -22,10 +22,10 @@ export const AGENTS = [
 export const teamEvents = new EventEmitter();
 teamEvents.setMaxListeners(200);
 
-const MAX_AGENT_STEPS = 8;
+const MAX_AGENT_STEPS = 12;        // رُفع من 8 (يتيح بحثاً أعمق)
 const STEP_DELAY_MS = 500;
 const TELEGRAM_MAX_LEN = 3800;
-const MAX_FINAL_WORDS = 150;
+const MAX_FINAL_WORDS = 250;       // رُفع من 150 (تحليل أعمق)
 const CRITICAL_TOOLS = new Set(['write_file', 'render_env_set']);
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -92,12 +92,21 @@ function buildAgentPrompt(userMessage, ctx) {
   return `You are Aurora, coordinator of the Silent Giants team. Output ONE JSON object only.
 
 DEEP THINKING PROTOCOL (MANDATORY):
-Before you act, you MUST follow this internal reasoning loop:
-1. 🧠 THINK: Analyze the user's request deeply. What is the real goal? What are the hidden requirements?
-2. 📋 PLAN: Which tools do you need? What is the sequence of actions?
-3. ⚙️ ACT: Execute the tools one by one.
-4. 🔍 REFLECT: Look at the tool's output. Is it complete? Is it accurate? If not, adjust your plan.
-5. ✍️ WRITE: Synthesize the final answer based on facts, not assumptions.
+1. 🧠 THINK: Analyze the user's request. Is it SIMPLE (question) or RESEARCH (needs search/compare)?
+2. 📋 PLAN: For research, plan a multi-step flow.
+3. ⚙️ ACT: Execute tools one by one.
+4. 🔍 REFLECT: Review results critically.
+5. ✍️ WRITE: Synthesize a rich answer with sources.
+
+RESEARCH FLOW (STRICTLY FOLLOW FOR RESEARCH TASKS):
+If the user asks to "search", "find", "compare", "recommend", "analyze", or asks about multiple options:
+- Step A: call web_search with a clear query.
+- Step B: from the returned URLs, pick the top 2-3 and call browse_url OR browser_extract for each to get real content.
+- Step C: after you have read at least 2 pages, synthesize a detailed final answer.
+- NEVER finalize a research task with just a list of titles. You MUST have read actual content first.
+
+SIMPLE TASK FLOW:
+If the user asks a direct question (e.g., "2+2", "what is X"), answer with final in one step.
 
 LANGUAGE RULE (CRITICAL):
 - Any "text" field in your JSON response MUST be in Arabic (العربية الفصحى).
@@ -109,31 +118,32 @@ FORMAT:
 Tool: {"action":"tool","tool":"<name>","params":{...}}
 Final: {"action":"final","text":"<Arabic text>"}
 
-RULES (15):
+RULES (16):
 1. JSON only. No markdown.
 2. ONE action per response.
-3. After ANY tool succeeds → reply with final (max ${MAX_FINAL_WORDS} words, in Arabic).
-4. Never repeat failed tool with same params. Reflect and try a DIFFERENT approach.
-5. Final text must be in Arabic, concise, and professional. No greetings.
-6. read: file_path. edit: path,search,replace,message. append: path,content,message. create: path,content,message. delete: path,message. insert_at_line: path,line,content,message. replace_file: path,content,message. browse_url: url. browser_search: query.
-7. Never invent files or data. If you don't know, search for it.
+3. Simple questions → 1 tool → final. Research tasks → multi-step (search + browse + analyze).
+4. Never repeat failed tool with same params. Try a DIFFERENT approach.
+5. Final text must be in Arabic, detailed, and reference sources. No greetings.
+6. read: file_path. edit: path,search,replace,message. browse_url: url. web_search: query. browser_extract: url.
+7. Never invent files or data. If unsure, search.
 8. If info in RAG/memory → no tools, answer directly.
-9. Multi-part question → final asking for one point (in Arabic).
-10. On tool fail → analyze why it failed, then try DIFFERENT approach.
-11. For REWRITING a full file → use github_replace_file with the complete new content in ONE call. Do NOT use file_rewrite_start/add/finish.
-12. TO INSERT AT LINE: use github_insert_at_line.
-13. If the user asks for deep research or analysis, you MUST use at least one search/read tool before answering.
-14. Be extremely critical of your own work during the REFLECT phase.
-15. If the task is complex, do not rush to final; take multiple steps if needed.
+9. On tool fail → analyze why, then try DIFFERENT approach.
+10. For REWRITING a full file → use github_replace_file with complete content in ONE call.
+11. TO INSERT AT LINE: use github_insert_at_line.
+12. For research, you MUST visit 2+ URLs from web_search results before finalizing.
+13. Do NOT output titles only. Real analysis requires reading content.
+14. For comparisons, structure the answer as a table or clear sections.
+15. Always cite URLs at the end of your final answer under a "المصادر:" section.
+16. Be extremely critical during REFLECT. If the tool result is insufficient, do another search.
 
 EXAMPLES:
 "اقرأ config.js" → {"action":"tool","tool":"read_file","params":{"file_path":"config.js"}}
-"استبدل 3000 بـ 8788 في config.js" → {"action":"tool","tool":"github_edit_file","params":{"path":"config.js","search":"3000","replace":"8788","message":"chore"}}
-"أضف سطراً في نهاية RULES.md" → {"action":"tool","tool":"github_append_file","params":{"path":"RULES.md","content":"\\n## New","message":"docs"}}
 "اعرض src" → {"action":"tool","tool":"github_list_repo","params":{"path":"src"}}
-"افتح example.com" → {"action":"tool","tool":"browse_url","params":{"url":"https://example.com"}}
 "2+2" → {"action":"final","text":"4"}
-"ما دروسك؟" → {"action":"final","text":"دروسي: X، Y، Z"}
+"ابحث عن X وحلله" → Step 1: {"action":"tool","tool":"web_search","params":{"query":"X"}}
+                    → Step 2: {"action":"tool","tool":"browse_url","params":{"url":"<url1>"}}
+                    → Step 3: {"action":"tool","tool":"browse_url","params":{"url":"<url2>"}}
+                    → Step 4: {"action":"final","text":"<تحليل مفصل مع مصادر>"}
 
 ${ragContext ? ragContext + '\n' : ''}${memoryContext}System: ${ctx.healthy}/${ctx.total} healthy
 User: ${userMessage}
@@ -187,24 +197,20 @@ function formatToolResult(toolName, toolResult, originalParams) {
   }
   if (toolName === 'read_file') {
     if (!data?.content) return '📄 فارغ';
-    return '📄 ' + (data.path || '') + ' (' + (data.total_lines || '?') + ' سطر):\n' + String(data.content).slice(0, 1500);
+    return '📄 ' + (data.path || '') + ' (' + (data.total_lines || '?') + ' سطر):\n' + String(data.content).slice(0, 2000);
   }
   if (toolName === 'read_many_files') {
     if (!data?.files) return '📄 لا ملفات';
     const lines = ['📚 ' + data.count + ' ملف:'];
     for (const f of data.files) {
       if (f.error) lines.push('❌ ' + f.file + ': ' + f.error);
-      else lines.push('📄 ' + f.file + ':\n' + String(f.content).slice(0, 500));
+      else lines.push('📄 ' + f.file + ':\n' + String(f.content).slice(0, 800));
     }
     return lines.join('\n');
   }
-  if (toolName === 'list_files') {
+  if (toolName === 'list_files' || toolName === 'github_list_repo') {
     if (!data?.items) return '📂 فارغ';
-    return '📂 ' + data.dir + ' (' + data.count + '):\n' + data.items.slice(0, 30).map(i => (i.type === 'dir' ? '📁' : '📄') + ' ' + i.path).join('\n');
-  }
-  if (toolName === 'github_list_repo') {
-    if (!data?.items) return '📂 فارغ';
-    return '📂 ' + data.path + ' (' + data.count + '):\n' + data.items.slice(0, 40).map(i => (i.type === 'dir' ? '📁' : '📄') + ' ' + i.name).join('\n');
+    return '📂 ' + (data.path || data.dir || '') + ' (' + data.count + '):\n' + data.items.slice(0, 40).map(i => (i.type === 'dir' ? '📁' : '📄') + ' ' + (i.name || i.path)).join('\n');
   }
   if (toolName === 'github_edit_file') return '✅ ' + data.path + ' (' + data.replacements + ')\n' + (data.commitUrl || '');
   if (toolName === 'github_append_file') return '✅ ' + data.path + ' (+' + data.bytesAdded + 'B)\n' + (data.commitUrl || '');
@@ -213,14 +219,27 @@ function formatToolResult(toolName, toolResult, originalParams) {
   if (toolName === 'github_insert_at_line') return '✅ إدراج في ' + data.path + ' عند السطر ' + data.atLine + ' (+' + data.linesAdded + ' سطر)\n' + (data.commitUrl || '');
   if (toolName === 'github_replace_file') return '✅ استبدال كامل لـ ' + data.path + ' (' + data.originalLines + ' → ' + data.newLines + ' سطر)\n' + (data.commitUrl || '');
   if (toolName === 'security_audit') return '🔒 تقرير أمني:\n' + String(data?.report || '').slice(0, 800);
+
+  // ⬇️ محسّن: نتائج البحث تعرض URLs + مقتطفات
   if (toolName === 'web_search' || toolName === 'browser_search') {
     if (!data?.results?.length) return '🌐 لا نتائج';
-    return '🌐 ' + data.count + ' نتائج:\n' + data.results.slice(0, 5).map((r, i) => (i+1) + '. ' + String(r.title).slice(0, 80)).join('\n');
+    const lines = ['🌐 ' + data.count + ' نتائج:'];
+    for (let i = 0; i < data.results.length && i < 5; i++) {
+      const r = data.results[i];
+      lines.push('');
+      lines.push('【' + (i + 1) + '】 ' + String(r.title || '').slice(0, 120));
+      if (r.url) lines.push('🔗 ' + r.url);
+      if (r.snippet) lines.push('📝 ' + String(r.snippet).slice(0, 280));
+    }
+    return lines.join('\n');
   }
+
+  // ⬇️ محسّن: محتوى الصفحات يعرض كمية أكبر
   if (toolName === 'browse_url' || toolName === 'browser_extract') {
-    if (!data?.title) return '🌐 فتح الصفحة';
-    return '🌐 ' + data.title + '\nحجم النص: ' + (data.textLength || 0) + ' حرف\n' + String(data.text || '').slice(0, 600);
+    if (!data?.title && !data?.text) return '🌐 فتح الصفحة (بدون نص)';
+    return '🌐 ' + (data.title || '') + '\nحجم النص: ' + (data.textLength || 0) + ' حرف\n' + String(data.text || '').slice(0, 2500);
   }
+
   if (toolName === 'browser_screenshot') return '📸 ' + (data.bytes || 0) + ' بايت';
   if (toolName === 'render_env_get') return '🔧 ' + (data.count || 0) + ' متغيرات';
   if (toolName === 'render_env_set') return '✅ ' + data.key;
@@ -262,7 +281,7 @@ async function runAgentLoop(userMessage, ctx) {
 
     let raw;
     try { raw = await callModel('aurora', conversation, { noJsonMode: false, step, failures: consecutiveFailures }); }
-    catch (e) { console.error('[agent] step ' + step + ' LLM: ' + e.message); continue; }
+    catch (e) { console.error('[agent] step ' + step + ' LLM: ' + e.message); consecutiveFailures++; continue; }
 
     if (!raw || String(raw).trim().length < 5) { consecutiveFailures++; continue; }
 
@@ -285,7 +304,8 @@ async function runAgentLoop(userMessage, ctx) {
 
       const opKey = parsed.tool + '|' + JSON.stringify(normalizedParams);
       if (executedOps.has(opKey) && parsed.tool !== 'github_edit_file') {
-        return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
+        conversation += '\n\n⚠️ هذا الطلب مكرر. جرّب أداة مختلفة أو أنهِ المهمة.';
+        continue;
       }
       executedOps.add(opKey);
 
@@ -316,9 +336,10 @@ async function runAgentLoop(userMessage, ctx) {
         return toolResults.map(tr => formatToolResult(tr.tool, tr.result, tr.params)).join('\n\n');
       }
 
-      const txt = JSON.stringify(toolResult).slice(0, 1500);
+      // ⬇️ رُفع من 1500 إلى 8000 حتى تصل النتائج كاملة للنموذج
+      const txt = JSON.stringify(toolResult).slice(0, 8000);
       const emoji = toolResult.ok ? '✅' : '❌';
-      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\nحلل النتيجة (Reflect) ثم أكمل بـ JSON:';
+      conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\nحلل النتيجة (Reflect). إذا كانت المهمة بحثية، انتقل لزيارة الروابط. ثم أكمل بـ JSON:';
       continue;
     }
 
@@ -331,12 +352,13 @@ async function runAgentLoop(userMessage, ctx) {
         summary = summary.split(/\s+/).slice(0, MAX_FINAL_WORDS).join(' ') + '...';
       }
 
+      // ⬇️ رفع الحد الأدنى: نطلب 15 كلمة على الأقل لأي مهمة تم فيها استخدام أداة
       if (toolResults.length > 0) {
-        const hasGoodSummary = summary && countWords(summary) >= 3;
+        const minWords = 15;
+        const hasGoodSummary = summary && countWords(summary) >= minWords;
         if (hasGoodSummary) return summary;
-        const parts = [];
-        for (const tr of toolResults) parts.push(formatToolResult(tr.tool, tr.result, tr.params), '');
-        return parts.join('\n').trim();
+        conversation += '\n\n⚠️ إجابتك قصيرة جداً. استخدمت ' + toolResults.length + ' أداة، لكنك لم تحلل النتائج. أعد المحاولة بـ final يحتوي على تحليل مفصل بالعربية.';
+        continue;
       }
       if (summary && summary.length > 3) return summary;
     }
