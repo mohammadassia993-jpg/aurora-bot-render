@@ -178,11 +178,12 @@ export async function startServer() {
 
       if (url.pathname === '/keepalive') return json(response, 200, { ok: true, at: new Date().toISOString() });
 
-      // ⬇️ اختبار مؤقت لـ OpenRouter (سنحذفه بعد التأكد)
+      // ⬇️ اختبار OpenRouter: يستخدم openrouter/free افتراضياً (مجاني)
       if (url.pathname === '/api/admin/test-openrouter' && request.method === 'GET') {
         try {
           const key = process.env.OPENROUTER_API_KEY;
           if (!key) return json(response, 500, { ok: false, error: 'OPENROUTER_API_KEY missing' });
+          const model = url.searchParams.get('model') || 'openrouter/free';
           const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -192,13 +193,13 @@ export async function startServer() {
               'X-Title': 'Silent Giants'
             },
             body: JSON.stringify({
-              model: 'deepseek/deepseek-chat',
+              model: model,
               messages: [{ role: 'user', content: 'قل مرحبا بالعربية' }],
               max_tokens: 50
             })
           });
           const raw = await res.text();
-          return json(response, res.status, { status: res.status, ok: res.ok, response: raw.slice(0, 500) });
+          return json(response, res.status, { status: res.status, ok: res.ok, model: model, response: raw.slice(0, 500) });
         } catch (e) {
           return json(response, 500, { ok: false, error: e.message });
         }
