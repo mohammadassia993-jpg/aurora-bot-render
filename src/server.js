@@ -46,8 +46,7 @@ const PUBLIC_GET_PATHS = new Set([
   '/api/dashboard', '/api/team/agents', '/api/team/tasks', '/api/team/messages', '/api/team/history', '/api/team/sessions',
   '/api/notifications', '/api/live', '/api/ai-usage', '/api/observability',
   '/api/wallets/balances', '/api/status',
-  '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive',
-  '/api/admin/test-openrouter'
+  '/ai-usage', '/observability', '/wallets.html', '/dashboard.js', '/status', '/health', '/keepalive'
 ]);
 
 async function readBody(request) {
@@ -177,48 +176,6 @@ export async function startServer() {
       }
 
       if (url.pathname === '/keepalive') return json(response, 200, { ok: true, at: new Date().toISOString() });
-
-      if (url.pathname === '/api/admin/test-openrouter' && request.method === 'GET') {
-        try {
-          const key = process.env.OPENROUTER_API_KEY;
-          if (!key) return json(response, 500, { ok: false, error: 'OPENROUTER_API_KEY missing' });
-          const models = ['nvidia/nemotron-3-super-120b-a12b:free'];
-          const results = [];
-          for (const model of models) {
-            try {
-              const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Authorization': 'Bearer ' + key,
-                  'Content-Type': 'application/json',
-                  'HTTP-Referer': 'https://silent-giants-render-backup.onrender.com',
-                  'X-Title': 'Silent Giants'
-                },
-                body: JSON.stringify({
-                  model: model,
-                  messages: [{ role: 'user', content: 'قل مرحبا فقط' }],
-                  max_tokens: 300
-                })
-              });
-              const data = await res.json();
-              const message = data && data.choices && data.choices[0] && data.choices[0].message;
-              const content = message && (message.content || message.reasoning);
-              results.push({
-                model: model,
-                status: res.status,
-                ok: res.ok,
-                content: content ? String(content).slice(0, 300) : null,
-                error: data && data.error ? String(data.error.message || '').slice(0, 200) : null
-              });
-            } catch (e) {
-              results.push({ model: model, status: 0, ok: false, error: e.message });
-            }
-          }
-          return json(response, 200, { tested: results.length, results });
-        } catch (e) {
-          return json(response, 500, { ok: false, error: e.message });
-        }
-      }
 
       if (url.pathname === '/status') {
         return json(response, 200, {
