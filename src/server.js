@@ -1,4 +1,4 @@
-import http from 'node:http';
+١import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import zlib from 'node:zlib';
@@ -178,28 +178,49 @@ export async function startServer() {
 
       if (url.pathname === '/keepalive') return json(response, 200, { ok: true, at: new Date().toISOString() });
 
-      // ⬇️ اختبار OpenRouter: يستخدم openrouter/free افتراضياً (مجاني)
+      // ⬇️ اختبار OpenRouter: نماذج محادثة محددة
       if (url.pathname === '/api/admin/test-openrouter' && request.method === 'GET') {
         try {
           const key = process.env.OPENROUTER_API_KEY;
           if (!key) return json(response, 500, { ok: false, error: 'OPENROUTER_API_KEY missing' });
-          const model = url.searchParams.get('model') || 'openrouter/free';
-          const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + key,
-              'Content-Type': 'application/json',
-              'HTTP-Referer': 'https://silent-giants-render-backup.onrender.com',
-              'X-Title': 'Silent Giants'
-            },
-            body: JSON.stringify({
-              model: model,
-              messages: [{ role: 'user', content: 'قل مرحبا بالعربية' }],
-              max_tokens: 50
-            })
-          });
-          const raw = await res.text();
-          return json(response, res.status, { status: res.status, ok: res.ok, model: model, response: raw.slice(0, 500) });
+          const models = [
+            'deepseek/deepseek-r1:free',
+            'meta-llama/llama-3.3-70b-instruct:free',
+            'qwen/qwen-2.5-72b-instruct:free',
+            'google/gemma-2-9b-it:free'
+          ];
+          const results = [];
+          for (const model of models) {
+            try {
+              const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': 'Bearer ' + key,
+                  'Content-Type': 'application/json',
+                  'HTTP-Referer': 'https://silent-giants-render-backup.onrender.com',
+                  'X-Title': 'Silent Giants'
+                },
+                body: JSON.stringify({
+                  model: model,
+                  messages: [{ role: 'user', content: 'اكتب كلمة: مرحبا' }],
+                  max_tokens: 30
+                })
+              });
+              const data = await res.json();
+              const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+              results.push({
+                model: model,
+                status: res.status,
+                ok: res.ok,
+                content: content ? String(content).slice(0, 100) : null,
+                error: data && data.error ? String(data.error.message || '').slice(0, 150) : null
+              });
+            } catch (e) {
+              results.push({ model: model, status: 0, ok: false, error: e.message });
+            }
+            await new Promise(r => setTimeout(r, 800));
+          }
+          return json(response, 200, { tested: results.length, results });
         } catch (e) {
           return json(response, 500, { ok: false, error: e.message });
         }
