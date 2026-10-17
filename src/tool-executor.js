@@ -49,6 +49,21 @@ function* walkFiles(dir, maxDepth = 5, currentDepth = 0) {
   }
 }
 
+// ⬇️ دالة مساعدة جديدة: إزالة وسوم HTML من النتائج
+function stripHtml(s) {
+  return String(s || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function cleanDdgUrl(url) {
   if (!url) return '';
   try {
@@ -459,22 +474,101 @@ async function listFiles({ dir = '.', max_depth = 2 }) {
   return { dir, count: items.length, items: items.slice(0, 200) };
 }
 
+// ⬇️ محرك بحث جديد ومحسّن
 async function webSearch({ query, max_results = 5 }) {
   if (!query || String(query).length < 2) throw new Error('query required');
   const q = String(query).trim();
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+  // Engine 1: DuckDuckGo HTML (بحث حقيقي)
   try {
-    const res = await withTimeout(fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(q) + '&format=json&no_html=1&skip_disambig=1&t=sg', { headers: { 'User-Agent': 'SG/1.0' } }), SEARCH_TIMEOUT_MS, 'ddg_ia');
+    const res = await withTimeout(fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), {
+      headers: {
+        'User-Agent': UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3'
+      }
+    }), SEARCH_TIMEOUT_MS, 'ddg_html');
+    if (res.ok) {
+      const html = await res.text();
+      const results = [];
+      const snippets = [];
+      // استخراج المقاطع أولاً
+      const snippetRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+      let sm;
+      while ((sm = snippetRe.exec(html)) !== null) {
+        snippets.push(stripHtml(sm[1]));
+      }
+      // استخراج الروابط والعناوين
+      const linkRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let lm;
+      let idx = 0;
+      while ((lm = linkRe.exec(html)) !== null && results.length < max_results) {
+        let url = cleanDdgUrl(lm[1]);
+        const uddg = url.match(/[?&]uddg=([^&]+)/);
+        if (uddg) url = decodeURIComponent(uddg[1]);
+        const title = stripHtml(lm[2]);
+        if (url && url.startsWith('http') && title) {
+          results.push({
+            title: title.slice(0, 150),
+            snippet: (snippets[idx] || '').slice(0, 400),
+            url: url,
+            source: 'DuckDuckGo'
+          });
+          idx++;
+        }
+      }
+      if (results.length > 0) {
+        return { query: q, count: results.length, results, engine: 'duckduckgo-html' };
+      }
+    }
+  } catch (e) { /* المتابعة إلى المحرك التالي */ }
+
+  // Engine 2: Wikipedia العربية (احتياطي للمعلومات العامة)
+  try {
+    const res = await withTimeout(fetch('https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
+      headers: { 'User-Agent': UA }
+    }), SEARCH_TIMEOUT_MS, 'wikipedia_ar');
     if (res.ok) {
       const data = await res.json();
-      const results = [];
-      if (data.AbstractText) results.push({ title: data.Heading || q, snippet: String(data.AbstractText).slice(0, 400), url: cleanDdgUrl(data.AbstractURL || ''), source: 'DDG' });
-      for (const t of (data.RelatedTopics || []).slice(0, max_results)) {
-        if (t.Text && t.FirstURL) results.push({ title: String(t.Text).split(' - ')[0].slice(0, 120), snippet: String(t.Text).slice(0, 300), url: cleanDdgUrl(t.FirstURL), source: 'DDG' });
+      const hits = (data && data.query && data.query.search) || [];
+      if (hits.length > 0) {
+        const results = hits.map(function(h) {
+          return {
+            title: String(h.title || '').slice(0, 150),
+            snippet: stripHtml(h.snippet || '').slice(0, 300),
+            url: 'https://ar.wikipedia.org/wiki/' + encodeURIComponent(h.title || ''),
+            source: 'Wikipedia (AR)'
+          };
+        });
+        return { query: q, count: results.length, results, engine: 'wikipedia-ar' };
       }
-      if (results.length > 0) return { query: q, count: results.length, results: results.slice(0, max_results), engine: 'ddg_instant' };
     }
-  } catch {}
-  return { query: q, count: 0, results: [], error: 'no_results' };
+  } catch (e) { /* المتابعة إلى المحرك التالي */ }
+
+  // Engine 3: Wikipedia English
+  try {
+    const res = await withTimeout(fetch('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
+      headers: { 'User-Agent': UA }
+    }), SEARCH_TIMEOUT_MS, 'wikipedia_en');
+    if (res.ok) {
+      const data = await res.json();
+      const hits = (data && data.query && data.query.search) || [];
+      if (hits.length > 0) {
+        const results = hits.map(function(h) {
+          return {
+            title: String(h.title || '').slice(0, 150),
+            snippet: stripHtml(h.snippet || '').slice(0, 300),
+            url: 'https://en.wikipedia.org/wiki/' + encodeURIComponent(h.title || ''),
+            source: 'Wikipedia (EN)'
+          };
+        });
+        return { query: q, count: results.length, results, engine: 'wikipedia-en' };
+      }
+    }
+  } catch (e) { /* انتهت المحاولات */ }
+
+  return { query: q, count: 0, results: [], error: 'no_results_all_engines' };
 }
 
 async function renderEnvGet({}) {
@@ -566,7 +660,7 @@ export const AVAILABLE_TOOLS = [
   { name: 'browser_search', description: 'بحث في الإنترنت عبر متصفح سحابي.', params: { query: 'string' } },
   { name: 'browser_screenshot', description: 'لقطة شاشة لصفحة ويب.', params: { url: 'string', fullPage: 'boolean' } },
   { name: 'browser_extract', description: 'استخراج نص من صفحة ويب.', params: { url: 'string' } },
-  { name: 'web_search', description: 'بحث سريع عبر DuckDuckGo.', params: { query: 'string' } },
+  { name: 'web_search', description: 'بحث حقيقي في الإنترنت (DuckDuckGo + Wikipedia).', params: { query: 'string' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string' } },
   { name: 'read_many_files', description: 'قراءة عدة ملفات.', params: { files: 'string[]' } },
   { name: 'list_files', description: 'سرد مجلد محلي.', params: { dir: 'string' } },
