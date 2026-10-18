@@ -6,8 +6,8 @@ import { classifyTask, selectModelForTask } from './model-router.js';
 
 // ============ GEMINI ============
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
-const GEMINI_MODEL = 'gemini-1.5-flash';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 // ============ POLLINATIONS ============
 const POLL_URL = 'https://text.pollinations.ai/openai';
@@ -83,7 +83,6 @@ async function callGemini(messages, options = {}) {
     if (!res.ok) throw new Error('Gemini ' + res.status + ': ' + raw.slice(0, 250));
     const data = JSON.parse(raw);
     
-    // استخراج النص من استجابة Gemini
     if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
       const text = data.candidates[0].content.parts.map(p => p.text || '').join('');
       if (!text) throw new Error('Gemini empty response');
