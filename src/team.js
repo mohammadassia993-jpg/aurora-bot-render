@@ -257,10 +257,10 @@ async function runAgentLoop(userMessage, ctx) {
   let lastCriticalTool = null;
   let pendingAutoVerify = null;
 
-  // عدّادات التحقق من البحث
   let webSearchCount = 0;
   let browseCount = 0;
   let finalRejectedCount = 0;
+  let searchFailed = false;
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
@@ -311,8 +311,14 @@ async function runAgentLoop(userMessage, ctx) {
       catch (e) { toolResult = { ok: false, error: e.message }; }
       toolResults.push({ tool: parsed.tool, result: toolResult, params: normalizedParams });
 
-      // عدّ الإجراءات البحثية
-      if (parsed.tool === 'web_search') webSearchCount++;
+      if (parsed.tool === 'web_search') {
+        webSearchCount++;
+        if (!toolResult.ok || !toolResult.result?.results?.length) {
+          searchFailed = true;
+        } else {
+          searchFailed = false;
+        }
+      }
       if (parsed.tool === 'browse_url' || parsed.tool === 'browser_extract') browseCount++;
 
       if (!toolResult.ok) {
@@ -340,8 +346,12 @@ async function runAgentLoop(userMessage, ctx) {
       const txt = JSON.stringify(toolResult).slice(0, 8000);
       const emoji = toolResult.ok ? '✅' : '❌';
       let nextInstruction = 'حلل النتيجة (Reflect) ثم أكمل بـ JSON:';
-      if (parsed.tool === 'web_search' && toolResult.ok && browseCount === 0) {
-        nextInstruction = '⚠️ الآن يجب عليك زيارة رابطين على الأقل من النتائج أعلاه باستخدام browse_url قبل الإجابة النهائية. اختر أفضل 2 روابط واطلب محتواها.';
+      if (parsed.tool === 'web_search') {
+        if (toolResult.ok && browseCount === 0) {
+          nextInstruction = '⚠️ الآن يجب عليك زيارة رابطين على الأقل من النتائج أعلاه باستخدام browse_url قبل الإجابة النهائية. اختر أفضل 2 روابط واطلب محتواها.';
+        } else if (!toolResult.ok) {
+          nextInstruction = '⚠️ محرك البحث لم يعد نتائج. جرّب استعلاماً مختلفاً (كلمات أقل). إذا فشلت المحاولة الثانية، أنهِ المهمة بـ final مع توضيح أن البحث تعذر.';
+        }
       }
       conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\n' + nextInstruction;
       continue;
@@ -352,14 +362,12 @@ async function runAgentLoop(userMessage, ctx) {
       let summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
 
-      // إلزام: إذا استُخدم web_search ولم نزر 2 روابط → ارفض
-      if (webSearchCount > 0 && browseCount < 2 && finalRejectedCount < 2) {
+      if (webSearchCount > 0 && browseCount < 2 && finalRejectedCount < 2 && !searchFailed) {
         finalRejectedCount++;
         conversation += '\n\n🛑 تم رفض "final". السبب: استخدمت web_search (' + webSearchCount + ' مرة) لكنك زرت فقط ' + browseCount + ' رابط. \nيجب عليك الآن استخدام browse_url لزيارة رابطين على الأقل من نتائج البحث قبل إعطاء الإجابة النهائية.';
         continue;
       }
 
-      // إلزام: إذا استُخدمت أي أداة بحث، الإجابة يجب أن تكون 20 كلمة على الأقل
       if (toolResults.length > 0 && countWords(summary) < MIN_FINAL_WORDS) {
         conversation += '\n\n⚠️ إجابتك قصيرة جداً (' + countWords(summary) + ' كلمة). الحد الأدنى هو ' + MIN_FINAL_WORDS + ' كلمة. أعد صياغة تحليل مفصّل بالعربية.';
         continue;
@@ -367,6 +375,10 @@ async function runAgentLoop(userMessage, ctx) {
 
       if (countWords(summary) > MAX_FINAL_WORDS * 1.5) {
         summary = summary.split(/\s+/).slice(0, MAX_FINAL_WORDS).join(' ') + '...';
+      }
+
+      if (searchFailed) {
+        summary = '⚠️ (ملاحظة: تعذر البحث في الإنترنت، الإجابة بناءً على المعرفة العامة)\n\n' + summary;
       }
 
       return summary;
