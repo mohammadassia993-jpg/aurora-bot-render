@@ -74,6 +74,21 @@ function cleanDdgUrl(url) {
   } catch { return String(url); }
 }
 
+// دالة كشف روابط الإعلانات والتتبع
+function isAdUrl(url) {
+  if (!url) return true;
+  const u = String(url).toLowerCase();
+  if (u.length > 1500) return true;
+  const adPatterns = [
+    '/y.js?', 'ad_domain=', 'ad_provider=', 'ad_type=',
+    'click_metadata=', 'clickid=', 'msclkid=', 'gclid=',
+    'fbclid=', 'utm_source=bing', 'utm_medium=cpc'
+  ];
+  for (const p of adPatterns) if (u.includes(p)) return true;
+  if (u.includes('doubleclick.net') || u.includes('googleadservices.com')) return true;
+  return false;
+}
+
 function ensureSessionsDir() { try { fsSync.mkdirSync(SESSIONS_DIR, { recursive: true }); } catch {} }
 
 function logToolFailure(toolName, params, error) {
@@ -319,7 +334,15 @@ async function securityAudit({}) {
   return result;
 }
 
+// محسّن: يرفض روابط الإعلانات ويسجل السبب
 async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' }) {
+  if (!url) throw new Error('URL مطلوب');
+  if (isAdUrl(url)) {
+    throw new Error('هذا رابط إعلاني/تتبع وليس صفحة حقيقية. اختر رابطاً آخر من نتائج البحث.');
+  }
+  if (!url.startsWith('http')) throw new Error('URL يجب أن يبدأ بـ http:// أو https://');
+
+  // 1) جرّب Browserless أولاً
   try {
     const mod = await import('./browser.js');
     if (mod.isEnabled()) {
@@ -329,37 +352,44 @@ async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' })
       }
     }
   } catch (e) {
-    console.warn('[browse_url] Browserless failed, falling back to fetch: ' + e.message);
+    console.warn('[browse_url] Browserless failed, falling back to fetch: ' + e.message + ' | url=' + url);
   }
 
-  const res = await withTimeout(fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3'
-    }
-  }), TOOL_TIMEOUT_MS, 'browse_url_fetch');
+  // 2) احتياطي: fetch مباشر
+  try {
+    const res = await withTimeout(fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3'
+      },
+      redirect: 'follow'
+    }), TOOL_TIMEOUT_MS, 'browse_url_fetch');
 
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const html = await res.text();
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const title = titleMatch ? stripHtml(titleMatch[1]).slice(0, 200) : '';
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' عند قراءة: ' + url.slice(0, 120));
 
-  let text = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ');
+    const html = await res.text();
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? stripHtml(titleMatch[1]).slice(0, 200) : '';
 
-  text = stripHtml(text);
+    let text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' ');
 
-  return {
-    url: url,
-    title: title,
-    textLength: text.length,
-    text: text.slice(0, 12000)
-  };
+    text = stripHtml(text);
+
+    return {
+      url: url,
+      title: title,
+      textLength: text.length,
+      text: text.slice(0, 12000)
+    };
+  } catch (e) {
+    throw new Error('فشل قراءة ' + url.slice(0, 120) + ': ' + e.message);
+  }
 }
 
 async function browserSearch({ query, waitMs = 1500 }) {
@@ -510,13 +540,13 @@ async function listFiles({ dir = '.', max_depth = 2 }) {
   return { dir, count: items.length, items: items.slice(0, 200) };
 }
 
-// ⬇️ محرك البحث المحدث (4 محركات)
+// محسّن: فلترة الإعلانات + إصلاح Wikipedia
 async function webSearch({ query, max_results = 5 }) {
   if (!query || String(query).length < 2) throw new Error('query required');
-  const q = String(query).trim().split(/\s+/).slice(0, 8).join(' '); // اختصار الاستعلام
+  const q = String(query).trim().split(/\s+/).slice(0, 8).join(' ');
   const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-  // 1. DuckDuckGo HTML
+  // 1. DuckDuckGo HTML (مع فلترة الإعلانات)
   try {
     const res = await withTimeout(fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), {
       headers: { 'User-Agent': UA, 'Accept': 'text/html', 'Accept-Language': 'ar,en-US;q=0.7' }
@@ -535,7 +565,7 @@ async function webSearch({ query, max_results = 5 }) {
         const uddg = url.match(/[?&]uddg=([^&]+)/);
         if (uddg) url = decodeURIComponent(uddg[1]);
         const title = stripHtml(lm[2]);
-        if (url && url.startsWith('http') && title) {
+        if (url && url.startsWith('http') && title && !isAdUrl(url)) {
           results.push({ title: title.slice(0, 150), snippet: (snippets[idx] || '').slice(0, 400), url: url, source: 'DuckDuckGo' });
           idx++;
         }
@@ -555,7 +585,9 @@ async function webSearch({ query, max_results = 5 }) {
       const itemRe = /<li>\s*<a class="ob"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<p class="s">([\s\S]*?)<\/p>/gi;
       let m;
       while ((m = itemRe.exec(html)) !== null && results.length < max_results) {
-        results.push({ title: stripHtml(m[2]).slice(0, 150), url: m[1], snippet: stripHtml(m[3]).slice(0, 300), source: 'Mojeek' });
+        if (!isAdUrl(m[1])) {
+          results.push({ title: stripHtml(m[2]).slice(0, 150), url: m[1], snippet: stripHtml(m[3]).slice(0, 300), source: 'Mojeek' });
+        }
       }
       if (results.length > 0) return { query: q, count: results.length, results, engine: 'mojeek' };
     }
@@ -576,14 +608,17 @@ async function webSearch({ query, max_results = 5 }) {
       while ((m = snippetRe.exec(html)) !== null) snippets.push(stripHtml(m[1]));
       let idx = 0;
       while ((m = linkRe.exec(html)) !== null && results.length < max_results) {
-        results.push({ title: stripHtml(m[2]).slice(0, 150), url: cleanDdgUrl(m[1]), snippet: (snippets[idx] || '').slice(0, 300), source: 'DDG Lite' });
-        idx++;
+        const cleanUrl = cleanDdgUrl(m[1]);
+        if (!isAdUrl(cleanUrl)) {
+          results.push({ title: stripHtml(m[2]).slice(0, 150), url: cleanUrl, snippet: (snippets[idx] || '').slice(0, 300), source: 'DDG Lite' });
+          idx++;
+        }
       }
       if (results.length > 0) return { query: q, count: results.length, results, engine: 'ddg_lite' };
     }
   } catch (e) { }
 
-  // 4. Wikipedia AR
+  // 4. Wikipedia AR (باستخدام _ بدل %20)
   try {
     const res = await withTimeout(fetch('https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
       headers: { 'User-Agent': UA }
@@ -593,7 +628,14 @@ async function webSearch({ query, max_results = 5 }) {
       const hits = (data && data.query && data.query.search) || [];
       if (hits.length > 0) {
         const results = hits.map(function(h) {
-          return { title: String(h.title || '').slice(0, 150), snippet: stripHtml(h.snippet || '').slice(0, 300), url: 'https://ar.wikipedia.org/wiki/' + encodeURIComponent(h.title || ''), source: 'Wikipedia (AR)' };
+          const title = String(h.title || '');
+          const urlPath = encodeURIComponent(title).replace(/%20/g, '_');
+          return {
+            title: title.slice(0, 150),
+            snippet: stripHtml(h.snippet || '').slice(0, 300),
+            url: 'https://ar.wikipedia.org/wiki/' + urlPath,
+            source: 'Wikipedia (AR)'
+          };
         });
         return { query: q, count: results.length, results, engine: 'wikipedia-ar' };
       }
@@ -688,7 +730,7 @@ export const AVAILABLE_TOOLS = [
   { name: 'github_replace_file', description: 'استبدال محتوى ملف كاملاً بمحتوى جديد (بدون search/replace). الأنسب للملفات الكبيرة.', params: { path: 'string', content: 'string', message: 'string' } },
   { name: 'github_list_repo', description: 'استعراض محتويات المستودع على GitHub.', params: { path: 'string' } },
   { name: 'security_audit', description: 'فحص أمني شامل.', params: {} },
-  { name: 'browse_url', description: 'فتح صفحة ويب عبر متصفح سحابي.', params: { url: 'string', waitMs: 'number' } },
+  { name: 'browse_url', description: 'فتح صفحة ويب (يرفض روابط الإعلانات).', params: { url: 'string', waitMs: 'number' } },
   { name: 'browser_search', description: 'بحث في الإنترنت عبر متصفح سحابي.', params: { query: 'string' } },
   { name: 'browser_screenshot', description: 'لقطة شاشة لصفحة ويب.', params: { url: 'string', fullPage: 'boolean' } },
   { name: 'browser_extract', description: 'استخراج نص من صفحة ويب.', params: { url: 'string' } },
