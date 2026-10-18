@@ -1,4 +1,4 @@
-// ai.js — Gemini (smart detection) + Pollinations + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
+// ai.js — Gemini (primary) + Pollinations + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
 // Env vars: GEMINI_API_KEY, ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, OPENROUTER_API_KEY, HF_TOKEN
 
 import { recordUsage } from './cost-governor.js';
@@ -8,12 +8,11 @@ import { classifyTask, selectModelForTask } from './model-router.js';
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-// قائمة احتياطية بالنماذج الحديثة (سيتم تجربتها بالترتيب إذا فشل الاكتشاف التلقائي)
-const GEMINI_FALLBACK_MODELS = [
-  'gemini-4-argon',
-  'gemini-3.8-flash',
-  'gemini-3.1-flash',
-  'gemini-2.5-flash'
+// النماذج الصحيحة والمتاحة حسب توثيق Google (أكتوبر 2026)
+const GEMINI_MODELS = [
+  'gemini-3.8-flash',      // الأحدث والأكثر استقراراً
+  'gemini-3.5-flash',      // بديل مستقر
+  'gemini-3.1-pro-preview' // بديل قوي
 ];
 
 // ============ POLLINATIONS ============
@@ -51,46 +50,12 @@ const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ============ GEMINI (Smart Detection + Manual URL Construction) ============
+// ============ GEMINI ============
 async function callGemini(messages, options = {}) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY missing');
-
-  let modelToUse = null;
   let lastErr = null;
 
-  // 1. محاولة اكتشاف النماذج المتاحة (مرة واحدة فقط)
-  if (!callGemini._discoveredModels) {
-    try {
-      const listRes = await fetch(GEMINI_API_BASE + '/models', {
-        headers: { 'x-goog-api-key': GEMINI_KEY }
-      });
-      if (listRes.ok) {
-        const listData = await listRes.json();
-        if (listData.models && Array.isArray(listData.models)) {
-          // البحث عن أول نموذج يدعم generateContent
-          const validModel = listData.models.find(m => 
-            m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent')
-          );
-          if (validModel) {
-            modelToUse = validModel.name.replace('models/', '');
-            console.log('[ai] Gemini auto-detected model: ' + modelToUse);
-            callGemini._discoveredModels = [modelToUse]; // حفظه للاستخدام المستقبلي
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[ai] Gemini model discovery failed, using fallback list.');
-    }
-    // إذا فشل الاكتشاف، استخدم القائمة الاحتياطية
-    if (!callGemini._discoveredModels) {
-      callGemini._discoveredModels = GEMINI_FALLBACK_MODELS;
-    }
-  }
-
-  const modelsToTry = callGemini._discoveredModels;
-
-  // 2. محاولة استخدام النموذج
-  for (const model of modelsToTry) {
+  for (const model of GEMINI_MODELS) {
     try {
       let systemInstruction = null;
       const contents = [];
@@ -115,7 +80,7 @@ async function callGemini(messages, options = {}) {
       };
       if (systemInstruction) body.systemInstruction = systemInstruction;
 
-      // بناء الرابط يدوياً بالطريقة الصحيحة (بدون /models مكرر)
+      // بناء الرابط بالطريقة الصحيحة (بدون /models مكرر في الأساس)
       const url = GEMINI_API_BASE + '/models/' + model + ':generateContent';
       
       const ctrl = new AbortController();
@@ -126,7 +91,7 @@ async function callGemini(messages, options = {}) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-goog-api-key': GEMINI_KEY // المصادقة عبر الترويسة (أكثر أماناً)
+            'x-goog-api-key': GEMINI_KEY // المصادقة عبر الترويسة
           },
           body: JSON.stringify(body),
           signal: ctrl.signal
@@ -333,7 +298,7 @@ export function selectModel() { return 'gemini-router'; }
 
 export function availableModels() {
   return [
-    { name: 'gemini', model: 'auto-detect', role: 'primary' },
+    { name: 'gemini', model: GEMINI_MODELS[0], role: 'primary' },
     { name: 'pollinations', model: POLL_MODEL, role: 'secondary' },
     { name: 'zai', model: ZAI_MODEL, role: 'tertiary' },
     { name: 'nagaai', model: NAGA_MODEL, role: 'quaternary' },
@@ -363,16 +328,16 @@ export async function callModel(agent, prompt, options = {}) {
   };
   const errors = [];
 
-  // 1. Gemini (Primary - Smart Detection)
+  // 1. Gemini (Primary)
   if (GEMINI_KEY) {
     try {
       const r = await callGemini(messages, callOpts);
-      trackOk('gemini'); recordUsage('gemini', 'auto-detect', true);
+      trackOk('gemini'); recordUsage('gemini', GEMINI_MODELS[0], true);
       console.log('[ai] Gemini success');
       return r;
     } catch (e) {
       trackFail('gemini', e.message);
-      recordUsage('gemini', 'auto-detect', false, e.message);
+      recordUsage('gemini', GEMINI_MODELS[0], false, e.message);
       errors.push('Gemini:' + String(e.message).slice(0,80));
       console.error('[ai] Gemini failed:', e.message);
     }
