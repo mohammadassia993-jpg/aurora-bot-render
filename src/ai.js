@@ -1,14 +1,20 @@
-// ai.js — Gemini (primary) + Pollinations + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
-// Env vars: GEMINI_API_KEY, GEMINI_MODEL, ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, OPENROUTER_API_KEY, HF_TOKEN
+// ai.js — Gemini (smart detection) + Pollinations + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
+// Env vars: GEMINI_API_KEY, ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, OPENROUTER_API_KEY, HF_TOKEN
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
 // ============ GEMINI ============
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-// اسم النموذج أصبح متغيراً بيئياً (يمكنك تغييره من Render مستقبلاً)
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1/models/' + GEMINI_MODEL + ':generateContent';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// قائمة احتياطية بالنماذج الحديثة (سيتم تجربتها بالترتيب إذا فشل الاكتشاف التلقائي)
+const GEMINI_FALLBACK_MODELS = [
+  'gemini-4-argon',
+  'gemini-3.8-flash',
+  'gemini-3.1-flash',
+  'gemini-2.5-flash'
+];
 
 // ============ POLLINATIONS ============
 const POLL_URL = 'https://text.pollinations.ai/openai';
@@ -45,52 +51,104 @@ const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ============ GEMINI ============
+// ============ GEMINI (Smart Detection + Manual URL Construction) ============
 async function callGemini(messages, options = {}) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY missing');
-  let systemInstruction = null;
-  const contents = [];
 
-  for (const msg of messages) {
-    if (msg.role === 'system') {
-      systemInstruction = { parts: [{ text: msg.content }] };
-    } else {
-      contents.push({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
+  let modelToUse = null;
+  let lastErr = null;
+
+  // 1. محاولة اكتشاف النماذج المتاحة (مرة واحدة فقط)
+  if (!callGemini._discoveredModels) {
+    try {
+      const listRes = await fetch(GEMINI_API_BASE + '/models', {
+        headers: { 'x-goog-api-key': GEMINI_KEY }
       });
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        if (listData.models && Array.isArray(listData.models)) {
+          // البحث عن أول نموذج يدعم generateContent
+          const validModel = listData.models.find(m => 
+            m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent')
+          );
+          if (validModel) {
+            modelToUse = validModel.name.replace('models/', '');
+            console.log('[ai] Gemini auto-detected model: ' + modelToUse);
+            callGemini._discoveredModels = [modelToUse]; // حفظه للاستخدام المستقبلي
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[ai] Gemini model discovery failed, using fallback list.');
+    }
+    // إذا فشل الاكتشاف، استخدم القائمة الاحتياطية
+    if (!callGemini._discoveredModels) {
+      callGemini._discoveredModels = GEMINI_FALLBACK_MODELS;
     }
   }
 
-  const body = {
-    contents,
-    generationConfig: {
-      maxOutputTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
-      temperature: options.temperature !== undefined ? options.temperature : 0.2
-    }
-  };
-  if (systemInstruction) body.systemInstruction = systemInstruction;
+  const modelsToTry = callGemini._discoveredModels;
 
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 120000);
-  try {
-    const res = await fetch(GEMINI_URL + '?key=' + GEMINI_KEY, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    const raw = await res.text();
-    if (!res.ok) throw new Error('Gemini ' + res.status + ': ' + raw.slice(0, 250));
-    const data = JSON.parse(raw);
-    
-    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
-      const text = data.candidates[0].content.parts.map(p => p.text || '').join('');
-      if (!text) throw new Error('Gemini empty response');
-      return String(text);
+  // 2. محاولة استخدام النموذج
+  for (const model of modelsToTry) {
+    try {
+      let systemInstruction = null;
+      const contents = [];
+
+      for (const msg of messages) {
+        if (msg.role === 'system') {
+          systemInstruction = { parts: [{ text: msg.content }] };
+        } else {
+          contents.push({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }]
+          });
+        }
+      }
+
+      const body = {
+        contents,
+        generationConfig: {
+          maxOutputTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
+          temperature: options.temperature !== undefined ? options.temperature : 0.2
+        }
+      };
+      if (systemInstruction) body.systemInstruction = systemInstruction;
+
+      // بناء الرابط يدوياً بالطريقة الصحيحة (بدون /models مكرر)
+      const url = GEMINI_API_BASE + '/models/' + model + ':generateContent';
+      
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 120000);
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_KEY // المصادقة عبر الترويسة (أكثر أماناً)
+          },
+          body: JSON.stringify(body),
+          signal: ctrl.signal
+        });
+        const raw = await res.text();
+        if (!res.ok) throw new Error('Gemini ' + res.status + ': ' + raw.slice(0, 250));
+        const data = JSON.parse(raw);
+        
+        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+          const text = data.candidates[0].content.parts.map(p => p.text || '').join('');
+          if (!text) throw new Error('Gemini empty response');
+          console.log('[ai] Gemini success with ' + model);
+          return String(text);
+        }
+        throw new Error('Gemini invalid format: ' + raw.slice(0, 200));
+      } finally { clearTimeout(t); }
+    } catch (e) {
+      lastErr = e;
+      console.warn('[ai] Gemini model ' + model + ' failed: ' + String(e.message).slice(0,150));
     }
-    throw new Error('Gemini invalid format: ' + raw.slice(0, 200));
-  } finally { clearTimeout(t); }
+  }
+  throw lastErr || new Error('All Gemini models failed');
 }
 
 // ============ POLLINATIONS ============
@@ -275,7 +333,7 @@ export function selectModel() { return 'gemini-router'; }
 
 export function availableModels() {
   return [
-    { name: 'gemini', model: GEMINI_MODEL, role: 'primary' },
+    { name: 'gemini', model: 'auto-detect', role: 'primary' },
     { name: 'pollinations', model: POLL_MODEL, role: 'secondary' },
     { name: 'zai', model: ZAI_MODEL, role: 'tertiary' },
     { name: 'nagaai', model: NAGA_MODEL, role: 'quaternary' },
@@ -305,16 +363,16 @@ export async function callModel(agent, prompt, options = {}) {
   };
   const errors = [];
 
-  // 1. Gemini (Primary)
+  // 1. Gemini (Primary - Smart Detection)
   if (GEMINI_KEY) {
     try {
       const r = await callGemini(messages, callOpts);
-      trackOk('gemini'); recordUsage('gemini', GEMINI_MODEL, true);
+      trackOk('gemini'); recordUsage('gemini', 'auto-detect', true);
       console.log('[ai] Gemini success');
       return r;
     } catch (e) {
       trackFail('gemini', e.message);
-      recordUsage('gemini', GEMINI_MODEL, false, e.message);
+      recordUsage('gemini', 'auto-detect', false, e.message);
       errors.push('Gemini:' + String(e.message).slice(0,80));
       console.error('[ai] Gemini failed:', e.message);
     }
