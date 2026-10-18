@@ -1,40 +1,99 @@
-// ai.js — Pollinations (primary) + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
-// Env vars: ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, HF_TOKEN, OPENROUTER_API_KEY
+// ai.js — Gemini (primary) + Pollinations + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
+// Env vars: GEMINI_API_KEY, ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, OPENROUTER_API_KEY, HF_TOKEN
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
+// ============ GEMINI ============
+const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_MODEL = 'gemini-1.5-flash';
+
+// ============ POLLINATIONS ============
 const POLL_URL = 'https://text.pollinations.ai/openai';
 const POLL_MODEL = 'openai';
 
+// ============ Z.AI ============
 const ZAI_KEY = process.env.ZAI_API_KEY || '';
 const ZAI_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 const ZAI_MODEL = 'glm-4.5-flash';
 
+// ============ NAGAAI ============
 const NAGA_KEY = process.env.NAGAAI_API_KEY || '';
 const NAGA_URL = 'https://api.naga.ac/v1/chat/completions';
 const NAGA_MODEL = 'llama-3.3-70b-instruct:free';
 
+// ============ CLOUDFLARE ============
 const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
 const CF_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
-// ⬇️ جديد: OpenRouter
+// ============ OPENROUTER ============
 const OR_KEY = process.env.OPENROUTER_API_KEY || '';
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OR_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
+// ============ HUGGINGFACE ============
 const HF_TOKEN = process.env.HF_TOKEN || '';
 const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
 const HF_MODELS = ['meta-llama/Llama-3.3-70B-Instruct'];
 
-const DEFAULT_MAX_TOKENS = 12000;
+const DEFAULT_MAX_TOKENS = 4000;
 
 const metrics = new Map();
 const trackOk = m => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.ok++; x.lastErr=''; metrics.set(m,x); };
 const trackFail = (m,e) => { const x = metrics.get(m) || {ok:0,fail:0,lastErr:''}; x.fail++; x.lastErr=String(e||'').slice(0,200); metrics.set(m,x); };
 
-// ============ Pollinations ============
+// ============ GEMINI ============
+async function callGemini(messages, options = {}) {
+  if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY missing');
+  let systemInstruction = null;
+  const contents = [];
+
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      systemInstruction = { parts: [{ text: msg.content }] };
+    } else {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      });
+    }
+  }
+
+  const body = {
+    contents,
+    generationConfig: {
+      maxOutputTokens: options.maxTokens || DEFAULT_MAX_TOKENS,
+      temperature: options.temperature !== undefined ? options.temperature : 0.2
+    }
+  };
+  if (systemInstruction) body.systemInstruction = systemInstruction;
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const res = await fetch(GEMINI_URL + '?key=' + GEMINI_KEY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    const raw = await res.text();
+    if (!res.ok) throw new Error('Gemini ' + res.status + ': ' + raw.slice(0, 250));
+    const data = JSON.parse(raw);
+    
+    // استخراج النص من استجابة Gemini
+    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+      const text = data.candidates[0].content.parts.map(p => p.text || '').join('');
+      if (!text) throw new Error('Gemini empty response');
+      return String(text);
+    }
+    throw new Error('Gemini invalid format: ' + raw.slice(0, 200));
+  } finally { clearTimeout(t); }
+}
+
+// ============ POLLINATIONS ============
 async function callPollinations(messages, options = {}) {
   let system = '';
   let prompt = '';
@@ -212,15 +271,16 @@ async function callHF(model, messages, options = {}) {
 }
 
 // ============ PUBLIC API ============
-export function selectModel() { return 'pollinations-router'; }
+export function selectModel() { return 'gemini-router'; }
 
 export function availableModels() {
   return [
-    { name: 'pollinations', model: POLL_MODEL, role: 'primary' },
-    { name: 'zai', model: ZAI_MODEL, role: 'secondary' },
-    { name: 'nagaai', model: NAGA_MODEL, role: 'tertiary' },
-    { name: 'cloudflare', model: CF_MODEL, role: 'quaternary' },
-    { name: 'openrouter', model: OR_MODEL, role: 'quinary' },
+    { name: 'gemini', model: GEMINI_MODEL, role: 'primary' },
+    { name: 'pollinations', model: POLL_MODEL, role: 'secondary' },
+    { name: 'zai', model: ZAI_MODEL, role: 'tertiary' },
+    { name: 'nagaai', model: NAGA_MODEL, role: 'quaternary' },
+    { name: 'cloudflare', model: CF_MODEL, role: 'quinary' },
+    { name: 'openrouter', model: OR_MODEL, role: 'senary' },
     ...HF_MODELS.map(m => ({ name: 'huggingface', model: m, role: 'last-resort' }))
   ];
 }
@@ -245,7 +305,22 @@ export async function callModel(agent, prompt, options = {}) {
   };
   const errors = [];
 
-  // 1. Pollinations
+  // 1. Gemini (Primary)
+  if (GEMINI_KEY) {
+    try {
+      const r = await callGemini(messages, callOpts);
+      trackOk('gemini'); recordUsage('gemini', GEMINI_MODEL, true);
+      console.log('[ai] Gemini success');
+      return r;
+    } catch (e) {
+      trackFail('gemini', e.message);
+      recordUsage('gemini', GEMINI_MODEL, false, e.message);
+      errors.push('Gemini:' + String(e.message).slice(0,80));
+      console.error('[ai] Gemini failed:', e.message);
+    }
+  }
+
+  // 2. Pollinations
   try {
     const r = await callPollinations(messages, callOpts);
     trackOk('pollinations'); recordUsage('pollinations', POLL_MODEL, true);
@@ -258,7 +333,7 @@ export async function callModel(agent, prompt, options = {}) {
     console.error('[ai] Pollinations failed:', e.message);
   }
 
-  // 2. Z.ai
+  // 3. Z.ai
   try {
     const result = await callZAIWithFallback(messages, callOpts);
     trackOk('zai:' + result.model);
@@ -271,7 +346,7 @@ export async function callModel(agent, prompt, options = {}) {
     console.error('[ai] ZAI failed:', e.message);
   }
 
-  // 3. NagaAI
+  // 4. NagaAI
   if (NAGA_KEY) {
     try {
       const r = await callNagaAI(messages, callOpts);
@@ -286,7 +361,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // 4. Cloudflare
+  // 5. Cloudflare
   if (CF_ACCOUNT && CF_TOKEN) {
     try {
       const r = await callCF(messages, callOpts);
@@ -300,7 +375,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // 5. OpenRouter (Nemotron)
+  // 6. OpenRouter
   if (OR_KEY) {
     try {
       const r = await callOpenRouter(messages, callOpts);
@@ -315,7 +390,7 @@ export async function callModel(agent, prompt, options = {}) {
     }
   }
 
-  // 6. HuggingFace
+  // 7. HuggingFace
   for (const model of HF_MODELS) {
     try {
       const r = await callHF(model, messages, callOpts);
