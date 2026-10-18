@@ -49,7 +49,6 @@ function* walkFiles(dir, maxDepth = 5, currentDepth = 0) {
   }
 }
 
-// دالة مساعدة: إزالة وسوم HTML
 function stripHtml(s) {
   return String(s || '')
     .replace(/<[^>]*>/g, '')
@@ -321,7 +320,6 @@ async function securityAudit({}) {
 }
 
 async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' }) {
-  // 1) جرّب Browserless أولاً
   try {
     const mod = await import('./browser.js');
     if (mod.isEnabled()) {
@@ -334,7 +332,6 @@ async function browseUrl({ url, waitMs = 1000, waitUntil = 'domcontentloaded' })
     console.warn('[browse_url] Browserless failed, falling back to fetch: ' + e.message);
   }
 
-  // 2) احتياطي: fetch مباشر + استخراج نص
   const res = await withTimeout(fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -513,18 +510,16 @@ async function listFiles({ dir = '.', max_depth = 2 }) {
   return { dir, count: items.length, items: items.slice(0, 200) };
 }
 
+// ⬇️ محرك البحث المحدث (4 محركات)
 async function webSearch({ query, max_results = 5 }) {
   if (!query || String(query).length < 2) throw new Error('query required');
-  const q = String(query).trim();
+  const q = String(query).trim().split(/\s+/).slice(0, 8).join(' '); // اختصار الاستعلام
   const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
+  // 1. DuckDuckGo HTML
   try {
     const res = await withTimeout(fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q), {
-      headers: {
-        'User-Agent': UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3'
-      }
+      headers: { 'User-Agent': UA, 'Accept': 'text/html', 'Accept-Language': 'ar,en-US;q=0.7' }
     }), SEARCH_TIMEOUT_MS, 'ddg_html');
     if (res.ok) {
       const html = await res.text();
@@ -532,33 +527,63 @@ async function webSearch({ query, max_results = 5 }) {
       const snippets = [];
       const snippetRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
       let sm;
-      while ((sm = snippetRe.exec(html)) !== null) {
-        snippets.push(stripHtml(sm[1]));
-      }
+      while ((sm = snippetRe.exec(html)) !== null) snippets.push(stripHtml(sm[1]));
       const linkRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-      let lm;
-      let idx = 0;
+      let lm, idx = 0;
       while ((lm = linkRe.exec(html)) !== null && results.length < max_results) {
         let url = cleanDdgUrl(lm[1]);
         const uddg = url.match(/[?&]uddg=([^&]+)/);
         if (uddg) url = decodeURIComponent(uddg[1]);
         const title = stripHtml(lm[2]);
         if (url && url.startsWith('http') && title) {
-          results.push({
-            title: title.slice(0, 150),
-            snippet: (snippets[idx] || '').slice(0, 400),
-            url: url,
-            source: 'DuckDuckGo'
-          });
+          results.push({ title: title.slice(0, 150), snippet: (snippets[idx] || '').slice(0, 400), url: url, source: 'DuckDuckGo' });
           idx++;
         }
       }
-      if (results.length > 0) {
-        return { query: q, count: results.length, results, engine: 'duckduckgo-html' };
-      }
+      if (results.length > 0) return { query: q, count: results.length, results, engine: 'duckduckgo-html' };
     }
   } catch (e) { }
 
+  // 2. Mojeek
+  try {
+    const res = await withTimeout(fetch('https://www.mojeek.com/search?q=' + encodeURIComponent(q), {
+      headers: { 'User-Agent': UA }
+    }), SEARCH_TIMEOUT_MS, 'mojeek');
+    if (res.ok) {
+      const html = await res.text();
+      const results = [];
+      const itemRe = /<li>\s*<a class="ob"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<p class="s">([\s\S]*?)<\/p>/gi;
+      let m;
+      while ((m = itemRe.exec(html)) !== null && results.length < max_results) {
+        results.push({ title: stripHtml(m[2]).slice(0, 150), url: m[1], snippet: stripHtml(m[3]).slice(0, 300), source: 'Mojeek' });
+      }
+      if (results.length > 0) return { query: q, count: results.length, results, engine: 'mojeek' };
+    }
+  } catch (e) { }
+
+  // 3. DuckDuckGo Lite
+  try {
+    const res = await withTimeout(fetch('https://lite.duckduckgo.com/lite/?q=' + encodeURIComponent(q), {
+      headers: { 'User-Agent': UA }
+    }), SEARCH_TIMEOUT_MS, 'ddg_lite');
+    if (res.ok) {
+      const html = await res.text();
+      const results = [];
+      const linkRe = /<a[^>]*class="result-link"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+      const snippetRe = /<td[^>]*class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+      let snippets = [];
+      let m;
+      while ((m = snippetRe.exec(html)) !== null) snippets.push(stripHtml(m[1]));
+      let idx = 0;
+      while ((m = linkRe.exec(html)) !== null && results.length < max_results) {
+        results.push({ title: stripHtml(m[2]).slice(0, 150), url: cleanDdgUrl(m[1]), snippet: (snippets[idx] || '').slice(0, 300), source: 'DDG Lite' });
+        idx++;
+      }
+      if (results.length > 0) return { query: q, count: results.length, results, engine: 'ddg_lite' };
+    }
+  } catch (e) { }
+
+  // 4. Wikipedia AR
   try {
     const res = await withTimeout(fetch('https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
       headers: { 'User-Agent': UA }
@@ -568,35 +593,9 @@ async function webSearch({ query, max_results = 5 }) {
       const hits = (data && data.query && data.query.search) || [];
       if (hits.length > 0) {
         const results = hits.map(function(h) {
-          return {
-            title: String(h.title || '').slice(0, 150),
-            snippet: stripHtml(h.snippet || '').slice(0, 300),
-            url: 'https://ar.wikipedia.org/wiki/' + encodeURIComponent(h.title || ''),
-            source: 'Wikipedia (AR)'
-          };
+          return { title: String(h.title || '').slice(0, 150), snippet: stripHtml(h.snippet || '').slice(0, 300), url: 'https://ar.wikipedia.org/wiki/' + encodeURIComponent(h.title || ''), source: 'Wikipedia (AR)' };
         });
         return { query: q, count: results.length, results, engine: 'wikipedia-ar' };
-      }
-    }
-  } catch (e) { }
-
-  try {
-    const res = await withTimeout(fetch('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=' + encodeURIComponent(q) + '&format=json&srlimit=' + max_results, {
-      headers: { 'User-Agent': UA }
-    }), SEARCH_TIMEOUT_MS, 'wikipedia_en');
-    if (res.ok) {
-      const data = await res.json();
-      const hits = (data && data.query && data.query.search) || [];
-      if (hits.length > 0) {
-        const results = hits.map(function(h) {
-          return {
-            title: String(h.title || '').slice(0, 150),
-            snippet: stripHtml(h.snippet || '').slice(0, 300),
-            url: 'https://en.wikipedia.org/wiki/' + encodeURIComponent(h.title || ''),
-            source: 'Wikipedia (EN)'
-          };
-        });
-        return { query: q, count: results.length, results, engine: 'wikipedia-en' };
       }
     }
   } catch (e) { }
@@ -693,7 +692,7 @@ export const AVAILABLE_TOOLS = [
   { name: 'browser_search', description: 'بحث في الإنترنت عبر متصفح سحابي.', params: { query: 'string' } },
   { name: 'browser_screenshot', description: 'لقطة شاشة لصفحة ويب.', params: { url: 'string', fullPage: 'boolean' } },
   { name: 'browser_extract', description: 'استخراج نص من صفحة ويب.', params: { url: 'string' } },
-  { name: 'web_search', description: 'بحث حقيقي في الإنترنت (DuckDuckGo + Wikipedia).', params: { query: 'string' } },
+  { name: 'web_search', description: 'بحث حقيقي في الإنترنت (DuckDuckGo + Mojeek + Wikipedia).', params: { query: 'string' } },
   { name: 'grep_files', description: 'البحث في الملفات.', params: { pattern: 'string', file_ext: 'string' } },
   { name: 'read_many_files', description: 'قراءة عدة ملفات.', params: { files: 'string[]' } },
   { name: 'list_files', description: 'سرد مجلد محلي.', params: { dir: 'string' } },
