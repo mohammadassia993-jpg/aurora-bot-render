@@ -104,7 +104,11 @@ RESEARCH FLOW (STRICTLY ENFORCED BY CODE):
 - Step 2: pick top 2 URLs from results and call browse_url for each.
 - Step 3: read the page content.
 - Step 4: synthesize final answer with real facts from the pages.
-- ⚠️ If you call web_search but don't browse 2 URLs, your "final" will be REJECTED by the system automatically. You will be forced to continue.
+- ⚠️ Rules:
+  * If you call web_search but don't browse 2 URLs → "final" is REJECTED automatically.
+  * Do NOT browse ad/tracking URLs (containing ad_domain, click_metadata, y.js, etc.).
+  * If a browse_url fails, pick a DIFFERENT URL from search results. Never retry the same URL.
+  * Only use URLs from web_search results, not invented ones.
 
 LANGUAGE RULE:
 - Any "text" field MUST be in Arabic (العربية الفصحى).
@@ -124,15 +128,15 @@ RULES (16):
 5. Never repeat failed tool with same params.
 6. Final must be in Arabic, detailed, with URLs under "المصادر:".
 7. Never invent data. If unsure, search.
-8. On tool fail → try DIFFERENT approach.
+8. On tool fail → try a DIFFERENT URL or approach.
 9. For REWRITING files → use github_replace_file.
 10. TO INSERT AT LINE: use github_insert_at_line.
 11. For research, you MUST visit 2+ URLs before final.
 12. Do NOT output titles only. Analysis requires reading content.
-13. For comparisons, use tables or clear sections.
+13. If web_search fails twice, do final with knowledge-base answer + warning.
 14. Cite URLs at the end under "المصادر:".
 15. Be critical during REFLECT.
-16. If the tool result is insufficient, search again with a different query.
+16. If a browse URL is an ad (looks like duckduckgo.com/y.js or has ad_domain), skip it.
 
 EXAMPLES:
 "2+2" → {"action":"final","text":"4"}
@@ -258,9 +262,10 @@ async function runAgentLoop(userMessage, ctx) {
   let pendingAutoVerify = null;
 
   let webSearchCount = 0;
-  let browseCount = 0;
+  let browseSuccessCount = 0;
   let finalRejectedCount = 0;
   let searchFailed = false;
+  const attemptedUrls = new Set();
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step++) {
     if (step > 1) await sleep(STEP_DELAY_MS);
@@ -299,9 +304,17 @@ async function runAgentLoop(userMessage, ctx) {
     if (parsed.action === 'tool' && parsed.tool) {
       const normalizedParams = normalizeParams(parsed.tool, parsed.params);
 
+      if ((parsed.tool === 'browse_url' || parsed.tool === 'browser_extract') && normalizedParams.url) {
+        if (attemptedUrls.has(normalizedParams.url)) {
+          conversation += '\n\n🛑 هذا الرابط جُرّب من قبل وفشل. اختر رابطاً مختلفاً من نتائج البحث.';
+          continue;
+        }
+        attemptedUrls.add(normalizedParams.url);
+      }
+
       const opKey = parsed.tool + '|' + JSON.stringify(normalizedParams);
       if (executedOps.has(opKey) && parsed.tool !== 'github_edit_file') {
-        conversation += '\n\n⚠️ هذا الطلب مكرر. جرّب أداة مختلفة أو أنهِ المهمة.';
+        conversation += '\n\n⚠️ هذا الطلب مكرر. جرّب أداة أو رابطاً مختلفاً.';
         continue;
       }
       executedOps.add(opKey);
@@ -319,7 +332,7 @@ async function runAgentLoop(userMessage, ctx) {
           searchFailed = false;
         }
       }
-      if (parsed.tool === 'browse_url' || parsed.tool === 'browser_extract') browseCount++;
+      if ((parsed.tool === 'browse_url' || parsed.tool === 'browser_extract') && toolResult.ok) browseSuccessCount++;
 
       if (!toolResult.ok) {
         try { recordLesson('aurora', null, 'error', parsed.tool + '_fail', parsed.tool + ' فشل: ' + String(toolResult.error).slice(0, 100), 1.1); } catch {}
@@ -346,13 +359,17 @@ async function runAgentLoop(userMessage, ctx) {
       const txt = JSON.stringify(toolResult).slice(0, 8000);
       const emoji = toolResult.ok ? '✅' : '❌';
       let nextInstruction = 'حلل النتيجة (Reflect) ثم أكمل بـ JSON:';
+
       if (parsed.tool === 'web_search') {
-        if (toolResult.ok && browseCount === 0) {
-          nextInstruction = '⚠️ الآن يجب عليك زيارة رابطين على الأقل من النتائج أعلاه باستخدام browse_url قبل الإجابة النهائية. اختر أفضل 2 روابط واطلب محتواها.';
+        if (toolResult.ok && browseSuccessCount === 0) {
+          nextInstruction = '⚠️ الآن يجب عليك زيارة رابطين على الأقل من النتائج أعلاه باستخدام browse_url. اختر أفضل 2 روابط محتوى (تجنب روابط الإعلانات التي تحتوي y.js أو ad_domain).';
         } else if (!toolResult.ok) {
-          nextInstruction = '⚠️ محرك البحث لم يعد نتائج. جرّب استعلاماً مختلفاً (كلمات أقل). إذا فشلت المحاولة الثانية، أنهِ المهمة بـ final مع توضيح أن البحث تعذر.';
+          nextInstruction = '⚠️ محرك البحث لم يعد نتائج. جرّب استعلاماً مختلفاً بكلمات أقل.';
         }
+      } else if ((parsed.tool === 'browse_url' || parsed.tool === 'browser_extract') && !toolResult.ok) {
+        nextInstruction = '⚠️ فشل هذا الرابط. اختر رابطاً آخر من نتائج البحث (غير الإعلانات وغير الروابط التي جُرّبت).';
       }
+
       conversation += '\n\n' + emoji + ' ' + parsed.tool + ':\n' + txt + '\n\n' + nextInstruction;
       continue;
     }
@@ -362,14 +379,14 @@ async function runAgentLoop(userMessage, ctx) {
       let summary = cleanText(parsed.text || '');
       if (hasHallucination(summary)) continue;
 
-      if (webSearchCount > 0 && browseCount < 2 && finalRejectedCount < 2 && !searchFailed) {
+      if (webSearchCount > 0 && browseSuccessCount < 2 && finalRejectedCount < 2 && !searchFailed) {
         finalRejectedCount++;
-        conversation += '\n\n🛑 تم رفض "final". السبب: استخدمت web_search (' + webSearchCount + ' مرة) لكنك زرت فقط ' + browseCount + ' رابط. \nيجب عليك الآن استخدام browse_url لزيارة رابطين على الأقل من نتائج البحث قبل إعطاء الإجابة النهائية.';
+        conversation += '\n\n🛑 تم رفض "final". السبب: استخدمت web_search لكنك لم تنجح بزيارة رابطين بعد (' + browseSuccessCount + '/2). \nاختر رابطاً محتوى حقيقياً (غير إعلانات) من نتائج البحث واستخدم browse_url.';
         continue;
       }
 
       if (toolResults.length > 0 && countWords(summary) < MIN_FINAL_WORDS) {
-        conversation += '\n\n⚠️ إجابتك قصيرة جداً (' + countWords(summary) + ' كلمة). الحد الأدنى هو ' + MIN_FINAL_WORDS + ' كلمة. أعد صياغة تحليل مفصّل بالعربية.';
+        conversation += '\n\n⚠️ إجابتك قصيرة جداً (' + countWords(summary) + ' كلمة). الحد الأدنى ' + MIN_FINAL_WORDS + ' كلمة. أعد صياغة تحليل مفصّل بالعربية.';
         continue;
       }
 
@@ -377,8 +394,8 @@ async function runAgentLoop(userMessage, ctx) {
         summary = summary.split(/\s+/).slice(0, MAX_FINAL_WORDS).join(' ') + '...';
       }
 
-      if (searchFailed) {
-        summary = '⚠️ (ملاحظة: تعذر البحث في الإنترنت، الإجابة بناءً على المعرفة العامة)\n\n' + summary;
+      if (searchFailed && browseSuccessCount === 0) {
+        summary = '⚠️ (ملاحظة: تعذر البحث/القراءة من الإنترنت، الإجابة بناءً على المعرفة العامة)\n\n' + summary;
       }
 
       return summary;
