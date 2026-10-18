@@ -1,13 +1,14 @@
 // ai.js — Gemini (primary) + Pollinations + Z.ai + NagaAI + Cloudflare + OpenRouter + HF
-// Env vars: GEMINI_API_KEY, ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, OPENROUTER_API_KEY, HF_TOKEN
+// Env vars: GEMINI_API_KEY, GEMINI_MODEL, ZAI_API_KEY, NAGAAI_API_KEY, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, OPENROUTER_API_KEY, HF_TOKEN
 
 import { recordUsage } from './cost-governor.js';
 import { classifyTask, selectModelForTask } from './model-router.js';
 
 // ============ GEMINI ============
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// اسم النموذج أصبح متغيراً بيئياً (يمكنك تغييره من Render مستقبلاً)
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1/models/' + GEMINI_MODEL + ':generateContent';
 
 // ============ POLLINATIONS ============
 const POLL_URL = 'https://text.pollinations.ai/openai';
